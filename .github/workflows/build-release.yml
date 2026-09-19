@@ -24,28 +24,56 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Decode release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/dharness-release.jks"
+            echo "Keystore OK: $(wc -c < "$GITHUB_WORKSPACE/dharness-release.jks") bytes"
+          else
+            echo "WARNING: no keystore secret"
+          fi
+
       - name: Build release APK
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ -f "$GITHUB_WORKSPACE/dharness-release.jks" ]; then
+            export RELEASE_STORE_FILE="$GITHUB_WORKSPACE/dharness-release.jks"
+          fi
+          gradle :app:assembleRelease --no-daemon --stacktrace
+          find app/build/outputs -name '*.apk' -ls
+
+      - name: Prepare APK
+        run: |
+          mkdir -p dist
+          SRC=$(find app/build/outputs/apk -name '*.apk' | head -1)
+          test -n "$SRC"
+          cp "$SRC" dist/D-Harness-1.0.1.apk
+          unzip -t dist/D-Harness-1.0.1.apk | tail -5
+          ls -la dist/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: D-Harness-release
-          path: app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
+          path: dist/*.apk
 
-      - name: Release v1.0.0
+      - name: Release v1.0.1
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: D-Harness v1.0.0
+          tag_name: v1.0.1
+          name: D-Harness v1.0.1
           body: |
-            ## D-Harness 1.0.0
-            - DeepSeek Chat WebView shell
-            - Tool Shim **v6.2.0** (draggable FAB, native-style tagline, dedupe)
-            - Native bridge: memory, fs, fetch (no CORS), clipboard, share, toast, vibrate
-            - White-on-black DeepSeek adaptive icon
-          files: app/build/outputs/apk/release/*.apk
-          fail_on_unmatched_files: false
+            ## D-Harness 1.0.1 (signed)
+            Installable signed APK — fixes "package invalid" from unsigned build.
+            - Tool Shim v6.2 + native bridge
+            - Icon safe-zone (white on black)
+          files: dist/D-Harness-1.0.1.apk
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
