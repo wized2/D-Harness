@@ -42,14 +42,14 @@
                 android:paddingTop="8dp"
                 android:paddingBottom="6dp" />
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
+            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switchDesktop"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Desktop site"
                 android:textColor="#DDE3EA" />
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
+            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switchInject"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -57,7 +57,7 @@
                 android:checked="true"
                 android:textColor="#DDE3EA" />
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
+            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switchDedupe"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

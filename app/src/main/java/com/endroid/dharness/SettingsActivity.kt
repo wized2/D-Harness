@@ -5,7 +5,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.switchmaterial.SwitchMaterial
+import androidx.appcompat.widget.SwitchCompat
 
 class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,9 +24,9 @@ class SettingsActivity : AppCompatActivity() {
                 packageName
             }
 
-        val swDesktop = findViewById<MaterialSwitch>(R.id.switchDesktop)
-        val swInject = findViewById<MaterialSwitch>(R.id.switchInject)
-        val swDedupe = findViewById<MaterialSwitch>(R.id.switchDedupe)
+        val swDesktop = findViewById<SwitchCompat>(R.id.switchDesktop)
+        val swInject = findViewById<SwitchCompat>(R.id.switchInject)
+        val swDedupe = findViewById<SwitchCompat>(R.id.switchDedupe)
         swDesktop.isChecked = prefs.getBoolean("desktop", false)
         swInject.isChecked = prefs.getBoolean("auto_inject", true)
         swDedupe.isChecked = prefs.getBoolean("dedupe", true)
