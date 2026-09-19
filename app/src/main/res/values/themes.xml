@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.DHarness" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">#4D6BFE</item>
+        <item name="colorPrimaryContainer">#1A1F2E</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowBackground">#0B0F14</item>
+    </style>
+</resources>

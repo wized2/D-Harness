@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">D-Harness</string>
+    <string name="menu_reload">Reload</string>
+    <string name="menu_desktop">Desktop site</string>
+    <string name="menu_inject">Re-inject tools</string>
+    <string name="menu_clear_cache">Clear cache</string>
+    <string name="menu_share">Share page</string>
+    <string name="loading">Loading DeepSeek…</string>
+</resources>
