@@ -1,5 +1,6 @@
 package com.endroid.dharness
 
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
@@ -16,11 +17,19 @@ class SettingsActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
         val keys = getSharedPreferences("dharness_keys", MODE_PRIVATE)
         val mem = getSharedPreferences("dharness_mem", MODE_PRIVATE)
+        val keysList = findViewById<TextView>(R.id.keysList)
+
+        fun refreshKeys(store: SharedPreferences = keys) {
+            val names = store.all.keys.sorted()
+            keysList.text = if (names.isEmpty()) "(no keys)" else names.joinToString("\n") { "• $it" }
+        }
 
         findViewById<TextView>(R.id.versionText).text =
             try {
                 "v${packageManager.getPackageInfo(packageName, 0).versionName}"
-            } catch (_: Exception) { "" }
+            } catch (_: Exception) {
+                ""
+            }
 
         val patInput = findViewById<EditText>(R.id.patInput)
         if (keys.contains("github") || keys.contains("github_pat")) {
@@ -33,7 +42,7 @@ class SettingsActivity : AppCompatActivity() {
                 patInput.setText("")
                 patInput.hint = "PAT saved"
                 Toast.makeText(this, "GitHub PAT saved", Toast.LENGTH_SHORT).show()
-                refreshKeys(keys)
+                refreshKeys()
             }
         }
 
@@ -56,11 +65,6 @@ class SettingsActivity : AppCompatActivity() {
 
         val keyName = findViewById<EditText>(R.id.keyName)
         val keyValue = findViewById<EditText>(R.id.keyValue)
-        fun refreshKeys(store: android.content.SharedPreferences = keys) {
-            val names = store.all.keys.sorted()
-            findViewById<TextView>(R.id.keysList).text =
-                if (names.isEmpty()) "(no keys)" else names.joinToString("\n") { "• $it" }
-        }
         refreshKeys()
 
         findViewById<Button>(R.id.btnSaveKey).setOnClickListener {
@@ -85,13 +89,16 @@ class SettingsActivity : AppCompatActivity() {
             finish()
         }
         findViewById<Button>(R.id.btnReload).setOnClickListener {
-            prefs.edit().putBoolean("pending_reload", true).apply(); finish()
+            prefs.edit().putBoolean("pending_reload", true).apply()
+            finish()
         }
         findViewById<Button>(R.id.btnReinject).setOnClickListener {
-            prefs.edit().putBoolean("pending_inject", true).apply(); finish()
+            prefs.edit().putBoolean("pending_inject", true).apply()
+            finish()
         }
         findViewById<Button>(R.id.btnClearCache).setOnClickListener {
-            prefs.edit().putBoolean("pending_clear_cache", true).apply(); finish()
+            prefs.edit().putBoolean("pending_clear_cache", true).apply()
+            finish()
         }
         findViewById<Button>(R.id.btnClearMemory).setOnClickListener {
             mem.edit().clear().apply()
@@ -99,7 +106,8 @@ class SettingsActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnClearFs).setOnClickListener {
             val root = java.io.File(filesDir, "harness_fs")
-            root.deleteRecursively(); root.mkdirs()
+            root.deleteRecursively()
+            root.mkdirs()
             Toast.makeText(this, "FS cleared", Toast.LENGTH_SHORT).show()
         }
 
