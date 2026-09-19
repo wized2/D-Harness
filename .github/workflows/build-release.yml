@@ -21,26 +21,18 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Make gradlew executable
-        run: chmod +x gradlew || true
+        with:
+          gradle-version: "8.9"
 
       - name: Build release APK
-        run: |
-          set -e
-          if [ -x ./gradlew ]; then
-            ./gradlew :app:assembleRelease --no-daemon --stacktrace
-          else
-            gradle wrapper --gradle-version 8.9
-            ./gradlew :app:assembleRelease --no-daemon --stacktrace
-          fi
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: D-Harness-release
-          path: |
-            app/build/outputs/apk/**/*.apk
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
 
       - name: Release v1.0.0
         uses: softprops/action-gh-release@v2
@@ -49,12 +41,11 @@ jobs:
           name: D-Harness v1.0.0
           body: |
             ## D-Harness 1.0.0
-            - DeepSeek Chat WebView
-            - Tool Shim **v6.2.0** (FAB, tagline, dedupe)
-            - Native bridge: memory, fs, fetch, clipboard, share, toast, vibrate
-            - White-on-black DeepSeek icon
-          files: |
-            app/build/outputs/apk/release/*.apk
+            - DeepSeek Chat WebView shell
+            - Tool Shim **v6.2.0** (draggable FAB, native-style tagline, dedupe)
+            - Native bridge: memory, fs, fetch (no CORS), clipboard, share, toast, vibrate
+            - White-on-black DeepSeek adaptive icon
+          files: app/build/outputs/apk/release/*.apk
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
