@@ -157,8 +157,9 @@ class MainActivity : AppCompatActivity() {
                 progress.visibility = View.GONE
                 setFabStatus("#4DB")
                 if (prefs.getBoolean("auto_inject", true)) {
-                    injectShim()
-                    view?.postDelayed({ injectShim() }, 800)
+                    // Single delayed inject so SPA DOM + cookies are ready
+                    view?.postDelayed({ injectShim() }, 500)
+                    view?.postDelayed({ injectShim() }, 2500)
                 }
             }
         }
@@ -310,26 +311,76 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun injectShim() {
-        val bridge = assets.open("native_bridge.js").bufferedReader().readText()
-        val shim = assets.open("shim.js").bufferedReader().readText()
-        // Prefer native tools; hide in-page FAB from shim (we have native FAB)
-        val bootstrap = """
-            window.__DS_SHIM_CONFIG__ = Object.assign(window.__DS_SHIM_CONFIG__ || {}, {
-              hideFab: true,
-              dedupe: ${prefs.getBoolean("dedupe", true)},
-              nativePreferred: true
-            });
-            try { $bridge } catch(e) { console.error(e); }
-            try { $shim } catch(e) { console.error(e); }
-            try {
-              var f = document.getElementById('__ds_shim_fab');
-              if (f) f.style.display = 'none';
-              var p = document.getElementById('__ds_shim_panel');
-              if (p) p.hidden = true;
-            } catch(e) {}
-        """.trimIndent()
-        webView.evaluateJavascript("(function(){$bootstrap})();", null)
+        try {
+            val bridgeB64 = android.util.Base64.encodeToString(
+                assets.open("native_bridge.js").readBytes(), android.util.Base64.NO_WRAP
+            )
+            val shimB64 = android.util.Base64.encodeToString(
+                assets.open("shim.js").readBytes(), android.util.Base64.NO_WRAP
+            )
+            val dedupe = prefs.getBoolean("dedupe", true)
+            // Decode in-page (avoids Kotlin/JS escaping breakage), stop old shim, inject, ping
+            val js = """
+                (function(){
+                  function dec(b){
+                    try {
+                      if (window.atob) {
+                        var bin = atob(b);
+                        var bytes = new Uint8Array(bin.length);
+                        for (var i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+                        if (window.TextDecoder) return new TextDecoder('utf-8').decode(bytes);
+                        var s=''; for (var j=0;j<bytes.length;j++) s+=String.fromCharCode(bytes[j]); return s;
+                      }
+                    } catch(e) {}
+                    return '';
+                  }
+                  try {
+                    if (window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.stop) window.__DS_TOOL_SHIM__.stop();
+                  } catch(e) {}
+                  window.__DS_SHIM_CONFIG__ = Object.assign(window.__DS_SHIM_CONFIG__ || {}, {
+                    hideFab: true,
+                    dedupe: $dedupe,
+                    nativePreferred: true
+                  });
+                  var bridge = dec('$bridgeB64');
+                  var shim = dec('$shimB64');
+                  try { (0, eval)(bridge); } catch(e) { console.error('bridge', e); }
+                  try { (0, eval)(shim); } catch(e) { console.error('shim', e); }
+                  try {
+                    var f = document.getElementById('__ds_shim_fab'); if (f) f.style.display='none';
+                    var p = document.getElementById('__ds_shim_panel'); if (p) p.hidden = true;
+                  } catch(e) {}
+                  var ok = !!(window.__DS_TOOL_SHIM__ && window.DHarness);
+                  console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'shim=', !!window.__DS_TOOL_SHIM__, 'native=', typeof DHarness);
+                  return ok ? 'ok' : 'fail';
+                })();
+            """.trimIndent()
+            webView.evaluateJavascript(js) { result ->
+                android.util.Log.i("DHarness", "inject result=$result")
+                // Verify sandbox with ping after iframe loads
+                webView.postDelayed({
+                    webView.evaluateJavascript(
+                        """
+                        (async function(){
+                          try {
+                            if (!window.__DS_TOOL_SHIM__) return 'no-shim';
+                            if (window.__DS_TOOL_SHIM__.ping) {
+                              var r = await window.__DS_TOOL_SHIM__.ping();
+                              return JSON.stringify(r);
+                            }
+                            return 'no-ping';
+                          } catch(e) { return 'err:'+e; }
+                        })();
+                        """.trimIndent(),
+                        { ping -> android.util.Log.i("DHarness", "ping=$ping") }
+                    )
+                }, 700)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("DHarness", "inject failed", e)
+        }
     }
+
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)

@@ -6,7 +6,20 @@
 (function () {
   'use strict';
   if (window.top !== window.self) return;
-  if (window.__DS_TOOL_SHIM__) { console.log('[shim] already loaded'); return; }
+  // Force re-init when native app re-injects
+  if (window.__DS_TOOL_SHIM__) {
+    try { window.__DS_TOOL_SHIM__.stop(); } catch (e) {}
+    try {
+      document.getElementById('__ds_shim_style__')?.remove();
+      document.getElementById('__ds_shim_fab')?.remove();
+      document.getElementById('__ds_shim_panel')?.remove();
+      document.getElementById('__ds_shim_toast')?.remove();
+      document.querySelectorAll('iframe').forEach(function(f){
+        if (f.srcdoc && f.srcdoc.indexOf('__ds_call_tool') !== -1) f.remove();
+      });
+    } catch (e) {}
+    delete window.__DS_TOOL_SHIM__;
+  }
 
   const VERSION = '6.2.0';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
@@ -856,12 +869,29 @@
   });
 
   function runInSandbox(code, timeoutMs = CONFIG.sandboxTimeoutMs) {
-    if (!iframeReady) return Promise.resolve({ ok: false, error: 'iframe not ready' });
     return new Promise((resolve) => {
-      const id = ++msgId;
-      const timer = setTimeout(() => { pending.delete(id); resolve({ ok: false, error: 'timeout' }); }, timeoutMs);
-      pending.set(id, (res) => { clearTimeout(timer); resolve(res); });
-      iframe.contentWindow.postMessage({ type: 'run', id, code }, '*');
+      const start = Date.now();
+      const trySend = () => {
+        if (!iframeReady || !iframe.contentWindow) {
+          if (Date.now() - start > 5000) {
+            resolve({ ok: false, error: 'iframe not ready' });
+            return;
+          }
+          setTimeout(trySend, 50);
+          return;
+        }
+        const id = ++msgId;
+        const timer = setTimeout(() => { pending.delete(id); resolve({ ok: false, error: 'timeout' }); }, timeoutMs);
+        pending.set(id, (res) => { clearTimeout(timer); resolve(res); });
+        try {
+          iframe.contentWindow.postMessage({ type: 'run', id, code }, '*');
+        } catch (e) {
+          clearTimeout(timer);
+          pending.delete(id);
+          resolve({ ok: false, error: String(e && e.message || e) });
+        }
+      };
+      trySend();
     });
   }
 
@@ -1033,6 +1063,7 @@
 
   // ---------- Process ----------
   let busy = false;
+  let busySince = 0;
 
   async function processToolCall(dsMessage, tool) {
     const sig = fullSig(dsMessage, tool.full);
@@ -1083,7 +1114,10 @@
   }
 
   function scanForToolCalls() {
-    if (busy) return;
+    if (busy) {
+      if (busySince && Date.now() - busySince > 60000) { busy = false; busySince = 0; log('busy watchdog reset'); }
+      else return;
+    }
     for (const el of document.querySelectorAll('div.ds-message')) {
       if (processed.has(el)) continue;
       const wrapper = findWrapper(el);
@@ -1094,8 +1128,8 @@
       const tool = extractToolCall(text);
       if (!tool) continue;
       processed.add(el);
-      busy = true;
-      processToolCall(el, tool).catch(e => { log('error:', e); setStatus('error'); }).finally(() => { busy = false; });
+      busy = true; busySince = Date.now();
+      processToolCall(el, tool).catch(e => { log('error:', e); setStatus('error'); }).finally(() => { busy = false; busySince = 0; });
       return;
     }
   }
@@ -1137,9 +1171,14 @@
       return s;
     },
     logs: () => LOGS.slice(),
+    ping: async () => {
+      const r = await runInSandbox('return 1+1');
+      return r;
+    },
+    ready: () => !!(iframeReady && window.__DS_TOOL_SHIM__),
   };
 
   refreshCounts();
   console.log(`%c✅ D-Harness · DeepSeek Tool Shim v${VERSION} loaded — drag the dot to move, click to open panel`, 'color:#0af;font-weight:bold');
-}
+
 })();
