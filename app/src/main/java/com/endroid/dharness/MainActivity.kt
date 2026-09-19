@@ -64,6 +64,10 @@ class MainActivity : AppCompatActivity() {
             webView.clearCache(true)
             webView.reload()
         }
+        if (prefs.getBoolean("pending_send_instructions", false)) {
+            prefs.edit().putBoolean("pending_send_instructions", false).apply()
+            webView.postDelayed({ sendToolInstructions() }, 600)
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -268,6 +272,29 @@ class MainActivity : AppCompatActivity() {
         settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
     }
 
+
+    private fun sendToolInstructions() {
+        val msg = AGENT_INSTRUCTIONS
+        val quoted = org.json.JSONObject.quote(msg)
+        val js = """
+            (function(){
+              var t = $quoted;
+              if (window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.send) {
+                window.__DS_TOOL_SHIM__.send(t);
+                return 'sent';
+              }
+              var input = document.querySelector('textarea[placeholder="Message DeepSeek"]') || document.querySelector('textarea');
+              if (!input) return 'no input';
+              var d = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+              if (d && d.set) d.set.call(input, t); else input.value = t;
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.focus();
+              return 'filled';
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js, null)
+    }
+
     private fun injectShim() {
         val bridge = assets.open("native_bridge.js").bufferedReader().readText()
         val shim = assets.open("shim.js").bufferedReader().readText()
@@ -310,5 +337,26 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         webView.destroy()
         super.onDestroy()
+    }
+
+    companion object {
+        private val AGENT_INSTRUCTIONS = """
+You have native tools via D-Harness. When you need a tool, reply with ONLY this JSON (no markdown):
+{"tool":"run_js","args":{"code":"/* async JS; return a value */"}}
+
+After TOOL_RESULT, continue the answer. Never invent results.
+
+In code you may await:
+- list_tools() — exact names + parameter schemas
+- http_request / fetch_url with headers: await fetch_url(url,{method:'GET',headers:{Authorization:'Bearer …'}})
+- github.me / github.repos / github.issues(owner,repo) / github.issue_comment(owner,repo,n,body) / github.pr — needs PAT key "github" in Settings
+- memory.* agent scratchpad; keys.* secrets (never print values)
+- fs.read/write/list/delete
+- clipboard.read / clipboard.write (alias copy)
+- device.info / device.battery / device.network
+- toast(msg) / vibrate(ms) / notify(title,body) / share(text)
+
+Rules: call list_tools if unsure; use github.* for GitHub; keys≠memory; no shell/exec; keep run_js small and return serializable values.
+""".trimIndent()
     }
 }

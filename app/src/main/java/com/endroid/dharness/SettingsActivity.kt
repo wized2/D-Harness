@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 
@@ -18,11 +19,23 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.versionText).text =
             try {
-                val p = packageManager.getPackageInfo(packageName, 0)
-                "v${p.versionName} · ${packageName}"
-            } catch (_: Exception) {
-                packageName
+                "v${packageManager.getPackageInfo(packageName, 0).versionName}"
+            } catch (_: Exception) { "" }
+
+        val patInput = findViewById<EditText>(R.id.patInput)
+        if (keys.contains("github") || keys.contains("github_pat")) {
+            patInput.hint = "PAT saved (enter new to replace)"
+        }
+        findViewById<Button>(R.id.btnSavePat).setOnClickListener {
+            val v = patInput.text.toString().trim()
+            if (v.isNotEmpty()) {
+                keys.edit().putString("github", v).putString("github_pat", v).apply()
+                patInput.setText("")
+                patInput.hint = "PAT saved"
+                Toast.makeText(this, "GitHub PAT saved", Toast.LENGTH_SHORT).show()
+                refreshKeys(keys)
             }
+        }
 
         val swDesktop = findViewById<SwitchCompat>(R.id.switchDesktop)
         val swInject = findViewById<SwitchCompat>(R.id.switchInject)
@@ -30,25 +43,23 @@ class SettingsActivity : AppCompatActivity() {
         swDesktop.isChecked = prefs.getBoolean("desktop", false)
         swInject.isChecked = prefs.getBoolean("auto_inject", true)
         swDedupe.isChecked = prefs.getBoolean("dedupe", true)
-
-        fun persistToggles() {
+        fun persist() {
             prefs.edit()
                 .putBoolean("desktop", swDesktop.isChecked)
                 .putBoolean("auto_inject", swInject.isChecked)
                 .putBoolean("dedupe", swDedupe.isChecked)
                 .apply()
         }
-        swDesktop.setOnCheckedChangeListener { _, _ -> persistToggles() }
-        swInject.setOnCheckedChangeListener { _, _ -> persistToggles() }
-        swDedupe.setOnCheckedChangeListener { _, _ -> persistToggles() }
+        swDesktop.setOnCheckedChangeListener { _, _ -> persist() }
+        swInject.setOnCheckedChangeListener { _, _ -> persist() }
+        swDedupe.setOnCheckedChangeListener { _, _ -> persist() }
 
         val keyName = findViewById<EditText>(R.id.keyName)
         val keyValue = findViewById<EditText>(R.id.keyValue)
-        val keysList = findViewById<TextView>(R.id.keysList)
-
-        fun refreshKeys() {
-            val names = keys.all.keys.sorted()
-            keysList.text = if (names.isEmpty()) "(no keys)" else names.joinToString("\n") { "• $it" }
+        fun refreshKeys(store: android.content.SharedPreferences = keys) {
+            val names = store.all.keys.sorted()
+            findViewById<TextView>(R.id.keysList).text =
+                if (names.isEmpty()) "(no keys)" else names.joinToString("\n") { "• $it" }
         }
         refreshKeys()
 
@@ -69,42 +80,37 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<Button>(R.id.btnReload).setOnClickListener {
-            prefs.edit().putBoolean("pending_reload", true).apply()
+        findViewById<Button>(R.id.btnSendInstructions).setOnClickListener {
+            prefs.edit().putBoolean("pending_send_instructions", true).apply()
             finish()
+        }
+        findViewById<Button>(R.id.btnReload).setOnClickListener {
+            prefs.edit().putBoolean("pending_reload", true).apply(); finish()
         }
         findViewById<Button>(R.id.btnReinject).setOnClickListener {
-            prefs.edit().putBoolean("pending_inject", true).apply()
-            finish()
+            prefs.edit().putBoolean("pending_inject", true).apply(); finish()
         }
         findViewById<Button>(R.id.btnClearCache).setOnClickListener {
-            prefs.edit().putBoolean("pending_reload", true).apply()
-            // cache clear happens after reload path; flag for main
-            prefs.edit().putBoolean("pending_clear_cache", true).apply()
-            finish()
+            prefs.edit().putBoolean("pending_clear_cache", true).apply(); finish()
         }
         findViewById<Button>(R.id.btnClearMemory).setOnClickListener {
             mem.edit().clear().apply()
-            keysList.append("\n(memory cleared)")
+            Toast.makeText(this, "Memory cleared", Toast.LENGTH_SHORT).show()
         }
         findViewById<Button>(R.id.btnClearFs).setOnClickListener {
             val root = java.io.File(filesDir, "harness_fs")
-            root.deleteRecursively()
-            root.mkdirs()
+            root.deleteRecursively(); root.mkdirs()
+            Toast.makeText(this, "FS cleared", Toast.LENGTH_SHORT).show()
         }
 
-        findViewById<TextView>(R.id.toolsList).text = TOOLS_HELP
-        findViewById<Button>(R.id.btnClose).setOnClickListener { finish() }
-    }
+        findViewById<TextView>(R.id.toolsList).text = """
+            memory.* = agent scratchpad
+            keys.* = secrets (PAT) — never print values
+            http_request / fetch_url = headers supported
+            github.* = needs PAT key github
+            No shell/exec on device (safety)
+        """.trimIndent()
 
-    companion object {
-        val TOOLS_HELP = """
-            |Native tools (via run_js):
-            |  list_tools() · memory · fs · fetch_url
-            |  clipboard · file.save · keys.get/set/list
-            |  device.info · device.battery · device.network
-            |  notify · toast · vibrate · share · appInfo
-            |  geo (when permitted)
-            """.trimMargin()
+        findViewById<Button>(R.id.btnClose).setOnClickListener { finish() }
     }
 }

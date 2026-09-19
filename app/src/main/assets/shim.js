@@ -617,6 +617,16 @@
     };
     window.geo = { get: (opts) => window.__ds_call_tool('geo_get', opts || {}) };
     window.list_tools = () => window.__ds_call_tool('list_tools', {});
+    window.describe = (name) => window.__ds_call_tool('describe', { name });
+    window.http_request = (opts) => window.__ds_call_tool('http_request', opts || {});
+    window.github = {
+      me: () => window.__ds_call_tool('github', { op: 'me' }),
+      repos: (n) => window.__ds_call_tool('github', { op: 'repos', per_page: n }),
+      issues: (o,r,st) => window.__ds_call_tool('github', { op: 'issues', owner: o, repo: r, state: st }),
+      issue_comment: (o,r,n,b) => window.__ds_call_tool('github', { op: 'issue_comment', owner: o, repo: r, number: n, body: b }),
+      pr: (o,r,n) => window.__ds_call_tool('github', { op: 'pr', owner: o, repo: r, number: n }),
+      request: (m,path,body) => window.__ds_call_tool('github', { op: 'request', method: m, path, body }),
+    };
     window.keys = { get:(n)=>window.__ds_call_tool('keys',{op:'get',name:n}), set:(n,v)=>window.__ds_call_tool('keys',{op:'set',name:n,value:v}), list:()=>window.__ds_call_tool('keys',{op:'list'}), delete:(n)=>window.__ds_call_tool('keys',{op:'delete',name:n}) };
     window.device = { info:()=>window.__ds_call_tool('device',{op:'info'}), battery:()=>window.__ds_call_tool('device',{op:'battery'}), network:()=>window.__ds_call_tool('device',{op:'network'}) };
     window.notify = (title,body)=>window.__ds_call_tool('notify',{title,body});
@@ -653,6 +663,27 @@
       if (window.__DHarnessNative && window.__DHarnessNative.list_tools) return window.__DHarnessNative.list_tools();
       return { tools: Object.keys(toolHandlers), native: false };
     },
+    async describe({ name }) {
+      if (window.__DHarnessNative && window.__DHarnessNative.describe) return window.__DHarnessNative.describe(name);
+      return { error: 'no describe' };
+    },
+    async http_request(args) {
+      if (window.__DHarnessNative && window.__DHarnessNative.http_request) return window.__DHarnessNative.http_request(args || {});
+      throw new Error('http_request requires native');
+    },
+    async github(args) {
+      const N = window.__DHarnessNative && window.__DHarnessNative.github;
+      if (!N) throw new Error('github requires native + PAT');
+      const op = (args && args.op) || 'me';
+      if (op === 'me') return N.me();
+      if (op === 'repos') return N.repos(args.per_page);
+      if (op === 'issues') return N.issues(args.owner, args.repo, args.state);
+      if (op === 'issue_comment') return N.issue_comment(args.owner, args.repo, args.number, args.body);
+      if (op === 'pr') return N.pr(args.owner, args.repo, args.number);
+      if (op === 'request') return N.request(args.method, args.path, args.body);
+      throw new Error('unknown github op');
+    },
+
     async keys({ op, name, value }) {
       if (window.__DHarnessNative && window.__DHarnessNative.keys) {
         const K = window.__DHarnessNative.keys;
@@ -1057,10 +1088,10 @@
   }
 
   const debounce = (fn, ms) => { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
-  const debouncedTick = debounce(tick, 150);
+  const debouncedTick = debounce(tick, 320);
   const observer = new MutationObserver(debouncedTick);
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-  const loopTimer = setInterval(tick, 800);
+  const loopTimer = setInterval(tick, 1500);
   setTimeout(tick, 600);
 
   // ---------- Public API ----------

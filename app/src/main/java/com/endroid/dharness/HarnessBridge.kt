@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.VibrationEffect
@@ -25,49 +26,96 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Native tools for the injected shim. All heavy work is off the main thread.
- * Results for async ops are delivered via window.__dHarnessFetchCb / __dHarnessCb.
- */
 class HarnessBridge(
     private val context: Context,
     private val webView: WebView
 ) {
-    private val io = Executors.newFixedThreadPool(4)
+    private val io = Executors.newFixedThreadPool(6)
     private val mem = context.getSharedPreferences("dharness_mem", Context.MODE_PRIVATE)
     private val keys = context.getSharedPreferences("dharness_keys", Context.MODE_PRIVATE)
+    private val settings = context.getSharedPreferences("dharness_settings", Context.MODE_PRIVATE)
     private val fsRoot = File(context.filesDir, "harness_fs").also { it.mkdirs() }
-    private val cbSeq = AtomicInteger(0)
     private val inFlight = ConcurrentHashMap<String, Long>()
 
     private fun deliver(callbackId: String, json: String) {
-        val safe = JSONObject.quote(json)
         val idQ = JSONObject.quote(callbackId)
+        val bodyQ = JSONObject.quote(json)
         webView.post {
             webView.evaluateJavascript(
-                "window.__dHarnessCb&&window.__dHarnessCb($idQ,$safe);window.__dHarnessFetchCb&&window.__dHarnessFetchCb($idQ,$safe);",
+                "window.__dHarnessCb&&window.__dHarnessCb($idQ,$bodyQ);",
                 null
             )
         }
     }
 
+    /** Exact tool catalog with schemas — no slash-joined fake names. */
     @JavascriptInterface
     fun listTools(): String {
         val tools = JSONArray()
-            .put("list_tools")
-            .put("memory.get/set/delete/list/clear")
-            .put("keys.get/set/delete/list")
-            .put("fs.read/write/list/delete")
-            .put("fetch_url (native, no CORS)")
-            .put("clipboard.read/write")
-            .put("file.save / share")
-            .put("device.info / battery / network")
-            .put("notify / toast / vibrate")
-            .put("appInfo")
-        return JSONObject().put("tools", tools).put("native", true).put("version", "1.1").toString()
+        fun tool(name: String, desc: String, params: JSONObject) {
+            tools.put(JSONObject().put("name", name).put("description", desc).put("params", params))
+        }
+        tool("list_tools", "List all tools with schemas", JSONObject())
+        tool("describe", "Describe one tool by name", JSONObject().put("name", "string"))
+        tool("http_request", "HTTP with method/headers/body (native, no CORS)",
+            JSONObject().put("url", "string").put("method", "string?").put("headers", "object?")
+                .put("body", "string?").put("timeout_ms", "number?"))
+        tool("fetch_url", "Alias of http_request GET/POST", JSONObject().put("url", "string").put("method", "string?").put("headers", "object?").put("body", "string?"))
+        tool("github.request", "GitHub REST API (uses PAT from settings)",
+            JSONObject().put("method", "string?").put("path", "string").put("body", "object|string?"))
+        tool("github.me", "GET /user", JSONObject())
+        tool("github.repos", "List your repos", JSONObject().put("per_page", "number?"))
+        tool("github.issues", "List issues", JSONObject().put("owner", "string").put("repo", "string").put("state", "string?"))
+        tool("github.issue_comment", "Comment on issue/PR", JSONObject().put("owner", "string").put("repo", "string").put("number", "number").put("body", "string"))
+        tool("github.pr", "Get pull request", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
+        tool("memory.get", "Agent scratch KV (session-ish)", JSONObject().put("key", "string"))
+        tool("memory.set", "Set agent memory", JSONObject().put("key", "string").put("value", "string"))
+        tool("memory.delete", "Delete memory key", JSONObject().put("key", "string"))
+        tool("memory.list", "List memory keys", JSONObject())
+        tool("memory.clear", "Clear all memory", JSONObject())
+        tool("keys.get", "Get secret/API key stored in Settings", JSONObject().put("name", "string"))
+        tool("keys.set", "Store secret (prefer Settings UI for PAT)", JSONObject().put("name", "string").put("value", "string"))
+        tool("keys.delete", "Delete secret", JSONObject().put("name", "string"))
+        tool("keys.list", "List secret names (not values)", JSONObject())
+        tool("fs.read", "Read app-private file", JSONObject().put("path", "string"))
+        tool("fs.write", "Write app-private file", JSONObject().put("path", "string").put("content", "string"))
+        tool("fs.list", "List files under prefix", JSONObject().put("prefix", "string?"))
+        tool("fs.delete", "Delete file", JSONObject().put("path", "string"))
+        tool("clipboard.read", "Read clipboard text", JSONObject())
+        tool("clipboard.write", "Write clipboard (alias: clipboard.copy)", JSONObject().put("text", "string"))
+        tool("clipboard.copy", "Alias of clipboard.write", JSONObject().put("text", "string"))
+        tool("file.save", "Share/save text via system sheet", JSONObject().put("filename", "string").put("content", "string").put("mime", "string?"))
+        tool("share", "Share plain text", JSONObject().put("text", "string"))
+        tool("device.info", "Device model/sdk/app version", JSONObject())
+        tool("device.battery", "Battery percent + charging", JSONObject())
+        tool("device.network", "Online / wifi / cellular", JSONObject())
+        tool("toast", "Show Android toast", JSONObject().put("message", "string"))
+        tool("vibrate", "Vibrate ms (10-800)", JSONObject().put("ms", "number?"))
+        tool("notify", "System notification", JSONObject().put("title", "string").put("body", "string?"))
+        tool("appInfo", "Same as device.info", JSONObject())
+        return JSONObject()
+            .put("tools", tools)
+            .put("native", true)
+            .put("version", "1.2.0")
+            .put("notes", JSONObject()
+                .put("memory", "Scratchpad for the agent during a chat")
+                .put("keys", "Secrets (PAT, API keys) — set in Settings; never echo values")
+                .put("github", "Requires PAT named github or github_pat in Settings")
+                .put("exec", "Not available (no shell on device for safety)")
+            )
+            .toString()
+    }
+
+    @JavascriptInterface
+    fun describeTool(name: String): String {
+        val arr = JSONObject(listTools()).getJSONArray("tools")
+        for (i in 0 until arr.length()) {
+            val t = arr.getJSONObject(i)
+            if (t.getString("name") == name) return t.toString()
+        }
+        return JSONObject().put("error", "unknown tool: $name").toString()
     }
 
     @JavascriptInterface
@@ -83,21 +131,19 @@ class HarnessBridge(
             .toString()
     }
 
-    @JavascriptInterface
-    fun deviceInfo(): String = appInfo()
+    @JavascriptInterface fun deviceInfo(): String = appInfo()
 
     @JavascriptInterface
     fun battery(): String {
         return try {
-            val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-            val battery = context.registerReceiver(null, ifilter)
+            val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
             val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
             val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
             val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
                 status == BatteryManager.BATTERY_STATUS_FULL
-            val pct = if (scale > 0) (level * 100f / scale) else -1f
-            JSONObject().put("percent", pct).put("charging", charging).toString()
+            JSONObject().put("percent", if (scale > 0) level * 100.0 / scale else -1.0)
+                .put("charging", charging).toString()
         } catch (e: Exception) {
             JSONObject().put("error", e.message).toString()
         }
@@ -107,12 +153,11 @@ class HarnessBridge(
     fun network(): String {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val net = cm.activeNetwork
-            val caps = net?.let { cm.getNetworkCapabilities(it) }
+            val caps = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
             JSONObject()
                 .put("online", caps != null)
-                .put("wifi", caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true)
-                .put("cellular", caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true)
+                .put("wifi", caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
+                .put("cellular", caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true)
                 .toString()
         } catch (e: Exception) {
             JSONObject().put("error", e.message).toString()
@@ -121,7 +166,7 @@ class HarnessBridge(
 
     @JavascriptInterface
     fun toast(message: String) {
-        webView.post { Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
+        webView.post { Toast.makeText(context.applicationContext, message, Toast.LENGTH_SHORT).show() }
     }
 
     @JavascriptInterface
@@ -180,45 +225,124 @@ class HarnessBridge(
 
     @JavascriptInterface fun memoryGet(key: String): String =
         JSONObject().put("value", mem.getString(key, null)).toString()
-
     @JavascriptInterface fun memorySet(key: String, value: String): String {
-        mem.edit().putString(key, value).apply()
-        return JSONObject().put("ok", true).toString()
+        mem.edit().putString(key, value).apply(); return JSONObject().put("ok", true).toString()
     }
-
     @JavascriptInterface fun memoryDelete(key: String): String {
-        mem.edit().remove(key).apply()
-        return JSONObject().put("ok", true).toString()
+        mem.edit().remove(key).apply(); return JSONObject().put("ok", true).toString()
     }
-
     @JavascriptInterface fun memoryList(): String {
-        val arr = JSONArray()
-        mem.all.keys.forEach { arr.put(it) }
+        val arr = JSONArray(); mem.all.keys.forEach { arr.put(it) }
         return JSONObject().put("keys", arr).toString()
     }
-
     @JavascriptInterface fun memoryClear(): String {
-        mem.edit().clear().apply()
-        return JSONObject().put("ok", true).toString()
+        mem.edit().clear().apply(); return JSONObject().put("ok", true).toString()
     }
 
     @JavascriptInterface fun keysGet(name: String): String =
         JSONObject().put("value", keys.getString(name, null)).toString()
-
     @JavascriptInterface fun keysSet(name: String, value: String): String {
-        keys.edit().putString(name, value).apply()
-        return JSONObject().put("ok", true).toString()
+        keys.edit().putString(name, value).apply(); return JSONObject().put("ok", true).toString()
     }
-
     @JavascriptInterface fun keysDelete(name: String): String {
-        keys.edit().remove(name).apply()
-        return JSONObject().put("ok", true).toString()
+        keys.edit().remove(name).apply(); return JSONObject().put("ok", true).toString()
+    }
+    @JavascriptInterface fun keysList(): String {
+        val arr = JSONArray(); keys.all.keys.forEach { arr.put(it) }
+        return JSONObject().put("keys", arr).toString()
     }
 
-    @JavascriptInterface fun keysList(): String {
-        val arr = JSONArray()
-        keys.all.keys.forEach { arr.put(it) }
-        return JSONObject().put("keys", arr).toString()
+    private fun githubToken(): String? =
+        keys.getString("github", null)
+            ?: keys.getString("github_pat", null)
+            ?: keys.getString("GITHUB_TOKEN", null)
+            ?: settings.getString("github_pat", null)
+
+    @JavascriptInterface
+    fun githubRequest(method: String, path: String, body: String?, callbackId: String) {
+        val token = githubToken()
+        if (token.isNullOrBlank()) {
+            deliver(callbackId, JSONObject().put("ok", false)
+                .put("error", "missing PAT — set github or github_pat in Settings").toString())
+            return
+        }
+        val url = if (path.startsWith("http")) path else "https://api.github.com${if (path.startsWith("/")) path else "/$path"}"
+        val headers = JSONObject()
+            .put("Authorization", "Bearer $token")
+            .put("Accept", "application/vnd.github+json")
+            .put("X-GitHub-Api-Version", "2022-11-28")
+            .toString()
+        httpRequest(url, method.ifBlank { "GET" }, headers, body, callbackId)
+    }
+
+    /**
+     * Full HTTP. headersJson is a JSON object string, e.g. {"Authorization":"Bearer …"}.
+     * Authorization and custom headers are preserved (unlike old fetch_url).
+     */
+    @JavascriptInterface
+    fun httpRequest(url: String, method: String, headersJson: String?, body: String?, callbackId: String) {
+        if (inFlight.size > 10) {
+            deliver(callbackId, JSONObject().put("ok", false).put("error", "too many in-flight requests").toString())
+            return
+        }
+        inFlight[callbackId] = System.currentTimeMillis()
+        io.execute {
+            val payload = try {
+                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = method.ifBlank { "GET" }.uppercase()
+                    connectTimeout = 12_000
+                    readTimeout = 25_000
+                    instanceFollowRedirects = true
+                    doInput = true
+                    setRequestProperty("User-Agent", "D-Harness/1.2")
+                    if (!headersJson.isNullOrBlank()) {
+                        val h = JSONObject(headersJson)
+                        val keys = h.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            setRequestProperty(k, h.getString(k))
+                        }
+                    }
+                    if (!body.isNullOrEmpty() && requestMethod != "GET" && requestMethod != "HEAD") {
+                        doOutput = true
+                        if (getRequestProperty("Content-Type") == null) {
+                            setRequestProperty("Content-Type", "application/json")
+                        }
+                        outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                    }
+                }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.bufferedReader()?.use { it.readText() }?.take(150_000) ?: ""
+                var parsed: Any? = null
+                try { parsed = JSONObject(text) } catch (_: Exception) {
+                    try { parsed = JSONArray(text) } catch (_: Exception) {}
+                }
+                val out = JSONObject()
+                    .put("status", code)
+                    .put("ok", code in 200..299)
+                    .put("text", text)
+                if (parsed is JSONObject) out.put("json", parsed)
+                else if (parsed is JSONArray) out.put("json", parsed)
+                out.toString()
+            } catch (e: Exception) {
+                JSONObject().put("ok", false).put("error", e.message ?: "request failed").toString()
+            } finally {
+                inFlight.remove(callbackId)
+            }
+            deliver(callbackId, payload)
+        }
+    }
+
+    /** Back-compat: fetchUrl now accepts headersJson too. */
+    @JavascriptInterface
+    fun fetchUrl(url: String, method: String, body: String?, callbackId: String) {
+        httpRequest(url, method, null, body, callbackId)
+    }
+
+    @JavascriptInterface
+    fun fetchUrlWithHeaders(url: String, method: String, headersJson: String?, body: String?, callbackId: String) {
+        httpRequest(url, method, headersJson, body, callbackId)
     }
 
     @JavascriptInterface
@@ -281,7 +405,7 @@ class HarnessBridge(
             val safe = filename.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(80)
             val f = File(context.cacheDir, safe)
             f.writeText(content)
-            val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", f)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
             webView.post {
                 val i = Intent(Intent.ACTION_SEND).apply {
                     type = mime.ifBlank { "text/plain" }
@@ -293,41 +417,6 @@ class HarnessBridge(
             JSONObject().put("ok", true).put("filename", safe).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
-        }
-    }
-
-    /** Fast async fetch — always returns immediately; result via callback. */
-    @JavascriptInterface
-    fun fetchUrl(url: String, method: String, body: String?, callbackId: String) {
-        if (inFlight.size > 8) {
-            deliver(callbackId, JSONObject().put("ok", false).put("error", "too many requests").toString())
-            return
-        }
-        inFlight[callbackId] = System.currentTimeMillis()
-        io.execute {
-            val payload = try {
-                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    requestMethod = method.ifBlank { "GET" }
-                    connectTimeout = 12_000
-                    readTimeout = 20_000
-                    doInput = true
-                    setRequestProperty("User-Agent", "D-Harness/1.1")
-                    if (!body.isNullOrEmpty() && requestMethod != "GET" && requestMethod != "HEAD") {
-                        doOutput = true
-                        setRequestProperty("Content-Type", "application/json")
-                        outputStream.use { it.write(body.toByteArray()) }
-                    }
-                }
-                val code = conn.responseCode
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.bufferedReader()?.use { it.readText() }?.take(100_000) ?: ""
-                JSONObject().put("status", code).put("ok", code in 200..299).put("text", text).toString()
-            } catch (e: Exception) {
-                JSONObject().put("ok", false).put("error", e.message ?: "fetch failed").toString()
-            } finally {
-                inFlight.remove(callbackId)
-            }
-            deliver(callbackId, payload)
         }
     }
 

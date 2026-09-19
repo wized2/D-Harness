@@ -1,70 +1,117 @@
 window.__dHarnessFetchPending = window.__dHarnessFetchPending || {};
-window.__dHarnessCb = window.__dHarnessFetchCb = function(id, payloadStr) {
+window.__dHarnessCb = function (id, payloadStr) {
   var p = window.__dHarnessFetchPending[id];
   if (!p) return;
   delete window.__dHarnessFetchPending[id];
   try {
     var data = typeof payloadStr === 'string' ? JSON.parse(payloadStr) : payloadStr;
-    if (data && data.ok === false && data.error && !data.status) p.reject(new Error(data.error));
+    if (data && data.ok === false && data.error && data.status == null) p.reject(new Error(data.error));
     else p.resolve(data);
   } catch (e) { p.reject(e); }
 };
 
+function _cbId() { return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function _asyncNative(fn) {
+  return new Promise(function (resolve, reject) {
+    var id = _cbId();
+    window.__dHarnessFetchPending[id] = { resolve: resolve, reject: reject };
+    var t = setTimeout(function () {
+      if (window.__dHarnessFetchPending[id]) {
+        delete window.__dHarnessFetchPending[id];
+        reject(new Error('timeout'));
+      }
+    }, 30000);
+    var orig = window.__dHarnessFetchPending[id];
+    window.__dHarnessFetchPending[id] = {
+      resolve: function (d) { clearTimeout(t); orig.resolve(d); },
+      reject: function (e) { clearTimeout(t); orig.reject(e); }
+    };
+    try { fn(id); } catch (e) { clearTimeout(t); delete window.__dHarnessFetchPending[id]; reject(e); }
+  });
+}
+
 window.__DHarnessNative = {
   available: typeof DHarness !== 'undefined',
-  list_tools: function() {
-    if (!window.DHarness) return Promise.resolve({ tools: [] });
+  list_tools: function () {
     try { return Promise.resolve(JSON.parse(DHarness.listTools())); } catch (e) { return Promise.reject(e); }
   },
-  memory: {
-    get: function(k) { try { return Promise.resolve(JSON.parse(DHarness.memoryGet(k))); } catch (e) { return Promise.reject(e); } },
-    set: function(k, v) { try { return Promise.resolve(JSON.parse(DHarness.memorySet(k, String(v)))); } catch (e) { return Promise.reject(e); } },
-    delete: function(k) { try { return Promise.resolve(JSON.parse(DHarness.memoryDelete(k))); } catch (e) { return Promise.reject(e); } },
-    list: function() { try { return Promise.resolve(JSON.parse(DHarness.memoryList())); } catch (e) { return Promise.reject(e); } },
-    clear: function() { try { return Promise.resolve(JSON.parse(DHarness.memoryClear())); } catch (e) { return Promise.reject(e); } }
+  describe: function (name) {
+    try { return Promise.resolve(JSON.parse(DHarness.describeTool(String(name)))); } catch (e) { return Promise.reject(e); }
   },
-  keys: {
-    get: function(n) { try { return Promise.resolve(JSON.parse(DHarness.keysGet(n))); } catch (e) { return Promise.reject(e); } },
-    set: function(n, v) { try { return Promise.resolve(JSON.parse(DHarness.keysSet(n, String(v)))); } catch (e) { return Promise.reject(e); } },
-    delete: function(n) { try { return Promise.resolve(JSON.parse(DHarness.keysDelete(n))); } catch (e) { return Promise.reject(e); } },
-    list: function() { try { return Promise.resolve(JSON.parse(DHarness.keysList())); } catch (e) { return Promise.reject(e); } }
-  },
-  fetch_url: function(url, opts) {
+  http_request: function (opts) {
     opts = opts || {};
-    var id = 'f' + Date.now() + Math.random().toString(36).slice(2, 8);
-    return new Promise(function(resolve, reject) {
-      window.__dHarnessFetchPending[id] = { resolve: resolve, reject: reject };
-      setTimeout(function() {
-        if (window.__dHarnessFetchPending[id]) {
-          delete window.__dHarnessFetchPending[id];
-          reject(new Error('fetch timeout'));
-        }
-      }, (opts.timeoutMs || 25000));
-      DHarness.fetchUrl(url, opts.method || 'GET', opts.body != null ? String(opts.body) : null, id);
+    var headers = opts.headers ? JSON.stringify(opts.headers) : null;
+    var body = opts.body != null ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : null;
+    return _asyncNative(function (id) {
+      DHarness.httpRequest(opts.url, opts.method || 'GET', headers, body, id);
     });
   },
-  file_save: function(filename, content, mime) {
-    try { return Promise.resolve(JSON.parse(DHarness.saveFile(filename, String(content), mime || 'text/plain'))); }
-    catch (e) { return Promise.reject(e); }
+  fetch_url: function (url, opts) {
+    opts = opts || {};
+    if (typeof url === 'object') { opts = url; url = opts.url; }
+    return window.__DHarnessNative.http_request({
+      url: url, method: opts.method || 'GET', headers: opts.headers, body: opts.body || opts.json
+    });
   },
-  clipboard: {
-    copy: function(text) { try { return Promise.resolve(JSON.parse(DHarness.clipboardWrite(String(text)))); } catch (e) { return Promise.reject(e); } },
-    read: function() { try { return Promise.resolve(JSON.parse(DHarness.clipboardRead())); } catch (e) { return Promise.reject(e); } }
+  github: {
+    request: function (method, path, body) {
+      var b = body != null ? (typeof body === 'string' ? body : JSON.stringify(body)) : null;
+      return _asyncNative(function (id) { DHarness.githubRequest(method || 'GET', path, b, id); });
+    },
+    me: function () { return window.__DHarnessNative.github.request('GET', '/user'); },
+    repos: function (perPage) {
+      return window.__DHarnessNative.github.request('GET', '/user/repos?per_page=' + (perPage || 30) + '&sort=updated');
+    },
+    issues: function (owner, repo, state) {
+      return window.__DHarnessNative.github.request('GET',
+        '/repos/' + owner + '/' + repo + '/issues?state=' + (state || 'open') + '&per_page=30');
+    },
+    issue_comment: function (owner, repo, number, body) {
+      return window.__DHarnessNative.github.request('POST',
+        '/repos/' + owner + '/' + repo + '/issues/' + number + '/comments', { body: body });
+    },
+    pr: function (owner, repo, number) {
+      return window.__DHarnessNative.github.request('GET',
+        '/repos/' + owner + '/' + repo + '/pulls/' + number);
+    }
+  },
+  memory: {
+    get: function (k) { return Promise.resolve(JSON.parse(DHarness.memoryGet(k))); },
+    set: function (k, v) { return Promise.resolve(JSON.parse(DHarness.memorySet(k, String(v)))); },
+    delete: function (k) { return Promise.resolve(JSON.parse(DHarness.memoryDelete(k))); },
+    list: function () { return Promise.resolve(JSON.parse(DHarness.memoryList())); },
+    clear: function () { return Promise.resolve(JSON.parse(DHarness.memoryClear())); }
+  },
+  keys: {
+    get: function (n) { return Promise.resolve(JSON.parse(DHarness.keysGet(n))); },
+    set: function (n, v) { return Promise.resolve(JSON.parse(DHarness.keysSet(n, String(v)))); },
+    delete: function (n) { return Promise.resolve(JSON.parse(DHarness.keysDelete(n))); },
+    list: function () { return Promise.resolve(JSON.parse(DHarness.keysList())); }
   },
   fs: {
-    read: function(path) { try { return Promise.resolve(JSON.parse(DHarness.fsRead(path))); } catch (e) { return Promise.reject(e); } },
-    write: function(path, content) { try { return Promise.resolve(JSON.parse(DHarness.fsWrite(path, String(content)))); } catch (e) { return Promise.reject(e); } },
-    list: function(prefix) { try { return Promise.resolve(JSON.parse(DHarness.fsList(prefix || ''))); } catch (e) { return Promise.reject(e); } },
-    delete: function(path) { try { return Promise.resolve(JSON.parse(DHarness.fsDelete(path))); } catch (e) { return Promise.reject(e); } }
+    read: function (path) { return Promise.resolve(JSON.parse(DHarness.fsRead(path))); },
+    write: function (path, content) { return Promise.resolve(JSON.parse(DHarness.fsWrite(path, String(content)))); },
+    list: function (prefix) { return Promise.resolve(JSON.parse(DHarness.fsList(prefix || ''))); },
+    delete: function (path) { return Promise.resolve(JSON.parse(DHarness.fsDelete(path))); }
+  },
+  clipboard: {
+    read: function () { return Promise.resolve(JSON.parse(DHarness.clipboardRead())); },
+    write: function (text) { return Promise.resolve(JSON.parse(DHarness.clipboardWrite(String(text)))); },
+    copy: function (text) { return this.write(text); }
   },
   device: {
-    info: function() { try { return Promise.resolve(JSON.parse(DHarness.deviceInfo())); } catch (e) { return Promise.reject(e); } },
-    battery: function() { try { return Promise.resolve(JSON.parse(DHarness.battery())); } catch (e) { return Promise.reject(e); } },
-    network: function() { try { return Promise.resolve(JSON.parse(DHarness.network())); } catch (e) { return Promise.reject(e); } }
+    info: function () { return Promise.resolve(JSON.parse(DHarness.deviceInfo())); },
+    battery: function () { return Promise.resolve(JSON.parse(DHarness.battery())); },
+    network: function () { return Promise.resolve(JSON.parse(DHarness.network())); }
   },
-  toast: function(m) { if (window.DHarness) DHarness.toast(String(m)); },
-  vibrate: function(ms) { if (window.DHarness) DHarness.vibrate(ms || 40); },
-  notify: function(title, body) { try { return Promise.resolve(JSON.parse(DHarness.notify(String(title), String(body||'')))); } catch (e) { return Promise.reject(e); } },
-  share: function(t) { if (window.DHarness) DHarness.shareText(String(t)); },
-  appInfo: function() { try { return Promise.resolve(JSON.parse(DHarness.appInfo())); } catch (e) { return Promise.reject(e); } }
+  file_save: function (filename, content, mime) {
+    return Promise.resolve(JSON.parse(DHarness.saveFile(filename, String(content), mime || 'text/plain')));
+  },
+  toast: function (m) { DHarness.toast(String(m)); return Promise.resolve({ ok: true }); },
+  vibrate: function (ms) { DHarness.vibrate(ms || 40); return Promise.resolve({ ok: true }); },
+  notify: function (title, body) {
+    return Promise.resolve(JSON.parse(DHarness.notify(String(title), String(body || ''))));
+  },
+  share: function (t) { DHarness.shareText(String(t)); return Promise.resolve({ ok: true }); },
+  appInfo: function () { return Promise.resolve(JSON.parse(DHarness.appInfo())); }
 };
