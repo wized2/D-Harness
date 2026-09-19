@@ -5,9 +5,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
-import android.view.Menu
-import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
@@ -17,20 +17,24 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
-import com.google.android.material.appbar.MaterialToolbar
-import java.io.BufferedReader
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var progress: ProgressBar
-    private lateinit var loadingHint: TextView
+    private lateinit var fab: View
+    private lateinit var fabDot: View
+    private lateinit var prefs: android.content.SharedPreferences
     private var desktopMode = false
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val startUrl = "https://chat.deepseek.com/"
@@ -43,17 +47,49 @@ class MainActivity : AppCompatActivity() {
         filePathCallback = null
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    private val settingsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        applySettingsFromPrefs()
+        if (prefs.getBoolean("pending_reload", false)) {
+            prefs.edit().putBoolean("pending_reload", false).apply()
+            webView.reload()
+        }
+        if (prefs.getBoolean("pending_inject", false)) {
+            prefs.edit().putBoolean("pending_inject", false).apply()
+            injectShim()
+        }
+        if (prefs.getBoolean("pending_clear_cache", false)) {
+            prefs.edit().putBoolean("pending_clear_cache", false).apply()
+            webView.clearCache(true)
+            webView.reload()
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).let {
+            it.hide(WindowInsetsCompat.Type.statusBars())
+            it.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         setContentView(R.layout.activity_main)
+        prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
+        desktopMode = prefs.getBoolean("desktop", false)
 
-        val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
-        setSupportActionBar(toolbar)
         webView = findViewById(R.id.webView)
         progress = findViewById(R.id.progress)
-        loadingHint = findViewById(R.id.loadingHint)
+        fab = findViewById(R.id.fab)
+        fabDot = findViewById(R.id.fabDot)
+
+        // Keep FAB clear of gesture/nav insets
+        ViewCompat.setOnApplyWindowInsetsListener(fab) { v, insets ->
+            val nav = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            (v.layoutParams as FrameLayout.LayoutParams).bottomMargin = nav.bottom + 8
+            v.requestLayout()
+            insets
+        }
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -67,46 +103,45 @@ class MainActivity : AppCompatActivity() {
             cacheMode = WebSettings.LOAD_DEFAULT
             useWideViewPort = true
             loadWithOverviewMode = true
-            builtInZoomControls = true
+            builtInZoomControls = false
             displayZoomControls = false
-            setSupportZoom(true)
+            setSupportZoom(false)
             allowFileAccess = true
             allowContentAccess = true
-            javaScriptCanOpenWindowsAutomatically = true
-            userAgentString = defaultUserAgent()
+            javaScriptCanOpenWindowsAutomatically = false
+            userAgentString = buildUa()
         }
 
         webView.addJavascriptInterface(HarnessBridge(this, webView), "DHarness")
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url?.toString() ?: return false
-                return if (url.startsWith("https://chat.deepseek.com") ||
+                if (url.startsWith("https://chat.deepseek.com") ||
                     url.startsWith("https://www.deepseek.com") ||
                     url.startsWith("https://deepseek.com")
-                ) {
-                    false
-                } else {
-                    try {
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    } catch (_: Exception) {
-                    }
+                ) return false
+                return try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    true
+                } catch (_: Exception) {
                     true
                 }
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 progress.visibility = View.VISIBLE
-                loadingHint.visibility = View.VISIBLE
+                setFabStatus("#4AF")
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 progress.visibility = View.GONE
-                loadingHint.visibility = View.GONE
-                injectShim()
-                // SPA navigations may rebuild DOM after first paint
-                view?.postDelayed({ injectShim() }, 1200)
-                view?.postDelayed({ injectShim() }, 3000)
+                setFabStatus("#4DB")
+                if (prefs.getBoolean("auto_inject", true)) {
+                    injectShim()
+                    view?.postDelayed({ injectShim() }, 800)
+                }
             }
         }
 
@@ -134,10 +169,11 @@ class MainActivity : AppCompatActivity() {
             ): Boolean {
                 this@MainActivity.filePathCallback?.onReceiveValue(null)
                 this@MainActivity.filePathCallback = filePathCallback
-                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                    type = "*/*"
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                }
+                val intent = fileChooserParams?.createIntent()
+                    ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                        type = "*/*"
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                    }
                 return try {
                     fileChooser.launch(intent)
                     true
@@ -148,73 +184,110 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        setupDraggableFab()
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (webView.canGoBack()) webView.goBack() else finish()
             }
         })
 
-        if (savedInstanceState != null) {
-            webView.restoreState(savedInstanceState)
-        } else {
-            webView.loadUrl(startUrl)
+        if (savedInstanceState != null) webView.restoreState(savedInstanceState)
+        else webView.loadUrl(startUrl)
+    }
+
+    private fun buildUa(): String {
+        val base = WebSettings.getDefaultUserAgent(this)
+        return if (desktopMode) {
+            base.replace("; wv", "").replace("Mobile", "").replace("Android", "X11; Linux x86_64")
+        } else "$base DHarness/1.1"
+    }
+
+    private fun applySettingsFromPrefs() {
+        desktopMode = prefs.getBoolean("desktop", false)
+        webView.settings.userAgentString = buildUa()
+    }
+
+    private fun setFabStatus(colorHex: String) {
+        try {
+            val c = android.graphics.Color.parseColor(colorHex)
+            (fabDot.background as? android.graphics.drawable.GradientDrawable)?.setColor(c)
+                ?: fabDot.setBackgroundColor(c)
+        } catch (_: Exception) {
         }
     }
 
-    private fun defaultUserAgent(): String {
-        val base = WebSettings.getDefaultUserAgent(this)
-        return if (desktopMode) {
-            base.replace("; wv", "")
-                .replace("Mobile", "")
-                .replace("Android", "X11; Linux x86_64")
-        } else {
-            "$base DHarness/1.0"
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupDraggableFab() {
+        var downX = 0f
+        var downY = 0f
+        var startX = 0f
+        var startY = 0f
+        var dragging = false
+        val touchSlop = 12f
+
+        fab.setOnTouchListener { v, e ->
+            val parent = v.parent as ViewGroup
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX
+                    downY = e.rawY
+                    startX = v.x
+                    startY = v.y
+                    dragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX
+                    val dy = e.rawY - downY
+                    if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) dragging = true
+                    if (dragging) {
+                        v.x = (startX + dx).coerceIn(0f, (parent.width - v.width).toFloat())
+                        v.y = (startY + dy).coerceIn(0f, (parent.height - v.height).toFloat())
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (!dragging) openSettings()
+                    else {
+                        // snap horizontal edge
+                        val mid = parent.width / 2f
+                        v.animate()
+                            .x(if (v.x + v.width / 2 < mid) 8f else (parent.width - v.width - 8f))
+                            .setDuration(120)
+                            .start()
+                    }
+                    true
+                }
+                else -> false
+            }
         }
+    }
+
+    private fun openSettings() {
+        settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
     }
 
     private fun injectShim() {
-        val shim = readAsset("shim.js")
-        val bridge = readAsset("native_bridge.js")
-        val code = "(function(){ try { $bridge\n$shim\n } catch(e){ console.error('D-Harness inject', e); } })();"
-        webView.evaluateJavascript(code, null)
-    }
-
-    private fun readAsset(name: String): String {
-        return assets.open(name).bufferedReader().use(BufferedReader::readText)
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(0, 1, 0, R.string.menu_reload)
-        menu.add(0, 2, 0, R.string.menu_inject)
-        menu.add(0, 3, 0, R.string.menu_desktop)
-        menu.add(0, 4, 0, R.string.menu_share)
-        menu.add(0, 5, 0, R.string.menu_clear_cache)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        when (item.itemId) {
-            1 -> webView.reload()
-            2 -> injectShim()
-            3 -> {
-                desktopMode = !desktopMode
-                webView.settings.userAgentString = defaultUserAgent()
-                webView.reload()
-            }
-            4 -> {
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, webView.url ?: startUrl)
-                }
-                startActivity(Intent.createChooser(send, getString(R.string.menu_share)))
-            }
-            5 -> {
-                webView.clearCache(true)
-                webView.reload()
-            }
-            else -> return super.onOptionsItemSelected(item)
-        }
-        return true
+        val bridge = assets.open("native_bridge.js").bufferedReader().readText()
+        val shim = assets.open("shim.js").bufferedReader().readText()
+        // Prefer native tools; hide in-page FAB from shim (we have native FAB)
+        val bootstrap = """
+            window.__DS_SHIM_CONFIG__ = Object.assign(window.__DS_SHIM_CONFIG__ || {}, {
+              hideFab: true,
+              dedupe: ${prefs.getBoolean("dedupe", true)},
+              nativePreferred: true
+            });
+            try { $bridge } catch(e) { console.error(e); }
+            try { $shim } catch(e) { console.error(e); }
+            try {
+              var f = document.getElementById('__ds_shim_fab');
+              if (f) f.style.display = 'none';
+              var p = document.getElementById('__ds_shim_panel');
+              if (p) p.hidden = true;
+            } catch(e) {}
+        """.trimIndent()
+        webView.evaluateJavascript("(function(){$bootstrap})();", null)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -231,6 +304,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         webView.onResume()
+        WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.statusBars())
     }
 
     override fun onDestroy() {

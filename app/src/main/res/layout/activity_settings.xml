@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0B0F14"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="D-Harness"
+        android:textColor="#FFFFFF"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:paddingBottom="4dp" />
+
+    <TextView
+        android:id="@+id/versionText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#88AABB"
+        android:textSize="13sp"
+        android:paddingBottom="12dp" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="General"
+                android:textColor="#4D6BFE"
+                android:textStyle="bold"
+                android:paddingTop="8dp"
+                android:paddingBottom="6dp" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchDesktop"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Desktop site"
+                android:textColor="#DDE3EA" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchInject"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Auto-inject tools"
+                android:checked="true"
+                android:textColor="#DDE3EA" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchDedupe"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Dedupe tool calls"
+                android:checked="true"
+                android:textColor="#DDE3EA" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="API keys (native storage)"
+                android:textColor="#4D6BFE"
+                android:textStyle="bold"
+                android:paddingTop="16dp"
+                android:paddingBottom="6dp" />
+
+            <EditText
+                android:id="@+id/keyName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Key name (e.g. openai)"
+                android:inputType="text"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#668899" />
+
+            <EditText
+                android:id="@+id/keyValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Secret value"
+                android:inputType="textPassword"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#668899" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnSaveKey"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Save key" />
+
+                <Button
+                    android:id="@+id/btnDeleteKey"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Delete key" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/keysList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#AAB"
+                android:textSize="12sp"
+                android:paddingTop="8dp"
+                android:fontFamily="monospace" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Actions"
+                android:textColor="#4D6BFE"
+                android:textStyle="bold"
+                android:paddingTop="16dp"
+                android:paddingBottom="6dp" />
+
+            <Button android:id="@+id/btnReload" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Reload chat" />
+            <Button android:id="@+id/btnReinject" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Re-inject shim" />
+            <Button android:id="@+id/btnClearCache" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Clear WebView cache" />
+            <Button android:id="@+id/btnClearMemory" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Clear tool memory" />
+            <Button android:id="@+id/btnClearFs" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Clear native FS" />
+
+            <TextView
+                android:id="@+id/toolsList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#88AABB"
+                android:textSize="12sp"
+                android:paddingTop="16dp"
+                android:fontFamily="monospace" />
+        </LinearLayout>
+    </ScrollView>
+
+    <Button
+        android:id="@+id/btnClose"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Done" />
+</LinearLayout>

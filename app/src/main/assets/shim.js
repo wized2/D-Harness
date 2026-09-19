@@ -335,8 +335,8 @@
     </div>
   `;
 
-  document.body.appendChild(fab);
-  document.body.appendChild(panel);
+  if (!CONFIG.hideFab) document.body.appendChild(fab); else { try { fab.remove(); } catch(e) {} }
+  if (!CONFIG.hideFab) document.body.appendChild(panel);
 
   // ---------- Toast ----------
   const toast = document.createElement('div');
@@ -616,6 +616,10 @@
       read: ()     => window.__ds_call_tool('clipboard_read', {}),
     };
     window.geo = { get: (opts) => window.__ds_call_tool('geo_get', opts || {}) };
+    window.list_tools = () => window.__ds_call_tool('list_tools', {});
+    window.keys = { get:(n)=>window.__ds_call_tool('keys',{op:'get',name:n}), set:(n,v)=>window.__ds_call_tool('keys',{op:'set',name:n,value:v}), list:()=>window.__ds_call_tool('keys',{op:'list'}), delete:(n)=>window.__ds_call_tool('keys',{op:'delete',name:n}) };
+    window.device = { info:()=>window.__ds_call_tool('device',{op:'info'}), battery:()=>window.__ds_call_tool('device',{op:'battery'}), network:()=>window.__ds_call_tool('device',{op:'network'}) };
+    window.notify = (title,body)=>window.__ds_call_tool('notify',{title,body});
     window.fs = {
       read:   (path)                => window.__ds_call_tool('fs', { op:'read', path }),
       write:  (path, content, mime) => window.__ds_call_tool('fs', { op:'write', path, content, mime }),
@@ -645,6 +649,34 @@
     if (kb > CONFIG.maxStorageKB) throw new Error(`payload too large: ${kb.toFixed(1)}KB > ${CONFIG.maxStorageKB}KB`);
   };
   const toolHandlers = {
+    async list_tools() {
+      if (window.__DHarnessNative && window.__DHarnessNative.list_tools) return window.__DHarnessNative.list_tools();
+      return { tools: Object.keys(toolHandlers), native: false };
+    },
+    async keys({ op, name, value }) {
+      if (window.__DHarnessNative && window.__DHarnessNative.keys) {
+        const K = window.__DHarnessNative.keys;
+        if (op === 'get') return K.get(name);
+        if (op === 'set') return K.set(name, value);
+        if (op === 'delete') return K.delete(name);
+        if (op === 'list') return K.list();
+      }
+      throw new Error('keys requires native');
+    },
+    async device({ op }) {
+      if (window.__DHarnessNative && window.__DHarnessNative.device) {
+        const D = window.__DHarnessNative.device;
+        if (op === 'info' || !op) return D.info();
+        if (op === 'battery') return D.battery();
+        if (op === 'network') return D.network();
+      }
+      throw new Error('device requires native');
+    },
+    async notify({ title, body }) {
+      if (window.__DHarnessNative && window.__DHarnessNative.notify)
+        return window.__DHarnessNative.notify(title || 'D-Harness', body || '');
+      return { ok: false };
+    },
     async memory({ op, key, value }) {
       if (window.__DHarnessNative && window.__DHarnessNative.available && window.__DHarnessNative.memory) {
         const N = window.__DHarnessNative.memory;
@@ -815,18 +847,18 @@
     setNativeValue(input, text);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 40));
 
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
     input.dispatchEvent(new KeyboardEvent('keyup',   { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
 
     let t0 = Date.now();
-    while (input.value.length > 0 && Date.now() - t0 < 500) await new Promise(r => setTimeout(r, 50));
+    while (input.value.length > 0 && Date.now() - t0 < 500) await new Promise(r => setTimeout(r, 25));
     if (input.value.length === 0) { log('sent via Enter'); return true; }
 
     t0 = Date.now();
     let btn = null;
-    while (Date.now() - t0 < CONFIG.sendTimeoutMs) { btn = findEnabledSendButton(); if (btn) break; await new Promise(r => setTimeout(r, 50)); }
+    while (Date.now() - t0 < CONFIG.sendTimeoutMs) { btn = findEnabledSendButton(); if (btn) break; await new Promise(r => setTimeout(r, 25)); }
     if (btn) { btn.click(); log('sent via button'); return true; }
 
     log('send failed'); setStatus('error'); return false;
