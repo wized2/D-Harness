@@ -22,48 +22,39 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Grant execute
+      - name: Make gradlew executable
         run: chmod +x gradlew || true
 
       - name: Build release APK
         run: |
-          if [ -f gradlew ]; then
-            ./gradlew :app:assembleRelease --no-daemon
+          set -e
+          if [ -x ./gradlew ]; then
+            ./gradlew :app:assembleRelease --no-daemon --stacktrace
           else
-            gradle :app:assembleRelease --no-daemon
+            gradle wrapper --gradle-version 8.9
+            ./gradlew :app:assembleRelease --no-daemon --stacktrace
           fi
-
-      - name: Find APK
-        id: apk
-        run: |
-          APK=$(find app/build/outputs/apk -name "*.apk" | head -1)
-          echo "path=$APK" >> $GITHUB_OUTPUT
-          echo "Found $APK"
-          ls -la app/build/outputs/apk || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: D-Harness-release
-          path: app/build/outputs/apk/**/*.apk
+          path: |
+            app/build/outputs/apk/**/*.apk
 
-      - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
+      - name: Release v1.0.0
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0
           name: D-Harness v1.0.0
           body: |
             ## D-Harness 1.0.0
-
-            - DeepSeek Chat WebView shell
-            - Tool Shim **v6.2.0** auto-injected (FAB, tagline, dedupe, tools)
-            - Native bridge: memory, fs, fetch (no CORS), clipboard, share, toast, vibrate
-            - White-on-black DeepSeek adaptive icon
-
-            Install the release APK below. Open a chat and paste your agent system prompt once.
-          files: app/build/outputs/apk/release/*.apk
+            - DeepSeek Chat WebView
+            - Tool Shim **v6.2.0** (FAB, tagline, dedupe)
+            - Native bridge: memory, fs, fetch, clipboard, share, toast, vibrate
+            - White-on-black DeepSeek icon
+          files: |
+            app/build/outputs/apk/release/*.apk
           fail_on_unmatched_files: false
-          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
