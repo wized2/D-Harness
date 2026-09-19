@@ -630,6 +630,11 @@
     window.keys = { get:(n)=>window.__ds_call_tool('keys',{op:'get',name:n}), set:(n,v)=>window.__ds_call_tool('keys',{op:'set',name:n,value:v}), list:()=>window.__ds_call_tool('keys',{op:'list'}), delete:(n)=>window.__ds_call_tool('keys',{op:'delete',name:n}) };
     window.device = { info:()=>window.__ds_call_tool('device',{op:'info'}), battery:()=>window.__ds_call_tool('device',{op:'battery'}), network:()=>window.__ds_call_tool('device',{op:'network'}) };
     window.notify = (title,body)=>window.__ds_call_tool('notify',{title,body});
+    window.toast = (message)=>window.__ds_call_tool('toast',{message});
+    window.vibrate = (ms)=>window.__ds_call_tool('vibrate',{ms});
+    window.share = (text)=>window.__ds_call_tool('share',{text});
+    window.appInfo = ()=>window.__ds_call_tool('appInfo',{});
+    window.geo = { get: ()=>window.__ds_call_tool('geo',{}) };
     window.fs = {
       read:   (path)                => window.__ds_call_tool('fs', { op:'read', path }),
       write:  (path, content, mime) => window.__ds_call_tool('fs', { op:'write', path, content, mime }),
@@ -663,8 +668,9 @@
       if (window.__DHarnessNative && window.__DHarnessNative.list_tools) return window.__DHarnessNative.list_tools();
       return { tools: Object.keys(toolHandlers), native: false };
     },
-    async describe({ name }) {
-      if (window.__DHarnessNative && window.__DHarnessNative.describe) return window.__DHarnessNative.describe(name);
+    async describe(args) {
+      const name = typeof args === 'string' ? args : (args && args.name);
+      if (window.__DHarnessNative && window.__DHarnessNative.describe) return window.__DHarnessNative.describe(name || '');
       return { error: 'no describe' };
     },
     async http_request(args) {
@@ -683,6 +689,31 @@
       if (op === 'request') return N.request(args.method, args.path, args.body);
       throw new Error('unknown github op');
     },
+
+    async toast(args) {
+      const m = (args && (args.message || args.m || args.text)) || (typeof args === 'string' ? args : '');
+      if (window.__DHarnessNative && window.__DHarnessNative.toast) return window.__DHarnessNative.toast(m);
+      throw new Error('toast requires native');
+    },
+    async vibrate(args) {
+      const ms = (args && (args.ms || args.duration)) || 40;
+      if (window.__DHarnessNative && window.__DHarnessNative.vibrate) return window.__DHarnessNative.vibrate(ms);
+      throw new Error('vibrate requires native');
+    },
+    async share(args) {
+      const t = (args && (args.text || args.message)) || '';
+      if (window.__DHarnessNative && window.__DHarnessNative.share) return window.__DHarnessNative.share(t);
+      throw new Error('share requires native');
+    },
+    async appInfo() {
+      if (window.__DHarnessNative && window.__DHarnessNative.appInfo) return window.__DHarnessNative.appInfo();
+      throw new Error('appInfo requires native');
+    },
+    async geo(args) {
+      if (window.__DHarnessNative && window.__DHarnessNative.geo) return window.__DHarnessNative.geo.get();
+      throw new Error('geo requires native + location permission');
+    },
+
 
     async keys({ op, name, value }) {
       if (window.__DHarnessNative && window.__DHarnessNative.keys) {
@@ -725,25 +756,12 @@
       if (op === 'clear')  { lsSet(LS.memory, {}); return { ok: true }; }
       throw new Error('unknown memory op: ' + op);
     },
-    async fetch_url({ url, method = 'GET', headers = {}, body = null, json = null, timeoutMs = 15000 }) {
-      if (/^https?:\/\/chat\.deepseek\.com/i.test(url)) throw new Error('blocked: same-origin fetch');
-      if (window.__DHarnessNative && window.__DHarnessNative.available && window.__DHarnessNative.fetch_url) {
-        const bodyStr = json != null ? JSON.stringify(json) : (body != null ? String(body) : null);
-        return window.__DHarnessNative.fetch_url(url, { method, body: bodyStr });
+    async fetch_url(args) {
+      const a = args || {};
+      if (window.__DHarnessNative && window.__DHarnessNative.fetch_url) {
+        return window.__DHarnessNative.fetch_url(a.url || a, a);
       }
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), timeoutMs);
-      try {
-        const opts = { method, headers: { ...headers }, signal: ctrl.signal };
-        if (json !== null && json !== undefined) {
-          opts.headers['Content-Type'] = opts.headers['Content-Type'] || 'application/json';
-          opts.body = JSON.stringify(json);
-        } else if (body !== null && body !== undefined) opts.body = body;
-        const res = await fetch(url, opts);
-        const text = await res.text();
-        let parsed = null; try { parsed = JSON.parse(text); } catch {}
-        return { status: res.status, ok: res.ok, headers: Object.fromEntries(res.headers.entries()), text: text.slice(0, 100000), json: parsed };
-      } finally { clearTimeout(t); }
+      throw new Error('fetch_url requires native');
     },
     async file_save({ filename, content, mime = 'text/plain' }) {
       if (window.__DHarnessNative && window.__DHarnessNative.available && window.__DHarnessNative.file_save) {
@@ -1123,4 +1141,5 @@
 
   refreshCounts();
   console.log(`%c✅ D-Harness · DeepSeek Tool Shim v${VERSION} loaded — drag the dot to move, click to open panel`, 'color:#0af;font-weight:bold');
+}
 })();

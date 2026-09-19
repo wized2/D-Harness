@@ -1,3 +1,4 @@
+
 window.__dHarnessFetchPending = window.__dHarnessFetchPending || {};
 window.__dHarnessCb = function (id, payloadStr) {
   var p = window.__dHarnessFetchPending[id];
@@ -14,19 +15,17 @@ function _cbId() { return 'c' + Date.now().toString(36) + Math.random().toString
 function _asyncNative(fn) {
   return new Promise(function (resolve, reject) {
     var id = _cbId();
-    window.__dHarnessFetchPending[id] = { resolve: resolve, reject: reject };
-    var t = setTimeout(function () {
+    var timer = setTimeout(function () {
       if (window.__dHarnessFetchPending[id]) {
         delete window.__dHarnessFetchPending[id];
         reject(new Error('timeout'));
       }
     }, 30000);
-    var orig = window.__dHarnessFetchPending[id];
     window.__dHarnessFetchPending[id] = {
-      resolve: function (d) { clearTimeout(t); orig.resolve(d); },
-      reject: function (e) { clearTimeout(t); orig.reject(e); }
+      resolve: function (d) { clearTimeout(timer); resolve(d); },
+      reject: function (e) { clearTimeout(timer); reject(e); }
     };
-    try { fn(id); } catch (e) { clearTimeout(t); delete window.__dHarnessFetchPending[id]; reject(e); }
+    try { fn(id); } catch (e) { clearTimeout(timer); delete window.__dHarnessFetchPending[id]; reject(e); }
   });
 }
 
@@ -40,8 +39,9 @@ window.__DHarnessNative = {
   },
   http_request: function (opts) {
     opts = opts || {};
-    var headers = opts.headers ? JSON.stringify(opts.headers) : null;
+    var headers = opts.headers ? (typeof opts.headers === 'string' ? opts.headers : JSON.stringify(opts.headers)) : null;
     var body = opts.body != null ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : null;
+    if (opts.json != null && body == null) body = JSON.stringify(opts.json);
     return _asyncNative(function (id) {
       DHarness.httpRequest(opts.url, opts.method || 'GET', headers, body, id);
     });
@@ -50,7 +50,10 @@ window.__DHarnessNative = {
     opts = opts || {};
     if (typeof url === 'object') { opts = url; url = opts.url; }
     return window.__DHarnessNative.http_request({
-      url: url, method: opts.method || 'GET', headers: opts.headers, body: opts.body || opts.json
+      url: url,
+      method: opts.method || 'GET',
+      headers: opts.headers || null,
+      body: opts.body != null ? opts.body : opts.json
     });
   },
   github: {
@@ -60,11 +63,23 @@ window.__DHarnessNative = {
     },
     me: function () { return window.__DHarnessNative.github.request('GET', '/user'); },
     repos: function (perPage) {
-      return window.__DHarnessNative.github.request('GET', '/user/repos?per_page=' + (perPage || 30) + '&sort=updated');
+      var n = Math.min(Math.max(parseInt(perPage, 10) || 10, 1), 30);
+      return window.__DHarnessNative.github.request('GET',
+        '/user/repos?per_page=' + n + '&sort=updated&direction=desc').then(function (r) {
+        // Compact: avoid 150KB truncation — return name/full_name/html_url only
+        if (r && r.json && Array.isArray(r.json)) {
+          r.json = r.json.map(function (x) {
+            return { id: x.id, name: x.name, full_name: x.full_name, html_url: x.html_url,
+              private: x.private, updated_at: x.updated_at };
+          });
+          r.text = JSON.stringify(r.json);
+        }
+        return r;
+      });
     },
     issues: function (owner, repo, state) {
       return window.__DHarnessNative.github.request('GET',
-        '/repos/' + owner + '/' + repo + '/issues?state=' + (state || 'open') + '&per_page=30');
+        '/repos/' + owner + '/' + repo + '/issues?state=' + (state || 'open') + '&per_page=20');
     },
     issue_comment: function (owner, repo, number, body) {
       return window.__DHarnessNative.github.request('POST',
@@ -113,5 +128,22 @@ window.__DHarnessNative = {
     return Promise.resolve(JSON.parse(DHarness.notify(String(title), String(body || ''))));
   },
   share: function (t) { DHarness.shareText(String(t)); return Promise.resolve({ ok: true }); },
-  appInfo: function () { return Promise.resolve(JSON.parse(DHarness.appInfo())); }
+  appInfo: function () { return Promise.resolve(JSON.parse(DHarness.appInfo())); },
+  geo: {
+    get: function () {
+      return new Promise(function (resolve, reject) {
+        if (!navigator.geolocation) return reject(new Error('geolocation unsupported'));
+        navigator.geolocation.getCurrentPosition(
+          function (p) {
+            resolve({
+              lat: p.coords.latitude, lng: p.coords.longitude,
+              accuracy: p.coords.accuracy, timestamp: p.timestamp
+            });
+          },
+          function (err) { reject(new Error(err.message || 'geo error')); },
+          { timeout: 10000, maximumAge: 60000 }
+        );
+      });
+    }
+  }
 };

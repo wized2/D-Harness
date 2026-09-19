@@ -95,6 +95,7 @@ class HarnessBridge(
         tool("vibrate", "Vibrate ms (10-800)", JSONObject().put("ms", "number?"))
         tool("notify", "System notification", JSONObject().put("title", "string").put("body", "string?"))
         tool("appInfo", "Same as device.info", JSONObject())
+        tool("geo.get", "Device location (requires location permission)", JSONObject())
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
@@ -110,12 +111,39 @@ class HarnessBridge(
 
     @JavascriptInterface
     fun describeTool(name: String): String {
+        val raw = name.trim()
         val arr = JSONObject(listTools()).getJSONArray("tools")
+        val matches = JSONArray()
         for (i in 0 until arr.length()) {
             val t = arr.getJSONObject(i)
-            if (t.getString("name") == name) return t.toString()
+            val n = t.getString("name")
+            if (n == raw || n.startsWith("$raw.") || n.startsWith("$raw/") ||
+                (raw.contains(".") && n == raw) ||
+                (raw == "memory" && n.startsWith("memory.")) ||
+                (raw == "keys" && n.startsWith("keys.")) ||
+                (raw == "fs" && n.startsWith("fs.")) ||
+                (raw == "github" && n.startsWith("github.")) ||
+                (raw == "device" && n.startsWith("device.")) ||
+                (raw == "clipboard" && n.startsWith("clipboard.")) ||
+                (raw == "geo" && n.startsWith("geo"))
+            ) {
+                matches.put(t)
+            }
         }
-        return JSONObject().put("error", "unknown tool: $name").toString()
+        if (matches.length() == 1) return matches.getJSONObject(0).toString()
+        if (matches.length() > 1) {
+            return JSONObject().put("name", raw).put("variants", matches)
+                .put("hint", "Use a specific name from variants, e.g. memory.get").toString()
+        }
+        // fuzzy: clipboard.copy / write
+        if (raw == "clipboard.copy" || raw == "clipboard.write") {
+            for (i in 0 until arr.length()) {
+                val t = arr.getJSONObject(i)
+                if (t.getString("name").startsWith("clipboard.")) return t.toString()
+            }
+        }
+        return JSONObject().put("error", "unknown tool: $raw")
+            .put("hint", "Call list_tools() for exact names").toString()
     }
 
     @JavascriptInterface

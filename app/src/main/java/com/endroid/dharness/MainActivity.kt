@@ -79,6 +79,20 @@ class MainActivity : AppCompatActivity() {
             it.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         setContentView(R.layout.activity_main)
+
+        // Location optional for geo.get — request once (user can deny)
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            val need = arrayOf(
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ).filter {
+                androidx.core.content.ContextCompat.checkSelfPermission(this, it) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            if (need.isNotEmpty()) {
+                androidx.core.app.ActivityCompat.requestPermissions(this, need.toTypedArray(), 42)
+            }
+        }
         prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
         desktopMode = prefs.getBoolean("desktop", false)
 
