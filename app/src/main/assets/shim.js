@@ -773,6 +773,39 @@
       if (!window.__DHarnessNative || !window.__DHarnessNative.env) throw new Error('env requires native');
       return window.__DHarnessNative.env.get();
     },
+    async calc(args) {
+      const C = window.__DHarnessNative && window.__DHarnessNative.calc;
+      if (!C) throw new Error('calc requires native');
+      const op = (args && args.op) || 'eval';
+      if (op === 'convert') return C.convert(args.value, args.from, args.to);
+      if (op === 'haversine') return C.haversine(args.lat1, args.lon1, args.lat2, args.lon2);
+      return C.eval(args.expr || args);
+    },
+    async text(args) {
+      const T = window.__DHarnessNative && window.__DHarnessNative.text;
+      if (!T) throw new Error('text requires native');
+      const op = (args && args.op) || 'stats';
+      if (op === 'base64') return T.base64(args.mode || args.action || 'encode', args.data);
+      if (op === 'url') return T.url(args.mode || args.action || 'encode', args.data);
+      if (op === 'regex') return T.regex(args.mode || 'find', args.pattern, args.text, args.replacement);
+      return T.stats(args.text || '');
+    },
+    async time(args) {
+      const T = window.__DHarnessNative && window.__DHarnessNative.time;
+      if (!T) throw new Error('time requires native');
+      if ((args && args.op) === 'format') return T.format(args.ms, args.pattern);
+      return T.now();
+    },
+    async uuid() {
+      return window.__DHarnessNative.uuid.v4();
+    },
+    async random(args) {
+      return window.__DHarnessNative.random.bytes((args && args.n) || 16);
+    },
+    async intent(args) {
+      return window.__DHarnessNative.intent.open_url(args.url || args);
+    },
+
 
     async geo(args) {
       if (window.__DHarnessNative && window.__DHarnessNative.geo) return window.__DHarnessNative.geo.get();

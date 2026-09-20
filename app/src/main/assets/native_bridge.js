@@ -87,11 +87,37 @@ window.__DHarnessNative = {
     delete: function (n) { return _j(function () { return DHarness.keysDelete(n); }); },
     list: function () { return _j(function () { return DHarness.keysList(); }); }
   },
+
+  calc: {
+    eval: function (expr) { return _j(function () { return DHarness.calcEval(String(expr)); }); },
+    convert: function (value, from, to) { return _j(function () { return DHarness.calcConvert(Number(value), String(from), String(to)); }); },
+    haversine: function (lat1, lon1, lat2, lon2) {
+      return _j(function () { return DHarness.calcHaversine(Number(lat1), Number(lon1), Number(lat2), Number(lon2)); });
+    }
+  },
+  text: {
+    base64: function (op, data) { return _j(function () { return DHarness.textBase64(op, String(data)); }); },
+    url: function (op, data) { return _j(function () { return DHarness.textUrl(op, String(data)); }); },
+    regex: function (op, pattern, text, replacement) {
+      return _j(function () { return DHarness.textRegex(op, pattern, text, replacement != null ? String(replacement) : null); });
+    },
+    stats: function (text) { return _j(function () { return DHarness.textStats(String(text)); }); }
+  },
+  time: {
+    now: function () { return _j(function () { return DHarness.timeNow(); }); },
+    format: function (ms, pattern) { return _j(function () { return DHarness.timeFormat(Number(ms), pattern || null); }); }
+  },
+  uuid: { v4: function () { return _j(function () { return DHarness.uuidV4(); }); } },
+  random: { bytes: function (n) { return _j(function () { return DHarness.randomBytes(n || 16); }); } },
+  intent: { open_url: function (url) { return _j(function () { return DHarness.openUrl(String(url)); }); } },
   fs: {
     read: function (path) { return _j(function () { return DHarness.fsRead(path); }); },
     write: function (path, content) { return _j(function () { return DHarness.fsWrite(path, String(content)); }); },
     list: function (prefix) { return _j(function () { return DHarness.fsList(prefix || ''); }); },
-    delete: function (path) { return _j(function () { return DHarness.fsDelete(path); }); }
+    delete: function (path) { return _j(function () { return DHarness.fsDelete(path); }); },
+    stat: function (path) { return _j(function () { return DHarness.fsStat(path); }); },
+    exists: function (path) { return _j(function () { return DHarness.fsExists(path); }); },
+    append: function (path, content) { return _j(function () { return DHarness.fsAppend(path, String(content)); }); }
   },
   file: {
     commit: function (path, contentB64, sha256) {
@@ -144,7 +170,8 @@ window.__DHarnessNative = {
   device: {
     info: function () { return _j(function () { return DHarness.deviceInfo(); }); },
     battery: function () { return _j(function () { return DHarness.battery(); }); },
-    network: function () { return _j(function () { return DHarness.network(); }); }
+    network: function () { return _j(function () { return DHarness.network(); }); },
+    display: function () { return _j(function () { return DHarness.deviceDisplay(); }); }
   },
   toast: function (m) { DHarness.toast(String(m)); return Promise.resolve({ ok: true }); },
   vibrate: function (ms) { DHarness.vibrate(ms || 40); return Promise.resolve({ ok: true }); },

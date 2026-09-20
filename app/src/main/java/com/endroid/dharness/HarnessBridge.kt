@@ -150,10 +150,28 @@ class HarnessBridge(
         tool("notify", "Notification", JSONObject().put("title", "string").put("body", "string?"))
         tool("appInfo", "Same as device.info", JSONObject())
         tool("geo.get", "Location if permitted", JSONObject())
+
+        tool("calc.eval", "Safe arithmetic expression ( + - * / % ^ ( ) )", JSONObject().put("expr", "string"))
+        tool("calc.convert", "Unit convert: length/mass/temp/data", JSONObject().put("value", "number").put("from", "string").put("to", "string"))
+        tool("calc.haversine", "Distance km between lat/lon pairs", JSONObject().put("lat1", "number").put("lon1", "number").put("lat2", "number").put("lon2", "number"))
+        tool("text.base64", "encode|decode base64", JSONObject().put("op", "encode|decode").put("data", "string"))
+        tool("text.url", "encode|decode URL component", JSONObject().put("op", "encode|decode").put("data", "string"))
+        tool("text.regex", "Regex find/match/replace", JSONObject().put("op", "find|match|replace").put("pattern", "string").put("text", "string").put("replacement", "string?"))
+        tool("text.hash_preview", "Length/lines/words of text", JSONObject().put("text", "string"))
+        tool("time.now", "Epoch ms + ISO UTC", JSONObject())
+        tool("time.format", "Format epoch ms", JSONObject().put("ms", "number").put("pattern", "string?"))
+        tool("uuid.v4", "Random UUID", JSONObject())
+        tool("fs.stat", "File size/mtime/exists", JSONObject().put("path", "string"))
+        tool("fs.exists", "Boolean exists", JSONObject().put("path", "string"))
+        tool("fs.append", "Append UTF-8 text", JSONObject().put("path", "string").put("content", "string"))
+        tool("intent.open_url", "Open URL in browser", JSONObject().put("url", "string"))
+        tool("device.display", "Screen size/density", JSONObject())
+        tool("random.bytes", "Secure random hex", JSONObject().put("n", "number"))
+
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
-            .put("version", "1.3.0")
+            .put("version", "1.3.1")
             .put("notes", JSONObject()
                 .put("memory", "agent scratchpad")
                 .put("keys", "secrets/PAT — never echo values")
@@ -798,4 +816,284 @@ class HarnessBridge(
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
+
+    // ─── calc / text / time / uuid / fs extras / intent / display ─
+
+    @JavascriptInterface
+    fun calcEval(expr: String): String {
+        return try {
+            val cleaned = expr.replace(Regex("[^0-9+\\-*/%^().eE\\s]"), "")
+            if (cleaned.isBlank()) return JSONObject().put("ok", false).put("error", "empty").toString()
+            val result = evalExpr(cleaned)
+            JSONObject().put("ok", true).put("result", result).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun evalExpr(expr: String): Double {
+        // shunting-yard style minimal evaluator
+        data class Tok(val op: Boolean, val v: Double = 0.0, val c: Char = ' ')
+        val toks = mutableListOf<Tok>()
+        var i = 0
+        val s = expr.replace(" ", "")
+        while (i < s.length) {
+            val c = s[i]
+            if (c.isDigit() || c == '.') {
+                var j = i + 1
+                while (j < s.length && (s[j].isDigit() || s[j] == '.' || s[j] == 'e' || s[j] == 'E' || (s[j] == '-' && s[j - 1].lowercaseChar() == 'e'))) j++
+                toks.add(Tok(false, s.substring(i, j).toDouble()))
+                i = j
+            } else if (c in "+-*/%^()") {
+                toks.add(Tok(true, c = c))
+                i++
+            } else throw IllegalArgumentException("bad char $c")
+        }
+        val out = mutableListOf<Tok>()
+        val ops = ArrayDeque<Char>()
+        fun prec(c: Char) = when (c) { '+', '-' -> 1; '*', '/', '%' -> 2; '^' -> 3; else -> 0 }
+        for (t in toks) {
+            if (!t.op) out.add(t)
+            else if (t.c == '(') ops.addFirst(t.c)
+            else if (t.c == ')') {
+                while (ops.isNotEmpty() && ops.first() != '(') out.add(Tok(true, c = ops.removeFirst()))
+                if (ops.isNotEmpty() && ops.first() == '(') ops.removeFirst()
+            } else {
+                while (ops.isNotEmpty() && ops.first() != '(' && prec(ops.first()) >= prec(t.c)) {
+                    out.add(Tok(true, c = ops.removeFirst()))
+                }
+                ops.addFirst(t.c)
+            }
+        }
+        while (ops.isNotEmpty()) out.add(Tok(true, c = ops.removeFirst()))
+        val st = ArrayDeque<Double>()
+        for (t in out) {
+            if (!t.op) st.addFirst(t.v)
+            else {
+                val b = st.removeFirst()
+                val a = if (st.isEmpty()) 0.0 else st.removeFirst()
+                val r = when (t.c) {
+                    '+' -> a + b; '-' -> a - b; '*' -> a * b
+                    '/' -> a / b; '%' -> a % b
+                    '^' -> Math.pow(a, b)
+                    else -> throw IllegalArgumentException("op")
+                }
+                st.addFirst(r)
+            }
+        }
+        return st.first()
+    }
+
+    @JavascriptInterface
+    fun calcConvert(value: Double, from: String, to: String): String {
+        return try {
+            fun toMeter(v: Double, u: String) = when (u.lowercase()) {
+                "m" -> v; "km" -> v * 1000; "cm" -> v / 100; "mm" -> v / 1000
+                "mi" -> v * 1609.344; "ft" -> v * 0.3048; "in" -> v * 0.0254
+                else -> null
+            }
+            fun fromMeter(v: Double, u: String) = when (u.lowercase()) {
+                "m" -> v; "km" -> v / 1000; "cm" -> v * 100; "mm" -> v * 1000
+                "mi" -> v / 1609.344; "ft" -> v / 0.3048; "in" -> v / 0.0254
+                else -> null
+            }
+            fun toKg(v: Double, u: String) = when (u.lowercase()) {
+                "kg" -> v; "g" -> v / 1000; "lb" -> v * 0.45359237; "oz" -> v * 0.0283495231
+                else -> null
+            }
+            fun fromKg(v: Double, u: String) = when (u.lowercase()) {
+                "kg" -> v; "g" -> v * 1000; "lb" -> v / 0.45359237; "oz" -> v / 0.0283495231
+                else -> null
+            }
+            fun toC(v: Double, u: String) = when (u.lowercase()) {
+                "c", "celsius" -> v; "f", "fahrenheit" -> (v - 32) * 5 / 9; "k", "kelvin" -> v - 273.15
+                else -> null
+            }
+            fun fromC(v: Double, u: String) = when (u.lowercase()) {
+                "c", "celsius" -> v; "f", "fahrenheit" -> v * 9 / 5 + 32; "k", "kelvin" -> v + 273.15
+                else -> null
+            }
+            fun toByte(v: Double, u: String) = when (u.lowercase()) {
+                "b" -> v; "kb" -> v * 1000; "mb" -> v * 1e6; "gb" -> v * 1e9
+                "kib" -> v * 1024; "mib" -> v * 1048576; "gib" -> v * 1073741824
+                else -> null
+            }
+            fun fromByte(v: Double, u: String) = when (u.lowercase()) {
+                "b" -> v; "kb" -> v / 1000; "mb" -> v / 1e6; "gb" -> v / 1e9
+                "kib" -> v / 1024; "mib" -> v / 1048576; "gib" -> v / 1073741824
+                else -> null
+            }
+            val f = from.lowercase(); val tt = to.lowercase()
+            val result = when {
+                toMeter(value, f) != null && fromMeter(0.0, tt) != null -> fromMeter(toMeter(value, f)!!, tt)
+                toKg(value, f) != null && fromKg(0.0, tt) != null -> fromKg(toKg(value, f)!!, tt)
+                toC(value, f) != null && fromC(0.0, tt) != null -> fromC(toC(value, f)!!, tt)
+                toByte(value, f) != null && fromByte(0.0, tt) != null -> fromByte(toByte(value, f)!!, tt)
+                else -> return JSONObject().put("ok", false).put("error", "unknown units").toString()
+            }
+            JSONObject().put("ok", true).put("result", result).put("from", from).put("to", to).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun calcHaversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): String {
+        return try {
+            val r = 6371.0
+            val p1 = Math.toRadians(lat1); val p2 = Math.toRadians(lat2)
+            val dp = Math.toRadians(lat2 - lat1); val dl = Math.toRadians(lon2 - lon1)
+            val a = Math.sin(dp / 2).let { it * it } + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2).let { it * it }
+            val km = 2 * r * Math.asin(Math.sqrt(a))
+            JSONObject().put("ok", true).put("km", km).put("m", km * 1000).put("mi", km / 1.609344).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textBase64(op: String, data: String): String {
+        return try {
+            if (op == "encode") {
+                JSONObject().put("ok", true)
+                    .put("result", Base64.encodeToString(data.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)).toString()
+            } else {
+                val bytes = Base64.decode(data, Base64.DEFAULT)
+                JSONObject().put("ok", true).put("result", String(bytes, Charsets.UTF_8))
+                    .put("bytes", bytes.size).toString()
+            }
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textUrl(op: String, data: String): String {
+        return try {
+            val r = if (op == "encode") java.net.URLEncoder.encode(data, "UTF-8")
+            else java.net.URLDecoder.decode(data, "UTF-8")
+            JSONObject().put("ok", true).put("result", r).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textRegex(op: String, pattern: String, text: String, replacement: String?): String {
+        return try {
+            val re = Regex(pattern)
+            when (op) {
+                "match" -> JSONObject().put("ok", true).put("matches", re.containsMatchIn(text)).toString()
+                "find" -> {
+                    val arr = JSONArray()
+                    re.findAll(text).take(50).forEach { arr.put(it.value) }
+                    JSONObject().put("ok", true).put("matches", arr).toString()
+                }
+                "replace" -> JSONObject().put("ok", true)
+                    .put("result", re.replace(text, replacement ?: "")).toString()
+                else -> JSONObject().put("ok", false).put("error", "op").toString()
+            }
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textStats(text: String): String {
+        val lines = if (text.isEmpty()) 0 else text.split('\n').size
+        val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.size
+        return JSONObject().put("ok", true).put("chars", text.length).put("lines", lines)
+            .put("words", words).put("utf8Bytes", text.toByteArray(Charsets.UTF_8).size).toString()
+    }
+
+    @JavascriptInterface
+    fun timeNow(): String {
+        val ms = System.currentTimeMillis()
+        val iso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }.format(java.util.Date(ms))
+        return JSONObject().put("ok", true).put("ms", ms).put("iso", iso).toString()
+    }
+
+    @JavascriptInterface
+    fun timeFormat(ms: Long, pattern: String?): String {
+        return try {
+            val p = pattern?.ifBlank { null } ?: "yyyy-MM-dd HH:mm:ss"
+            val fmt = java.text.SimpleDateFormat(p, java.util.Locale.US)
+            JSONObject().put("ok", true).put("result", fmt.format(java.util.Date(ms))).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun uuidV4(): String =
+        JSONObject().put("ok", true).put("uuid", java.util.UUID.randomUUID().toString()).toString()
+
+    @JavascriptInterface
+    fun fsStat(path: String): String {
+        return try {
+            val f = safeFile(path)
+            JSONObject().put("ok", true).put("exists", f.exists()).put("isFile", f.isFile)
+                .put("isDir", f.isDirectory).put("bytes", if (f.exists()) f.length() else 0)
+                .put("mtime", if (f.exists()) f.lastModified() else 0).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun fsExists(path: String): String {
+        return try {
+            JSONObject().put("ok", true).put("exists", safeFile(path).exists()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun fsAppend(path: String, content: String): String {
+        return try {
+            val f = safeFile(path)
+            f.parentFile?.mkdirs()
+            f.appendText(content)
+            JSONObject().put("ok", true).put("bytes", f.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun openUrl(url: String): String {
+        return try {
+            webView.post {
+                context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun deviceDisplay(): String {
+        val dm = context.resources.displayMetrics
+        return JSONObject().put("ok", true)
+            .put("widthPx", dm.widthPixels).put("heightPx", dm.heightPixels)
+            .put("density", dm.density.toDouble()).put("dpi", dm.densityDpi)
+            .put("scaledDensity", dm.scaledDensity.toDouble()).toString()
+    }
+
+    @JavascriptInterface
+    fun randomBytes(n: Int): String {
+        return try {
+            val count = n.coerceIn(1, 64)
+            val bytes = ByteArray(count)
+            java.security.SecureRandom().nextBytes(bytes)
+            JSONObject().put("ok", true).put("hex", hex(bytes)).put("n", count).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
 }
