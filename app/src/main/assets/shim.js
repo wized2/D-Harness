@@ -21,11 +21,11 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '6.2.0';
+  const VERSION = '6.3.0';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false, maxStorageKB: 100,
-    sendTimeoutMs: 3000, sandboxTimeoutMs: 20000, dedupe: true,
+    sendTimeoutMs: 5000, sandboxTimeoutMs: 20000, dedupe: true,
   }, window.__DS_SHIM_CONFIG__ || {});
 
   const LS = {
@@ -638,6 +638,13 @@
       issues: (o,r,st) => window.__ds_call_tool('github', { op: 'issues', owner: o, repo: r, state: st }),
       issue_comment: (o,r,n,b) => window.__ds_call_tool('github', { op: 'issue_comment', owner: o, repo: r, number: n, body: b }),
       pr: (o,r,n) => window.__ds_call_tool('github', { op: 'pr', owner: o, repo: r, number: n }),
+      pr_files: (o,r,n) => window.__ds_call_tool('github', { op: 'pr_files', owner: o, repo: r, number: n }),
+      pr_reviews: (o,r,n) => window.__ds_call_tool('github', { op: 'pr_reviews', owner: o, repo: r, number: n }),
+      pr_commits: (o,r,n) => window.__ds_call_tool('github', { op: 'pr_commits', owner: o, repo: r, number: n }),
+      issue: (o,r,n) => window.__ds_call_tool('github', { op: 'issue', owner: o, repo: r, number: n }),
+      contents: (o,r,path,ref) => window.__ds_call_tool('github', { op: 'contents', owner: o, repo: r, path, ref }),
+      search: (q,type) => window.__ds_call_tool('github', { op: 'search', query: q, type }),
+      pr_create: (o,r,title,head,base,body,draft) => window.__ds_call_tool('github', { op: 'pr_create', owner: o, repo: r, title, head, base, body, draft }),
       request: (m,path,body) => window.__ds_call_tool('github', { op: 'request', method: m, path, body }),
     };
     window.keys = { get:(n)=>window.__ds_call_tool('keys',{op:'get',name:n}), set:(n,v)=>window.__ds_call_tool('keys',{op:'set',name:n,value:v}), list:()=>window.__ds_call_tool('keys',{op:'list'}), delete:(n)=>window.__ds_call_tool('keys',{op:'delete',name:n}) };
@@ -699,7 +706,14 @@
       if (op === 'issues') return N.issues(args.owner, args.repo, args.state);
       if (op === 'issue_comment') return N.issue_comment(args.owner, args.repo, args.number, args.body);
       if (op === 'pr') return N.pr(args.owner, args.repo, args.number);
-      if (op === 'request') return N.request(args.method, args.path, args.body);
+      if (op === 'pr_files') return N.pr_files(args.owner, args.repo, args.number);
+      if (op === 'pr_reviews') return N.pr_reviews(args.owner, args.repo, args.number);
+      if (op === 'pr_commits') return N.pr_commits(args.owner, args.repo, args.number);
+      if (op === 'issue') return N.issue(args.owner, args.repo, args.number);
+      if (op === 'contents') return N.contents(args.owner, args.repo, args.path, args.ref);
+      if (op === 'search') return N.search(args.query, args.type);
+      if (op === 'pr_create') return N.pr_create(args.owner, args.repo, args.title, args.head, args.base, args.body, args.draft);
+      if (op === 'request') return N.request(args.method || 'GET', args.path, args.body);
       throw new Error('unknown github op');
     },
 
@@ -728,6 +742,7 @@
       const op = (args && args.op) || 'commit';
       if (op === 'commit') return N.commit(args.path, args.contentB64, args.sha256);
       if (op === 'read_b64') return N.read_b64(args.path);
+      if (op === 'verify_roundtrip') return N.verify_roundtrip();
       throw new Error('unknown file op');
     },
     async exec(args) {
@@ -1062,7 +1077,40 @@
   }
 
   // ---------- Tool-call parsing ----------
+
+  /**
+   * Prefer <pre>/<code> text; otherwise walk the DOM and reconstruct
+   * *emphasis* so Markdown rendering does not strip multiplication operators
+   * from run_js code (DeepSeek renders *word* as <em>word</em>).
+   */
+  function messageTextForTools(el) {
+    try {
+      const blocks = el.querySelectorAll('pre code, pre');
+      if (blocks.length) {
+        return Array.from(blocks).map((b) => b.textContent || '').join('\n').trim();
+      }
+    } catch (e) {}
+    function walk(node) {
+      if (!node) return '';
+      if (node.nodeType === 3) return node.nodeValue || '';
+      if (node.nodeType !== 1) return '';
+      const tag = node.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE') return '';
+      if (tag === 'BR') return '\n';
+      if (tag === 'CODE' || tag === 'PRE') return node.textContent || '';
+      let inner = '';
+      for (let i = 0; i < node.childNodes.length; i++) inner += walk(node.childNodes[i]);
+      if (tag === 'EM' || tag === 'I') return '*' + inner + '*';
+      if (tag === 'STRONG' || tag === 'B') return '**' + inner + '**';
+      return inner;
+    }
+    return walk(el).trim();
+  }
+
   function extractToolCall(text) {
+    // Normalize smart quotes that DeepSeek/markdown sometimes injects into JSON
+    text = text.replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
+               .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
     let idx = 0;
     while ((idx = text.indexOf('"tool"', idx)) !== -1) {
       const start = text.lastIndexOf('{', idx);
@@ -1111,7 +1159,7 @@
     let n = 0;
     for (const m of all) {
       if (m === dsMessage) return n;
-      const txt = (m.innerText || '').trim();
+      const txt = messageTextForTools(m);
       if (txt.includes(toolJson)) n++;
     }
     return n;
@@ -1210,7 +1258,7 @@
     collapseToolMessage(dsMessage, preview, !res.ok, false);
     setStatus(res.ok ? 'idle' : 'error');
 
-    const payload = JSON.stringify({ ok: res.ok, result: res.result, error: res.error });
+    const payload = JSON.stringify({ ok: res.ok, result: res.result, error: res.error, sig: sig, ts: Date.now() });
     await sendMessage('TOOL_RESULT: ' + payload);
   }
 
@@ -1219,7 +1267,7 @@
     document.querySelectorAll('div.ds-message').forEach(el => {
       if (el.getAttribute('data-ds-shim-hidden') === '1') return;
       if (processed.has(el)) return;
-      const text = (el.innerText || '').trim();
+      const text = messageTextForTools(el) || (el.innerText || '').trim();
       if (!text) return;
       if (text.startsWith('TOOL_RESULT:')) {
         const wrapper = findWrapper(el);
@@ -1240,7 +1288,7 @@
       if (processed.has(el)) continue;
       const wrapper = findWrapper(el);
       if (wrapper?.querySelector(':scope > [data-ds-shim-tagline]')) { processed.add(el); continue; }
-      const text = (el.innerText || '').trim();
+      const text = messageTextForTools(el);
       if (!text || text.startsWith('TOOL_RESULT:')) continue;
       if (!el.querySelector('div.ds-markdown.ds-assistant-message-main-content')) continue;
       const tool = extractToolCall(text);
@@ -1258,10 +1306,10 @@
   }
 
   const debounce = (fn, ms) => { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
-  const debouncedTick = debounce(tick, 320);
+  const debouncedTick = debounce(tick, 250);
   const observer = new MutationObserver(debouncedTick);
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-  const loopTimer = setInterval(tick, 1500);
+  observer.observe(document.body, { childList: true, subtree: true, characterData: false });
+  const loopTimer = setInterval(tick, 2000);
   setTimeout(tick, 600);
 
   // ---------- Public API ----------

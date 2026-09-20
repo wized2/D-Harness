@@ -72,6 +72,47 @@ window.__DHarnessNative = {
     },
     pr: function (owner, repo, number) {
       return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/pulls/' + number);
+    },
+    pr_files: function (owner, repo, number) {
+      return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/pulls/' + number + '/files?per_page=100');
+    },
+    pr_reviews: function (owner, repo, number) {
+      return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/pulls/' + number + '/reviews?per_page=50');
+    },
+    pr_commits: function (owner, repo, number) {
+      return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/pulls/' + number + '/commits?per_page=50');
+    },
+    issue: function (owner, repo, number) {
+      return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/issues/' + number);
+    },
+    contents: function (owner, repo, path, ref) {
+      var q = ref ? ('?ref=' + encodeURIComponent(ref)) : '';
+      return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/contents/' + path.replace(/^\/+/, '') + q).then(function (r) {
+        // Normalize contents envelope
+        if (r && r.json && typeof r.json === 'object' && !Array.isArray(r.json)) {
+          r.content = r.json.content || null;
+          r.sha = r.json.sha || null;
+          r.encoding = r.json.encoding || null;
+          r.download_url = r.json.download_url || null;
+          r.name = r.json.name || null;
+          r.path = r.json.path || null;
+        }
+        return r;
+      });
+    },
+    search: function (query, type) {
+      var t = type || 'issues';
+      var path = t === 'code' ? '/search/code' : (t === 'repositories' ? '/search/repositories' : '/search/issues');
+      return window.__DHarnessNative.github.request('GET', path + '?q=' + encodeURIComponent(query) + '&per_page=20');
+    },
+    pr_create: function (owner, repo, title, head, base, body, draft) {
+      return window.__DHarnessNative.github.request('POST', '/repos/' + owner + '/' + repo + '/pulls', {
+        title: title, head: head, base: base || 'main', body: body || '', draft: !!draft
+      });
+    },
+    pr_comment: function (owner, repo, number, body) {
+      // Issue comments endpoint works for PR discussion comments
+      return window.__DHarnessNative.github.request('POST', '/repos/' + owner + '/' + repo + '/issues/' + number + '/comments', { body: body });
     }
   },
   memory: {
@@ -145,6 +186,7 @@ window.__DHarnessNative = {
       return _j(function () { return DHarness.fileCommit(path, contentB64, sha256 || null); });
     },
     read_b64: function (path) { return _j(function () { return DHarness.fileReadB64(path); }); },
+    verify_roundtrip: function () { return _j(function () { return DHarness.fileVerifyRoundtrip(); }); },
     save: function (filename, content, mime) {
       return _j(function () { return DHarness.saveFile(filename, String(content), mime || 'text/plain'); });
     }

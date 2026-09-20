@@ -126,6 +126,7 @@ class HarnessBridge(
         tool("fs.delete", "Delete file", JSONObject().put("path", "string"))
         tool("file.commit", "Byte-exact write from base64 + SHA-256 verify", JSONObject().put("path", "string").put("contentB64", "string").put("sha256", "string?"))
         tool("file.read_b64", "Read file as base64 + sha256", JSONObject().put("path", "string"))
+        tool("file.verify_roundtrip", "Write then read-back SHA-256 of UTF-8 test bytes", JSONObject())
         tool("exec", "Allowlisted ProcessBuilder in app sandbox", JSONObject().put("argv", "string[]").put("timeout_ms", "number?").put("cwd", "string?"))
         tool("sqlite.query", "Read-only SQLite query", JSONObject().put("path", "string").put("sql", "string").put("args", "string[]?"))
         tool("crypto.hash", "SHA-256/SHA-1/MD5", JSONObject().put("algo", "string").put("data", "string").put("encoding", "utf8|b64?"))
@@ -188,7 +189,7 @@ class HarnessBridge(
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
-            .put("version", "1.3.2")
+            .put("version", "1.4.0")
             .put("notes", JSONObject()
                 .put("memory", "agent scratchpad")
                 .put("keys", "secrets/PAT — never echo values")
@@ -1269,6 +1270,26 @@ class HarnessBridge(
             }
         }
         return JSONObject().put("ok", true).put("changes", changes).put("count", changes.length()).toString()
+    }
+
+    @JavascriptInterface
+    fun fileVerifyRoundtrip(): String {
+        return try {
+            val sample = "tabs:\tx\n° ′ ’ trailing\n"
+            val bytes = sample.toByteArray(Charsets.UTF_8)
+            val expected = sha256(bytes)
+            val path = "_verify/roundtrip.txt"
+            val f = safeFile(path)
+            f.parentFile?.mkdirs()
+            FileOutputStream(f).use { it.write(bytes) }
+            val back = FileInputStream(f).use { it.readBytes() }
+            val actual = sha256(back)
+            val ok = expected == actual && back.contentEquals(bytes)
+            JSONObject().put("ok", ok).put("expected", expected).put("actual", actual)
+                .put("bytes", bytes.size).put("path", path).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
     }
 
 }
