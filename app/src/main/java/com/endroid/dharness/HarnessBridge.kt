@@ -61,7 +61,9 @@ class HarnessBridge(
     private val execAllow = setOf(
         "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date",
         "uname", "id", "which", "true", "false", "sha256sum", "md5sum", "base64",
-        "toybox", "busybox"
+        "toybox", "busybox", "dirname", "basename", "cut", "sort", "uniq", "tr",
+        "cmp", "stat", "df", "du", "sleep", "printf", "test", "[", "rm", "mkdir",
+        "touch", "cp", "mv", "ln", "chmod"
     )
 
     private fun deliver(callbackId: String, json: String) {
@@ -167,11 +169,26 @@ class HarnessBridge(
         tool("intent.open_url", "Open URL in browser", JSONObject().put("url", "string"))
         tool("device.display", "Screen size/density", JSONObject())
         tool("random.bytes", "Secure random hex", JSONObject().put("n", "number"))
+        tool("calc.clamp", "Clamp number to [min,max]", JSONObject().put("value", "number").put("min", "number").put("max", "number"))
+        tool("calc.round", "Round to decimals", JSONObject().put("value", "number").put("digits", "number?"))
+        tool("text.case", "lower|upper|title", JSONObject().put("op", "string").put("text", "string"))
+        tool("text.trim", "Trim whitespace", JSONObject().put("text", "string"))
+        tool("text.split", "Split by delimiter", JSONObject().put("text", "string").put("sep", "string").put("limit", "number?"))
+        tool("text.join", "Join array with sep", JSONObject().put("parts", "string[]").put("sep", "string"))
+        tool("json.pretty", "Pretty-print JSON", JSONObject().put("json", "string").put("indent", "number?"))
+        tool("json.parse", "Parse JSON string", JSONObject().put("json", "string"))
+        tool("color.hex_rgb", "hex↔rgb", JSONObject().put("op", "to_rgb|to_hex").put("value", "string"))
+        tool("fs.mkdir", "Create directory", JSONObject().put("path", "string"))
+        tool("fs.touch", "Create empty file", JSONObject().put("path", "string"))
+        tool("fs.copy", "Copy file in sandbox", JSONObject().put("from", "string").put("to", "string"))
+        tool("fs.move", "Move/rename in sandbox", JSONObject().put("from", "string").put("to", "string"))
+        tool("diff.lines", "Simple line diff a vs b", JSONObject().put("a", "string").put("b", "string"))
+
 
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
-            .put("version", "1.3.1")
+            .put("version", "1.3.2")
             .put("notes", JSONObject()
                 .put("memory", "agent scratchpad")
                 .put("keys", "secrets/PAT — never echo values")
@@ -1094,6 +1111,164 @@ class HarnessBridge(
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
+    }
+
+
+    @JavascriptInterface
+    fun calcClamp(value: Double, min: Double, max: Double): String {
+        val r = value.coerceIn(minOf(min, max), maxOf(min, max))
+        return JSONObject().put("ok", true).put("result", r).toString()
+    }
+
+    @JavascriptInterface
+    fun calcRound(value: Double, digits: Int): String {
+        val d = digits.coerceIn(0, 12)
+        val f = Math.pow(10.0, d.toDouble())
+        return JSONObject().put("ok", true).put("result", Math.round(value * f) / f).toString()
+    }
+
+    @JavascriptInterface
+    fun textCase(op: String, text: String): String {
+        val r = when (op.lowercase()) {
+            "lower" -> text.lowercase()
+            "upper" -> text.uppercase()
+            "title" -> text.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+            else -> return JSONObject().put("ok", false).put("error", "op").toString()
+        }
+        return JSONObject().put("ok", true).put("result", r).toString()
+    }
+
+    @JavascriptInterface
+    fun textTrim(text: String): String =
+        JSONObject().put("ok", true).put("result", text.trim()).toString()
+
+    @JavascriptInterface
+    fun textSplit(text: String, sep: String, limit: Int): String {
+        val parts = if (limit > 0) text.split(sep, limit = limit) else text.split(sep)
+        return JSONObject().put("ok", true).put("parts", JSONArray(parts)).toString()
+    }
+
+    @JavascriptInterface
+    fun textJoin(partsJson: String, sep: String): String {
+        return try {
+            val arr = JSONArray(partsJson)
+            val list = List(arr.length()) { arr.getString(it) }
+            JSONObject().put("ok", true).put("result", list.joinToString(sep)).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun jsonPretty(jsonStr: String, indent: Int): String {
+        return try {
+            val ind = indent.coerceIn(0, 8)
+            val trimmed = jsonStr.trim()
+            val formatted = if (trimmed.startsWith("[")) JSONArray(trimmed).toString(ind)
+            else JSONObject(trimmed).toString(ind)
+            JSONObject().put("ok", true).put("result", formatted).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun jsonParse(jsonStr: String): String {
+        return try {
+            val trimmed = jsonStr.trim()
+            val v: Any = if (trimmed.startsWith("[")) JSONArray(trimmed) else JSONObject(trimmed)
+            JSONObject().put("ok", true).put("value", v).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun colorHexRgb(op: String, value: String): String {
+        return try {
+            if (op == "to_rgb") {
+                var h = value.removePrefix("#")
+                if (h.length == 3) h = h.map { "$it$it" }.joinToString("")
+                val n = h.toLong(16)
+                JSONObject().put("ok", true)
+                    .put("r", (n shr 16) and 255).put("g", (n shr 8) and 255).put("b", n and 255).toString()
+            } else {
+                // value like "255,128,0" or JSON
+                val parts = value.replace(Regex("[^0-9,]"), "").split(",").map { it.toInt() }
+                val r = parts.getOrElse(0) { 0 }.coerceIn(0, 255)
+                val g = parts.getOrElse(1) { 0 }.coerceIn(0, 255)
+                val b = parts.getOrElse(2) { 0 }.coerceIn(0, 255)
+                JSONObject().put("ok", true).put("hex", String.format("#%02X%02X%02X", r, g, b)).toString()
+            }
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun fsMkdir(path: String): String {
+        return try {
+            val f = safeFile(path)
+            JSONObject().put("ok", f.mkdirs() || f.isDirectory).put("path", path).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun fsTouch(path: String): String {
+        return try {
+            val f = safeFile(path)
+            f.parentFile?.mkdirs()
+            if (!f.exists()) f.writeText("")
+            else f.setLastModified(System.currentTimeMillis())
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun fsCopy(from: String, to: String): String {
+        return try {
+            val a = safeFile(from); val b = safeFile(to)
+            if (!a.exists()) return JSONObject().put("ok", false).put("error", "missing").toString()
+            b.parentFile?.mkdirs()
+            a.copyTo(b, overwrite = true)
+            JSONObject().put("ok", true).put("bytes", b.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun fsMove(from: String, to: String): String {
+        return try {
+            val a = safeFile(from); val b = safeFile(to)
+            if (!a.exists()) return JSONObject().put("ok", false).put("error", "missing").toString()
+            b.parentFile?.mkdirs()
+            val ok = a.renameTo(b)
+            if (!ok) { a.copyTo(b, true); a.delete() }
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun diffLines(a: String, b: String): String {
+        val la = a.split('\n')
+        val lb = b.split('\n')
+        val max = maxOf(la.size, lb.size).coerceAtMost(500)
+        val changes = JSONArray()
+        for (i in 0 until max) {
+            val sa = la.getOrNull(i)
+            val sb = lb.getOrNull(i)
+            if (sa != sb) {
+                changes.put(JSONObject().put("line", i + 1).put("a", sa ?: JSONObject.NULL).put("b", sb ?: JSONObject.NULL))
+            }
+        }
+        return JSONObject().put("ok", true).put("changes", changes).put("count", changes.length()).toString()
     }
 
 }

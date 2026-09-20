@@ -769,16 +769,45 @@
       if ((args && args.op) === 'kill') return P.kill(args.pid);
       return P.list();
     },
+    async fs(args) {
+      const F = window.__DHarnessNative && window.__DHarnessNative.fs;
+      if (!F) throw new Error('fs requires native');
+      const op = (args && args.op) || 'list';
+      if (op === 'read') return F.read(args.path);
+      if (op === 'write') return F.write(args.path, args.content);
+      if (op === 'list') return F.list(args.prefix || '');
+      if (op === 'delete') return F.delete(args.path);
+      if (op === 'stat') return F.stat(args.path);
+      if (op === 'exists') return F.exists(args.path);
+      if (op === 'append') return F.append(args.path, args.content);
+      if (op === 'mkdir') return F.mkdir(args.path);
+      if (op === 'touch') return F.touch(args.path);
+      if (op === 'copy') return F.copy(args.from, args.to);
+      if (op === 'move') return F.move(args.from, args.to);
+      throw new Error('unknown fs op');
+    },
     async env(args) {
       if (!window.__DHarnessNative || !window.__DHarnessNative.env) throw new Error('env requires native');
       return window.__DHarnessNative.env.get();
     },
+    async json_pretty(args) {
+      return window.__DHarnessNative.json.pretty(args.json, args.indent);
+    },
+    async color(args) {
+      return window.__DHarnessNative.color.hex_rgb(args.op || 'to_rgb', args.value);
+    },
+    async diff(args) {
+      return window.__DHarnessNative.diff.lines(args.a, args.b);
+    },
+
     async calc(args) {
       const C = window.__DHarnessNative && window.__DHarnessNative.calc;
       if (!C) throw new Error('calc requires native');
       const op = (args && args.op) || 'eval';
       if (op === 'convert') return C.convert(args.value, args.from, args.to);
       if (op === 'haversine') return C.haversine(args.lat1, args.lon1, args.lat2, args.lon2);
+      if (op === 'clamp') return C.clamp(args.value, args.min, args.max);
+      if (op === 'round') return C.round(args.value, args.digits || 0);
       return C.eval(args.expr || args);
     },
     async text(args) {
@@ -788,6 +817,10 @@
       if (op === 'base64') return T.base64(args.mode || args.action || 'encode', args.data);
       if (op === 'url') return T.url(args.mode || args.action || 'encode', args.data);
       if (op === 'regex') return T.regex(args.mode || 'find', args.pattern, args.text, args.replacement);
+      if (op === 'case') return T.case(args.mode || args.case || 'lower', args.text);
+      if (op === 'trim') return T.trim(args.text);
+      if (op === 'split') return T.split(args.text, args.sep || ',', args.limit || 0);
+      if (op === 'join') return T.join(args.parts || [], args.sep || '');
       return T.stats(args.text || '');
     },
     async time(args) {

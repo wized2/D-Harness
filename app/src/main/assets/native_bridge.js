@@ -93,7 +93,9 @@ window.__DHarnessNative = {
     convert: function (value, from, to) { return _j(function () { return DHarness.calcConvert(Number(value), String(from), String(to)); }); },
     haversine: function (lat1, lon1, lat2, lon2) {
       return _j(function () { return DHarness.calcHaversine(Number(lat1), Number(lon1), Number(lat2), Number(lon2)); });
-    }
+    },
+    clamp: function (value, min, max) { return _j(function () { return DHarness.calcClamp(Number(value), Number(min), Number(max)); }); },
+    round: function (value, digits) { return _j(function () { return DHarness.calcRound(Number(value), digits|0); }); }
   },
   text: {
     base64: function (op, data) { return _j(function () { return DHarness.textBase64(op, String(data)); }); },
@@ -101,7 +103,22 @@ window.__DHarnessNative = {
     regex: function (op, pattern, text, replacement) {
       return _j(function () { return DHarness.textRegex(op, pattern, text, replacement != null ? String(replacement) : null); });
     },
-    stats: function (text) { return _j(function () { return DHarness.textStats(String(text)); }); }
+    stats: function (text) { return _j(function () { return DHarness.textStats(String(text)); }); },
+    case: function (op, text) { return _j(function () { return DHarness.textCase(op, String(text)); }); },
+    trim: function (text) { return _j(function () { return DHarness.textTrim(String(text)); }); },
+    split: function (text, sep, limit) { return _j(function () { return DHarness.textSplit(String(text), String(sep), limit|0); }); },
+    join: function (parts, sep) { return _j(function () { return DHarness.textJoin(JSON.stringify(parts), String(sep)); }); }
+  },
+  json: {
+    pretty: function (json, indent) { return _j(function () { return DHarness.jsonPretty(String(json), indent|2); }); },
+    parse: function (json) { return _j(function () { return DHarness.jsonParse(String(json)); }); },
+    query: function (json, path) { return window.__DHarnessNative.json_query(json, path); }
+  },
+  color: {
+    hex_rgb: function (op, value) { return _j(function () { return DHarness.colorHexRgb(op, String(value)); }); }
+  },
+  diff: {
+    lines: function (a, b) { return _j(function () { return DHarness.diffLines(String(a), String(b)); }); }
   },
   time: {
     now: function () { return _j(function () { return DHarness.timeNow(); }); },
@@ -117,7 +134,11 @@ window.__DHarnessNative = {
     delete: function (path) { return _j(function () { return DHarness.fsDelete(path); }); },
     stat: function (path) { return _j(function () { return DHarness.fsStat(path); }); },
     exists: function (path) { return _j(function () { return DHarness.fsExists(path); }); },
-    append: function (path, content) { return _j(function () { return DHarness.fsAppend(path, String(content)); }); }
+    append: function (path, content) { return _j(function () { return DHarness.fsAppend(path, String(content)); }); },
+    mkdir: function (path) { return _j(function () { return DHarness.fsMkdir(path); }); },
+    touch: function (path) { return _j(function () { return DHarness.fsTouch(path); }); },
+    copy: function (from, to) { return _j(function () { return DHarness.fsCopy(from, to); }); },
+    move: function (from, to) { return _j(function () { return DHarness.fsMove(from, to); }); }
   },
   file: {
     commit: function (path, contentB64, sha256) {
