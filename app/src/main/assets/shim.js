@@ -21,7 +21,7 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '6.4.0';
+  const VERSION = '6.5.0';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false, maxStorageKB: 100,
@@ -1028,103 +1028,211 @@
     });
   }
 
-  // ---------- Input / Send (DeepSeek React-controlled composer) ----------
+  // ---------- Input / Send (DeepSeek React composer) ----------
   function getInput() {
     const sels = [
       'textarea[placeholder="Message DeepSeek"]',
       'textarea[placeholder*="DeepSeek" i]',
       'textarea[placeholder*="Message" i]',
+      'div#_normal_chat_message_input_container textarea',
+      'div[class*="chat"] textarea',
       'div.ds-scroll-area textarea',
       'form textarea',
-      'textarea[name="search"]',
+      'main textarea',
       'textarea',
     ];
     for (const sel of sels) {
       try {
-        const el = document.querySelector(sel);
-        if (el && el.offsetParent !== null) return el;
+        const nodes = document.querySelectorAll(sel);
+        for (const el of nodes) {
+          if (el.offsetParent === null && el.getClientRects().length === 0) continue;
+          // Prefer visible, large composer (not search boxes)
+          if (el.clientHeight >= 20 || el.rows >= 1) return el;
+        }
       } catch (e) {}
     }
-    // contenteditable fallback
-    const ce = document.querySelector('[contenteditable="true"]');
-    return ce || null;
+    return document.querySelector('[contenteditable="true"]');
   }
 
+  /**
+   * React 16–19 controlled input write.
+   * Critical: reset _valueTracker so React does not ignore the change.
+   */
   function setNativeValue(el, value) {
     if (!el) return;
     if (el.isContentEditable) {
       el.focus();
-      el.textContent = value;
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, value);
+      } catch (e) {
+        el.textContent = value;
+      }
       el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: value }));
       return;
     }
     const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const desc = Object.getOwnPropertyDescriptor(proto, 'value')
-      || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
-    if (desc && desc.set) desc.set.call(el, value);
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    const last = el.value;
+    if (setter) setter.call(el, value);
     else el.value = value;
-    // React 17/18 listen for InputEvent
+    // React 15–18 value tracker
     try {
-      el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: value }));
+      const tracker = el._valueTracker;
+      if (tracker && typeof tracker.setValue === 'function') tracker.setValue(last);
+    } catch (e) {}
+    try {
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true, cancelable: true, composed: true,
+        inputType: 'insertFromPaste', data: value,
+      }));
     } catch (e) {
       el.dispatchEvent(new Event('input', { bubbles: true }));
     }
     el.dispatchEvent(new Event('change', { bubbles: true }));
+    try {
+      el.dispatchEvent(new Event('blur', { bubbles: true }));
+      el.dispatchEvent(new Event('focus', { bubbles: true }));
+    } catch (e) {}
   }
 
-  const SEND_SELECTOR = 'div[role="button"].ds-button--primary.ds-button--circle, div[role="button"].ds-button--primary, button[type="submit"]';
-  const SEND_ICON_PREFIXES = ['M8.3125', 'M10.5', 'M2 ', 'M3 ']; // tolerate icon path churn
+  function isDisabledBtn(b) {
+    if (!b) return true;
+    if (b.disabled || b.getAttribute('aria-disabled') === 'true') return true;
+    if (b.classList.contains('ds-button--disabled')) return true;
+    if (b.getAttribute('data-disabled') === 'true') return true;
+    const op = getComputedStyle(b).opacity;
+    if (op && parseFloat(op) < 0.5) return true;
+    return false;
+  }
+
   function findEnabledSendButton() {
-    const nodes = document.querySelectorAll(SEND_SELECTOR);
-    for (const b of nodes) {
-      if (b.classList.contains('ds-button--disabled') || b.getAttribute('aria-disabled') === 'true' || b.disabled) continue;
-      if (b.offsetParent === null) continue;
+    // 1) Known DeepSeek send control
+    const candidates = [
+      ...document.querySelectorAll('div[role="button"]'),
+      ...document.querySelectorAll('button'),
+    ];
+    for (const b of candidates) {
+      if (isDisabledBtn(b)) continue;
+      if (b.offsetParent === null && b.getClientRects().length === 0) continue;
+      const cls = b.className || '';
       const d = b.querySelector('svg path')?.getAttribute('d') || '';
-      // Prefer icon that looks like send/arrow; else first enabled primary circle
-      if (d && SEND_ICON_PREFIXES.some((p) => d.startsWith(p))) return b;
+      const label = (b.getAttribute('aria-label') || b.title || '').toLowerCase();
+      const looksSend =
+        (cls.includes('ds-button') && cls.includes('primary') && cls.includes('circle')) ||
+        label.includes('send') ||
+        d.startsWith('M8.3125') || d.startsWith('M10.5') ||
+        (cls.includes('ds-button--filled') && cls.includes('ds-button--circle'));
+      if (looksSend) return b;
     }
-    // fallback: any enabled primary circle button near composer
-    for (const b of document.querySelectorAll('div[role="button"].ds-button--circle.ds-button--filled')) {
-      if (b.classList.contains('ds-button--disabled')) continue;
-      if (b.offsetParent === null) continue;
-      return b;
+    // 2) Last primary circle near bottom of page (composer area)
+    const circles = Array.from(document.querySelectorAll('div[role="button"].ds-button--circle'));
+    for (let i = circles.length - 1; i >= 0; i--) {
+      const b = circles[i];
+      if (!isDisabledBtn(b)) return b;
     }
     return null;
   }
 
-  async function sendMessage(text) {
+  function clickLikeUser(el) {
+    if (!el) return;
+    const opts = { bubbles: true, cancelable: true, view: window };
+    el.dispatchEvent(new PointerEvent('pointerdown', opts));
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new PointerEvent('pointerup', opts));
+    el.dispatchEvent(new MouseEvent('mouseup', opts));
+    el.dispatchEvent(new MouseEvent('click', opts));
+    try { el.click(); } catch (e) {}
+  }
+
+  function inputCurrentValue(input) {
+    if (!input) return '';
+    if (input.isContentEditable) return (input.textContent || '').trim();
+    return (input.value || '').trim();
+  }
+
+  async function sendMessage(text, attempt = 0) {
     const input = getInput();
-    if (!input) { log('no input'); setStatus('error'); return false; }
-    try { input.focus(); } catch (e) {}
+    if (!input) {
+      log('no input');
+      setStatus('error');
+      showToast('No chat input found');
+      return false;
+    }
+    try {
+      input.scrollIntoView({ block: 'nearest' });
+      input.focus();
+    } catch (e) {}
+
     setNativeValue(input, text);
-    // wait briefly for React to enable send
-    let t0 = Date.now();
-    let btn = null;
-    while (Date.now() - t0 < Math.min(CONFIG.sendTimeoutMs, 2500)) {
-      btn = findEnabledSendButton();
-      if (btn) break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    if (btn) {
-      btn.click();
-      // confirm cleared
-      t0 = Date.now();
-      while (Date.now() - t0 < 800) {
-        const v = input.isContentEditable ? (input.textContent || '') : (input.value || '');
-        if (!v || v.length < text.length / 2) { log('sent via button'); return true; }
-        await new Promise((r) => setTimeout(r, 30));
+    // Give React a tick to enable the send button
+    await new Promise((r) => setTimeout(r, 50));
+    setNativeValue(input, text); // second write helps some React builds
+
+    let sent = false;
+    const deadline = Date.now() + (CONFIG.sendTimeoutMs || 5000);
+
+    while (Date.now() < deadline && !sent) {
+      const btn = findEnabledSendButton();
+      if (btn) {
+        clickLikeUser(btn);
+        // wait for composer to clear or shrink
+        const tClear = Date.now();
+        while (Date.now() - tClear < 1200) {
+          const v = inputCurrentValue(input);
+          if (!v || (!v.startsWith('TOOL_RESULT') && v.length < Math.min(20, text.length))) {
+            sent = true;
+            break;
+          }
+          // still has our text — try click again once
+          if (Date.now() - tClear > 400 && Date.now() - tClear < 500) clickLikeUser(btn);
+          await new Promise((r) => setTimeout(r, 40));
+        }
+        if (sent) { log('sent via button'); return true; }
       }
-      log('sent via button (no clear confirm)'); return true;
+
+      // Enter / Ctrl+Enter fallbacks (DeepSeek sometimes binds these)
+      const fireKey = (key, mods = {}) => {
+        const base = { key, code: key === 'Enter' ? 'Enter' : key, keyCode: key === 'Enter' ? 13 : 0, which: key === 'Enter' ? 13 : 0, bubbles: true, cancelable: true, ...mods };
+        input.dispatchEvent(new KeyboardEvent('keydown', base));
+        input.dispatchEvent(new KeyboardEvent('keypress', base));
+        input.dispatchEvent(new KeyboardEvent('keyup', base));
+      };
+      fireKey('Enter');
+      await new Promise((r) => setTimeout(r, 60));
+      if (!inputCurrentValue(input) || !inputCurrentValue(input).startsWith('TOOL_RESULT')) {
+        // might have sent
+        if (!inputCurrentValue(input).startsWith('TOOL_RESULT')) {
+          log('sent via Enter');
+          return true;
+        }
+      }
+      fireKey('Enter', { ctrlKey: true });
+      await new Promise((r) => setTimeout(r, 60));
+      if (!inputCurrentValue(input).startsWith('TOOL_RESULT')) {
+        log('sent via Ctrl+Enter');
+        return true;
+      }
+
+      await new Promise((r) => setTimeout(r, 80));
     }
-    // Enter fallback
-    const ke = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-    input.dispatchEvent(new KeyboardEvent('keydown', ke));
-    input.dispatchEvent(new KeyboardEvent('keypress', ke));
-    input.dispatchEvent(new KeyboardEvent('keyup', ke));
-    await new Promise((r) => setTimeout(r, 80));
-    const v = input.isContentEditable ? (input.textContent || '') : (input.value || '');
-    if (!v) { log('sent via Enter'); return true; }
-    log('send failed'); setStatus('error'); return false;
+
+    // Retry whole sequence once
+    if (attempt < 2) {
+      log('send retry', attempt + 1);
+      await new Promise((r) => setTimeout(r, 150));
+      return sendMessage(text, attempt + 1);
+    }
+
+    log('send failed after retries');
+    setStatus('error');
+    showToast('Failed to send TOOL_RESULT');
+    return false;
   }
 
   // ---------- Tool-call parsing ----------
@@ -1302,15 +1410,41 @@
     const res = await runInSandbox(code);
     log('result:', res);
 
-    DONE[sig] = { ok: res.ok, result: res.result, error: res.error, t: Date.now() };
-    saveDone(); refreshCounts();
-
-    const preview = res.ok ? String(res.result).slice(0, 40) : 'error';
+    const preview = res.ok ? String(res.result).slice(0, 80) : ('error: ' + (res.error || ''));
     collapseToolMessage(dsMessage, preview, !res.ok, false);
-    setStatus(res.ok ? 'idle' : 'error');
 
     const payload = JSON.stringify({ ok: res.ok, result: res.result, error: res.error, sig: sig, ts: Date.now() });
-    await sendMessage('TOOL_RESULT: ' + payload);
+    let okSend = false;
+    try {
+      okSend = await sendMessage('TOOL_RESULT: ' + payload);
+    } catch (e) {
+      log('send threw', e);
+      okSend = false;
+    }
+
+    if (okSend) {
+      DONE[sig] = { ok: res.ok, result: res.result, error: res.error, t: Date.now() };
+      saveDone(); refreshCounts();
+      setStatus(res.ok ? 'idle' : 'error');
+    } else {
+      // Allow rescan/retry — do not mark DONE or processed permanently stuck
+      processed.delete(dsMessage);
+      setStatus('error');
+      showToast('Tool ran but result was not sent — retrying…');
+      // One delayed automatic retry of the send only (code already ran)
+      setTimeout(async () => {
+        try {
+          const again = await sendMessage('TOOL_RESULT: ' + payload);
+          if (again) {
+            DONE[sig] = { ok: res.ok, result: res.result, error: res.error, t: Date.now() };
+            saveDone(); refreshCounts();
+            processed.add(dsMessage);
+            setStatus(res.ok ? 'idle' : 'error');
+            showToast('TOOL_RESULT sent');
+          }
+        } catch (e) { log('retry send failed', e); }
+      }, 700);
+    }
   }
 
   // ---------- Scan ----------
