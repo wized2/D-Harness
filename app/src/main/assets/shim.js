@@ -722,6 +722,58 @@
       if (window.__DHarnessNative && window.__DHarnessNative.appInfo) return window.__DHarnessNative.appInfo();
       throw new Error('appInfo requires native');
     },
+    async file(args) {
+      const N = window.__DHarnessNative && window.__DHarnessNative.file;
+      if (!N) throw new Error('file requires native');
+      const op = (args && args.op) || 'commit';
+      if (op === 'commit') return N.commit(args.path, args.contentB64, args.sha256);
+      if (op === 'read_b64') return N.read_b64(args.path);
+      throw new Error('unknown file op');
+    },
+    async exec(args) {
+      if (!window.__DHarnessNative || !window.__DHarnessNative.exec) throw new Error('exec requires native');
+      return window.__DHarnessNative.exec(args.argv || args, args.timeout_ms, args.cwd);
+    },
+    async sqlite(args) {
+      if (!window.__DHarnessNative || !window.__DHarnessNative.sqlite) throw new Error('sqlite requires native');
+      return window.__DHarnessNative.sqlite.query(args.path, args.sql, args.args);
+    },
+    async crypto(args) {
+      const C = window.__DHarnessNative && window.__DHarnessNative.crypto;
+      if (!C) throw new Error('crypto requires native');
+      if ((args && args.op) === 'hmac') return C.hmac(args.key, args.data);
+      return C.hash((args && args.algo) || 'sha256', args.data, args.encoding);
+    },
+    async archive(args) {
+      const A = window.__DHarnessNative && window.__DHarnessNative.archive;
+      if (!A) throw new Error('archive requires native');
+      const op = (args && args.op) || 'zip_list';
+      if (op === 'zip_list') return A.zip_list(args.path);
+      if (op === 'zip_extract') return A.zip_extract(args.path, args.entry);
+      if (op === 'zip_create') return A.zip_create(args.path, args.files);
+      throw new Error('unknown archive op');
+    },
+    async json_query(args) {
+      if (!window.__DHarnessNative) throw new Error('json_query requires native');
+      return window.__DHarnessNative.json_query(args.json, args.path);
+    },
+    async net(args) {
+      const N = window.__DHarnessNative && window.__DHarnessNative.net;
+      if (!N) throw new Error('net requires native');
+      if ((args && args.op) === 'port') return N.port(args.host, args.port, args.timeout_ms);
+      return N.ping(args.host, args.timeout_ms);
+    },
+    async process(args) {
+      const P = window.__DHarnessNative && window.__DHarnessNative.process;
+      if (!P) throw new Error('process requires native');
+      if ((args && args.op) === 'kill') return P.kill(args.pid);
+      return P.list();
+    },
+    async env(args) {
+      if (!window.__DHarnessNative || !window.__DHarnessNative.env) throw new Error('env requires native');
+      return window.__DHarnessNative.env.get();
+    },
+
     async geo(args) {
       if (window.__DHarnessNative && window.__DHarnessNative.geo) return window.__DHarnessNative.geo.get();
       throw new Error('geo requires native + location permission');

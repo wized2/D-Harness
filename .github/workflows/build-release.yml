@@ -53,8 +53,8 @@ jobs:
           mkdir -p dist
           SRC=$(find app/build/outputs/apk -name '*.apk' | head -1)
           test -n "$SRC"
-          cp "$SRC" dist/D-Harness-1.2.2.apk
-          unzip -t dist/D-Harness-1.2.2.apk | tail -5
+          cp "$SRC" dist/D-Harness-1.3.0.apk
+          unzip -t dist/D-Harness-1.3.0.apk | tail -5
           ls -la dist/
 
       - name: Upload artifact
@@ -63,17 +63,17 @@ jobs:
           name: D-Harness-release
           path: dist/*.apk
 
-      - name: Release v1.2.2
+      - name: Release v1.3.0
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.2
-          name: D-Harness v1.2.2
+          tag_name: v1.3.0
+          name: D-Harness v1.3.0
           body: |
-            ## D-Harness 1.2.2 (signed)
+            ## D-Harness 1.3.0 (signed)
             Installable signed APK — fixes "package invalid" from unsigned build.
             - Tool Shim v6.2 + native bridge
             - Icon safe-zone (white on black)
-          files: dist/D-Harness-1.2.2.apk
+          files: dist/D-Harness-1.3.0.apk
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
