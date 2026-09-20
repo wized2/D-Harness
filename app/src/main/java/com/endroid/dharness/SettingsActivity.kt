@@ -49,19 +49,27 @@ class SettingsActivity : AppCompatActivity() {
         val swDesktop = findViewById<SwitchCompat>(R.id.switchDesktop)
         val swInject = findViewById<SwitchCompat>(R.id.switchInject)
         val swDedupe = findViewById<SwitchCompat>(R.id.switchDedupe)
+        val swTheme = findViewById<SwitchCompat>(R.id.switchTheme)
         swDesktop.isChecked = prefs.getBoolean("desktop", false)
         swInject.isChecked = prefs.getBoolean("auto_inject", true)
         swDedupe.isChecked = prefs.getBoolean("dedupe", true)
+        swTheme.isChecked = prefs.getBoolean("auto_theme", false)
         fun persist() {
             prefs.edit()
                 .putBoolean("desktop", swDesktop.isChecked)
                 .putBoolean("auto_inject", swInject.isChecked)
                 .putBoolean("dedupe", swDedupe.isChecked)
+                .putBoolean("auto_theme", swTheme.isChecked)
                 .apply()
         }
         swDesktop.setOnCheckedChangeListener { _, _ -> persist() }
         swInject.setOnCheckedChangeListener { _, _ -> persist() }
         swDedupe.setOnCheckedChangeListener { _, _ -> persist() }
+        swTheme.setOnCheckedChangeListener { _, _ ->
+            persist()
+            // Re-inject so theme applies/removes without full reload
+            prefs.edit().putBoolean("pending_inject", true).apply()
+        }
 
         val keyName = findViewById<EditText>(R.id.keyName)
         val keyValue = findViewById<EditText>(R.id.keyValue)

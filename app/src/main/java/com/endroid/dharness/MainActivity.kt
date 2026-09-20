@@ -318,8 +318,11 @@ class MainActivity : AppCompatActivity() {
             val shimB64 = android.util.Base64.encodeToString(
                 assets.open("shim.js").readBytes(), android.util.Base64.NO_WRAP
             )
+            val themeB64 = android.util.Base64.encodeToString(
+                assets.open("claude_theme.js").readBytes(), android.util.Base64.NO_WRAP
+            )
             val dedupe = prefs.getBoolean("dedupe", true)
-            // Decode in-page (avoids Kotlin/JS escaping breakage), stop old shim, inject, ping
+            val autoTheme = prefs.getBoolean("auto_theme", false)
             val js = """
                 (function(){
                   function dec(b){
@@ -346,18 +349,32 @@ class MainActivity : AppCompatActivity() {
                   var shim = dec('$shimB64');
                   try { (0, eval)(bridge); } catch(e) { console.error('bridge', e); }
                   try { (0, eval)(shim); } catch(e) { console.error('shim', e); }
+                  if ($autoTheme) {
+                    try {
+                      var theme = dec('$themeB64');
+                      (0, eval)(theme);
+                      console.log('[D-Harness] Claude theme injected');
+                    } catch(e) { console.error('theme', e); }
+                  } else {
+                    // Remove theme if previously injected and now off
+                    try {
+                      var st = document.getElementById('claude-ds-theme-v3');
+                      if (st) st.remove();
+                      var ft = document.getElementById('claude-ds-fonts-v3');
+                      if (ft) ft.remove();
+                    } catch(e) {}
+                  }
                   try {
                     var f = document.getElementById('__ds_shim_fab'); if (f) f.style.display='none';
                     var p = document.getElementById('__ds_shim_panel'); if (p) p.hidden = true;
                   } catch(e) {}
-                  var ok = !!(window.__DS_TOOL_SHIM__ && window.DHarness);
-                  console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'shim=', !!window.__DS_TOOL_SHIM__, 'native=', typeof DHarness);
+                  var ok = !!(window.__DS_TOOL_SHIM__);
+                  console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'v=', window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.version, 'theme=', $autoTheme);
                   return ok ? 'ok' : 'fail';
                 })();
             """.trimIndent()
             webView.evaluateJavascript(js) { result ->
                 android.util.Log.i("DHarness", "inject result=$result")
-                // Verify sandbox with ping after iframe loads
                 webView.postDelayed({
                     webView.evaluateJavascript(
                         """
@@ -368,13 +385,13 @@ class MainActivity : AppCompatActivity() {
                               var r = await window.__DS_TOOL_SHIM__.ping();
                               return JSON.stringify(r);
                             }
-                            return 'no-ping';
+                            return 'shim-v' + (window.__DS_TOOL_SHIM__.version || '?');
                           } catch(e) { return 'err:'+e; }
                         })();
                         """.trimIndent(),
                         { ping -> android.util.Log.i("DHarness", "ping=$ping") }
                     )
-                }, 700)
+                }, 800)
             }
         } catch (e: Exception) {
             android.util.Log.e("DHarness", "inject failed", e)

@@ -81,6 +81,9 @@
             <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchDedupe"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Dedupe tool calls" android:checked="true" android:textColor="#DDE3EA" />
+            <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchTheme"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Claude theme (auto-inject)" android:checked="false" android:textColor="#DDE3EA" />
 
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Agent" android:textColor="#4D6BFE" android:textStyle="bold"
