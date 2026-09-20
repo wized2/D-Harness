@@ -1,6 +1,6 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.1.0
+ * @version 7.2.0-native
  * @description run_js tool bridge + draggable status dot + management panel
  *              + opacity-flash send + throttled DOM scanning
  */
@@ -18,18 +18,18 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '7.1.0';
+  const VERSION = '7.2.0-native';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
     maxStorageKB: 100,
-    sendTimeoutMs: 3000,
+    sendTimeoutMs: 4000,
     sandboxTimeoutMs: 20000,
-    dedupe: true,
+    dedupe: false,
     // perf knobs
     scanThrottleMs: 400,       // min interval between DOM scans
     fallbackScanMs: 1500,      // periodic scan when observer is quiet
-    hideFlashMs: 250,          // max time input stays invisible
+    hideFlashMs: 120,          // max time input stays invisible
   }, window.__DS_SHIM_CONFIG__ || {});
 
   // ---------- Storage ----------
@@ -497,6 +497,40 @@
       read: ()     => window.__ds_call_tool('clipboard_read', {}),
     };
     window.geo = { get: (opts) => window.__ds_call_tool('geo_get', opts || {}) };
+    window.list_tools = () => window.__ds_call_tool('list_tools', {});
+    window.describe = (name) => window.__ds_call_tool('describe', { name });
+    window.http_request = (opts) => window.__ds_call_tool('http_request', opts || {});
+    window.github = {
+      me: () => window.__ds_call_tool('github', { op:'me' }),
+      repos: (limit) => window.__ds_call_tool('github', { op:'repos', limit }),
+      pr: (o,r,n) => window.__ds_call_tool('github', { op:'pr', owner:o, repo:r, number:n }),
+      pr_files: (o,r,n) => window.__ds_call_tool('github', { op:'pr_files', owner:o, repo:r, number:n }),
+      pr_reviews: (o,r,n) => window.__ds_call_tool('github', { op:'pr_reviews', owner:o, repo:r, number:n }),
+      pr_commits: (o,r,n) => window.__ds_call_tool('github', { op:'pr_commits', owner:o, repo:r, number:n }),
+      issue: (o,r,n) => window.__ds_call_tool('github', { op:'issue', owner:o, repo:r, number:n }),
+      contents: (o,r,path,ref) => window.__ds_call_tool('github', { op:'contents', owner:o, repo:r, path, ref }),
+      search: (q,type) => window.__ds_call_tool('github', { op:'search', query:q, type }),
+      request: (m,path,body) => window.__ds_call_tool('github', { op:'request', method:m, path, body }),
+      issue_comment: (o,r,n,body) => window.__ds_call_tool('github', { op:'issue_comment', owner:o, repo:r, number:n, body }),
+    };
+    window.keys = {
+      get: (k) => window.__ds_call_tool('keys', { op:'get', key:k }),
+      set: (k,v) => window.__ds_call_tool('keys', { op:'set', key:k, value:v }),
+      delete: (k) => window.__ds_call_tool('keys', { op:'delete', key:k }),
+      list: () => window.__ds_call_tool('keys', { op:'list' }),
+    };
+    window.exec = (argv) => window.__ds_call_tool('exec', { argv });
+    window.device = { info: () => window.__ds_call_tool('device', { op:'info' }) };
+    window.env = { get: () => window.__ds_call_tool('env', {}) };
+    window.toast = (msg) => window.__ds_call_tool('toast', { message: msg });
+    window.vibrate = (ms) => window.__ds_call_tool('vibrate', { ms });
+    window.notify = (title, body) => window.__ds_call_tool('notify', { title, body });
+    window.share = (text) => window.__ds_call_tool('share', { text });
+    window.appInfo = () => window.__ds_call_tool('appInfo', {});
+    window.file.commit = (path, contentB64, sha256) => window.__ds_call_tool('file', { op:'commit', path, contentB64, sha256 });
+    window.file.read_b64 = (path) => window.__ds_call_tool('file', { op:'read_b64', path });
+    window.file.verify_roundtrip = () => window.__ds_call_tool('file', { op:'verify_roundtrip' });
+
     window.fs = {
       read:   (path)                => window.__ds_call_tool('fs', { op:'read', path }),
       write:  (path, content, mime) => window.__ds_call_tool('fs', { op:'write', path, content, mime }),
@@ -598,6 +632,155 @@
 
   const pending = new Map();
   let msgId = 0;
+
+
+  // ---- Native Android bridge (D-Harness) ---------------------------------
+  // Prefer Kotlin tools when window.__DHarnessNative is present.
+  const N = () => window.__DHarnessNative;
+
+  async function nativeCall(path, args) {
+    const nat = N();
+    if (!nat || !nat.available) throw new Error('native bridge unavailable');
+    // path like "github.pr" or "list_tools"
+    const parts = path.split('.');
+    let cur = nat;
+    for (const p of parts) {
+      if (cur == null || typeof cur[p] === 'undefined') throw new Error('native missing: ' + path);
+      cur = cur[p];
+    }
+    if (typeof cur === 'function') return await cur.apply(nat, args || []);
+    return cur;
+  }
+
+  // Extend toolHandlers with native-backed tools (and list_tools / describe)
+  Object.assign(toolHandlers, {
+    async list_tools() {
+      const nat = N();
+      if (nat && nat.available && nat.list_tools) return await nat.list_tools();
+      // fallback: enumerate JS handlers
+      return { tools: Object.keys(toolHandlers).sort(), source: 'shim-js' };
+    },
+    async describe({ name }) {
+      const nat = N();
+      if (nat && nat.available && nat.describe) return await nat.describe(name);
+      return { name, available: !!toolHandlers[name], source: 'shim-js' };
+    },
+    async http_request(args) {
+      const nat = N();
+      if (nat && nat.http_request) return await nat.http_request(args);
+      return toolHandlers.fetch_url(args);
+    },
+    async github(args) {
+      const nat = N();
+      if (!nat || !nat.github) throw new Error('github requires native bridge + PAT');
+      const op = args.op || args.action;
+      if (!op) throw new Error('github requires op');
+      const g = nat.github;
+      if (typeof g[op] === 'function') {
+        // map common ops
+        if (op === 'request') return await g.request(args.method || 'GET', args.path, args.body);
+        if (op === 'me') return await g.me();
+        if (op === 'repos') return await g.repos(args.limit);
+        if (op === 'pr') return await g.pr(args.owner, args.repo, args.number);
+        if (op === 'pr_files') return await g.pr_files(args.owner, args.repo, args.number);
+        if (op === 'pr_reviews') return await g.pr_reviews(args.owner, args.repo, args.number);
+        if (op === 'pr_commits') return await g.pr_commits(args.owner, args.repo, args.number);
+        if (op === 'issue') return await g.issue(args.owner, args.repo, args.number);
+        if (op === 'contents') return await g.contents(args.owner, args.repo, args.path, args.ref);
+        if (op === 'search') return await g.search(args.query, args.type);
+        if (op === 'pr_create') return await g.pr_create(args.owner, args.repo, args.title, args.head, args.base, args.body, args.draft);
+        if (op === 'issue_comment') return await g.issue_comment(args.owner, args.repo, args.number, args.body);
+        return await g[op](args);
+      }
+      throw new Error('unknown github op: ' + op);
+    },
+    async keys(args) {
+      const nat = N();
+      if (!nat || !nat.keys) throw new Error('keys requires native bridge');
+      const op = args.op;
+      if (op === 'get') return await nat.keys.get(args.key);
+      if (op === 'set') return await nat.keys.set(args.key, args.value);
+      if (op === 'delete') return await nat.keys.delete(args.key);
+      if (op === 'list') return await nat.keys.list();
+      throw new Error('unknown keys op');
+    },
+    async exec(args) {
+      const nat = N();
+      if (!nat || !nat.exec) throw new Error('exec requires native bridge');
+      return await nat.exec(args.argv || args.cmd || args);
+    },
+    async device(args) {
+      const nat = N();
+      if (!nat || !nat.device) throw new Error('device requires native bridge');
+      const op = args && args.op;
+      if (op && typeof nat.device[op] === 'function') return await nat.device[op]();
+      if (typeof nat.device.info === 'function') return await nat.device.info();
+      return nat.device;
+    },
+    async env(args) {
+      const nat = N();
+      if (nat && nat.env && nat.env.get) return await nat.env.get();
+      return { platform: 'webview', native: !!(nat && nat.available) };
+    },
+    async toast(args) {
+      const nat = N();
+      if (nat && nat.toast) return await nat.toast(args.message || args.text || String(args));
+      showToast(args.message || args.text || String(args));
+      return { ok: true };
+    },
+    async vibrate(args) {
+      const nat = N();
+      if (nat && nat.vibrate) return await nat.vibrate(args.ms || 50);
+      return { ok: false, error: 'no vibrate' };
+    },
+    async notify(args) {
+      const nat = N();
+      if (nat && nat.notify) return await nat.notify(args.title || 'D-Harness', args.body || args.message || '');
+      return { ok: false, error: 'no notify' };
+    },
+    async share(args) {
+      const nat = N();
+      if (nat && nat.share) return await nat.share(args.text || args);
+      return { ok: false, error: 'no share' };
+    },
+    async file(args) {
+      const nat = N();
+      const op = args.op;
+      if (nat && nat.file) {
+        if (op === 'commit') return await nat.file.commit(args.path, args.contentB64 || args.content, args.sha256);
+        if (op === 'read_b64') return await nat.file.read_b64(args.path);
+        if (op === 'verify_roundtrip') return await nat.file.verify_roundtrip();
+      }
+      if (op === 'save') return toolHandlers.file_save(args);
+      throw new Error('unknown file op: ' + op);
+    },
+    async calc(args) {
+      const nat = N();
+      if (nat && nat.calc) {
+        const op = args.op || 'eval';
+        if (typeof nat.calc[op] === 'function') return await nat.calc[op](args.expr || args.x || args);
+      }
+      throw new Error('calc requires native bridge');
+    },
+    async text(args) {
+      const nat = N();
+      if (nat && nat.text) {
+        const op = args.op;
+        if (typeof nat.text[op] === 'function') return await nat.text[op](args);
+      }
+      throw new Error('text requires native bridge');
+    },
+    async crypto_native(args) {
+      const nat = N();
+      if (nat && nat.crypto && nat.crypto.hash) return await nat.crypto.hash(args.algo || 'sha256', args.data || args.text);
+      throw new Error('crypto native unavailable');
+    },
+    async appInfo() {
+      const nat = N();
+      if (nat && nat.appInfo) return await nat.appInfo();
+      return { shim: VERSION };
+    },
+  });
 
   window.addEventListener('message', async (e) => {
     if (e.source !== iframe.contentWindow) return;

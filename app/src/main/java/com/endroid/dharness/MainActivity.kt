@@ -342,8 +342,10 @@ class MainActivity : AppCompatActivity() {
                   } catch(e) {}
                   window.__DS_SHIM_CONFIG__ = Object.assign(window.__DS_SHIM_CONFIG__ || {}, {
                     hideFab: true,
-                    dedupe: $dedupe,
-                    nativePreferred: true
+                    dedupe: false,
+                    nativePreferred: true,
+                    sendTimeoutMs: 4000,
+                    hideFlashMs: 100
                   });
                   var bridge = dec('$bridgeB64');
                   var shim = dec('$shimB64');
