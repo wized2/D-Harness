@@ -32,6 +32,19 @@ function _j(fn) {
 
 window.__DHarnessNative = {
   available: typeof DHarness !== 'undefined',
+
+  workspace: {
+    pwd: function () { return _j(function () { return DHarness.workspacePwd(); }); },
+    ls: function (path) { return _j(function () { return DHarness.workspaceLs(path || null); }); },
+    read: function (path, maxBytes) { return _j(function () { return DHarness.workspaceRead(path, maxBytes || 0); }); },
+    write: function (path, content) { return _j(function () { return DHarness.workspaceWrite(path, content); }); },
+    write_b64: function (path, contentB64) { return _j(function () { return DHarness.workspaceWriteB64(path, contentB64); }); },
+    read_b64: function (path) { return _j(function () { return DHarness.workspaceReadB64(path); }); },
+    mkdir: function (path) { return _j(function () { return DHarness.workspaceMkdir(path); }); },
+    rm: function (path) { return _j(function () { return DHarness.workspaceRm(path); }); },
+    stat: function (path) { return _j(function () { return DHarness.workspaceStat(path); }); },
+    tree: function (path, depth) { return _j(function () { return DHarness.workspaceTree(path || null, depth || 2); }); }
+  },
   list_tools: function () { return _j(function () { return DHarness.listTools(); }); },
   describe: function (name) { return _j(function () { return DHarness.describeTool(String(name)); }); },
   http_request: function (opts) {
@@ -99,6 +112,12 @@ window.__DHarnessNative = {
         }
         return r;
       });
+    },
+    pull: function (owner, repo, path, ref, dest) {
+      return _j(function () { return DHarness.githubPull(owner, repo, path, ref || null, dest || null); });
+    },
+    push_file: function (owner, repo, path, branch, message, localPath) {
+      return _j(function () { return DHarness.githubPushFile(owner, repo, path, branch, message, localPath); });
     },
     search: function (query, type) {
       var t = type || 'issues';

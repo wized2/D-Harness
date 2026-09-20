@@ -18,7 +18,7 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '7.2.0-native';
+  const VERSION = '7.3.0-workspace';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -497,10 +497,24 @@
       read: ()     => window.__ds_call_tool('clipboard_read', {}),
     };
     window.geo = { get: (opts) => window.__ds_call_tool('geo_get', opts || {}) };
+    window.workspace = {
+      pwd: () => window.__ds_call_tool('workspace', { op:'pwd' }),
+      ls: (path) => window.__ds_call_tool('workspace', { op:'ls', path }),
+      read: (path, maxBytes) => window.__ds_call_tool('workspace', { op:'read', path, maxBytes }),
+      write: (path, content) => window.__ds_call_tool('workspace', { op:'write', path, content }),
+      write_b64: (path, contentB64) => window.__ds_call_tool('workspace', { op:'write_b64', path, contentB64 }),
+      read_b64: (path) => window.__ds_call_tool('workspace', { op:'read_b64', path }),
+      mkdir: (path) => window.__ds_call_tool('workspace', { op:'mkdir', path }),
+      rm: (path) => window.__ds_call_tool('workspace', { op:'rm', path }),
+      stat: (path) => window.__ds_call_tool('workspace', { op:'stat', path }),
+      tree: (path, depth) => window.__ds_call_tool('workspace', { op:'tree', path, depth }),
+    };
     window.list_tools = () => window.__ds_call_tool('list_tools', {});
     window.describe = (name) => window.__ds_call_tool('describe', { name });
     window.http_request = (opts) => window.__ds_call_tool('http_request', opts || {});
     window.github = {
+      pull: (o,r,path,ref,dest) => window.__ds_call_tool('github', { op:'pull', owner:o, repo:r, path, ref, dest }),
+      push_file: (o,r,path,branch,message,localPath) => window.__ds_call_tool('github', { op:'push_file', owner:o, repo:r, path, branch, message, localPath }),
       me: () => window.__ds_call_tool('github', { op:'me' }),
       repos: (limit) => window.__ds_call_tool('github', { op:'repos', limit }),
       pr: (o,r,n) => window.__ds_call_tool('github', { op:'pr', owner:o, repo:r, number:n }),
@@ -690,6 +704,8 @@
         if (op === 'search') return await g.search(args.query, args.type);
         if (op === 'pr_create') return await g.pr_create(args.owner, args.repo, args.title, args.head, args.base, args.body, args.draft);
         if (op === 'issue_comment') return await g.issue_comment(args.owner, args.repo, args.number, args.body);
+        if (op === 'pull') return await g.pull(args.owner, args.repo, args.path, args.ref, args.dest);
+        if (op === 'push_file') return await g.push_file(args.owner, args.repo, args.path, args.branch, args.message, args.localPath);
         return await g[op](args);
       }
       throw new Error('unknown github op: ' + op);
@@ -774,6 +790,24 @@
       const nat = N();
       if (nat && nat.crypto && nat.crypto.hash) return await nat.crypto.hash(args.algo || 'sha256', args.data || args.text);
       throw new Error('crypto native unavailable');
+    },
+
+    async workspace(args) {
+      const nat = N();
+      if (!nat || !nat.workspace) throw new Error('workspace requires native');
+      const op = args.op || args.action;
+      const w = nat.workspace;
+      if (op === 'pwd') return await w.pwd();
+      if (op === 'ls') return await w.ls(args.path);
+      if (op === 'read') return await w.read(args.path, args.maxBytes);
+      if (op === 'write') return await w.write(args.path, args.content);
+      if (op === 'write_b64') return await w.write_b64(args.path, args.contentB64);
+      if (op === 'read_b64') return await w.read_b64(args.path);
+      if (op === 'mkdir') return await w.mkdir(args.path);
+      if (op === 'rm') return await w.rm(args.path);
+      if (op === 'stat') return await w.stat(args.path);
+      if (op === 'tree') return await w.tree(args.path, args.depth);
+      throw new Error('unknown workspace op: ' + op);
     },
     async appInfo() {
       const nat = N();

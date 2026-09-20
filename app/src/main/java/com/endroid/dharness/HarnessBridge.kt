@@ -55,6 +55,12 @@ class HarnessBridge(
     private val keys = context.getSharedPreferences("dharness_keys", Context.MODE_PRIVATE)
     private val settings = context.getSharedPreferences("dharness_settings", Context.MODE_PRIVATE)
     private val fsRoot = File(context.filesDir, "harness_fs").also { it.mkdirs() }
+    /** Agent working directory (Termux-style). Prefer external app files so file managers can see it. */
+    private val workspaceRoot: File = run {
+        val ext = context.getExternalFilesDir(null)
+        val base = if (ext != null) File(ext, "workspace") else File(context.filesDir, "workspace")
+        base.also { it.mkdirs() }
+    }
     private val inFlight = ConcurrentHashMap<String, Long>()
     private val childProcs = ConcurrentHashMap<Int, java.lang.Process>()
 
@@ -93,6 +99,16 @@ class HarnessBridge(
         return f
     }
 
+    /** Resolve path under workspace (absolute within workspace, or relative). */
+    private fun safeWorkspace(path: String?): File {
+        val raw = (path ?: ".").trim()
+        val cleaned = raw.removePrefix("/").replace("..", "")
+        val f = if (cleaned.isEmpty() || cleaned == ".") workspaceRoot else File(workspaceRoot, cleaned)
+        val canon = f.canonicalFile
+        require(canon.path.startsWith(workspaceRoot.canonicalPath)) { "path escapes workspace" }
+        return canon
+    }
+
     // ─── Catalog ───────────────────────────────────────────────
 
     @JavascriptInterface
@@ -126,6 +142,18 @@ class HarnessBridge(
         tool("fs.delete", "Delete file", JSONObject().put("path", "string"))
         tool("file.commit", "Byte-exact write from base64 + SHA-256 verify", JSONObject().put("path", "string").put("contentB64", "string").put("sha256", "string?"))
         tool("file.read_b64", "Read file as base64 + sha256", JSONObject().put("path", "string"))
+        tool("workspace.pwd", "Agent workspace absolute path", JSONObject())
+        tool("workspace.ls", "List workspace directory", JSONObject().put("path", "string?"))
+        tool("workspace.read", "Read UTF-8 text file from workspace", JSONObject().put("path", "string").put("maxBytes", "int?"))
+        tool("workspace.write", "Write UTF-8 text file in workspace", JSONObject().put("path", "string").put("content", "string"))
+        tool("workspace.write_b64", "Write binary file from base64", JSONObject().put("path", "string").put("contentB64", "string"))
+        tool("workspace.read_b64", "Read workspace file as base64 + sha256", JSONObject().put("path", "string"))
+        tool("workspace.mkdir", "Create directory under workspace", JSONObject().put("path", "string"))
+        tool("workspace.rm", "Delete file or empty dir in workspace", JSONObject().put("path", "string"))
+        tool("workspace.stat", "Stat path in workspace", JSONObject().put("path", "string"))
+        tool("workspace.tree", "Shallow tree listing", JSONObject().put("path", "string?").put("depth", "int?"))
+        tool("github.pull", "Download GitHub file into workspace", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?").put("dest", "string?"))
+        tool("github.push_file", "Upload workspace file to GitHub contents API", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"))
         tool("file.verify_roundtrip", "Write then read-back SHA-256 of UTF-8 test bytes", JSONObject())
         tool("exec", "Allowlisted ProcessBuilder in app sandbox", JSONObject().put("argv", "string[]").put("timeout_ms", "number?").put("cwd", "string?"))
         tool("sqlite.query", "Read-only SQLite query", JSONObject().put("path", "string").put("sql", "string").put("args", "string[]?"))
@@ -1291,5 +1319,294 @@ class HarnessBridge(
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
+
+
+
+    /** Synchronous GitHub API helper for workspace pull/push (binder thread OK for short calls). */
+    private fun githubRequestSync(method: String, path: String, body: String?, token: String): JSONObject {
+        val url = if (path.startsWith("http")) path else "https://api.github.com${if (path.startsWith("/")) path else "/$path"}"
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = method.ifBlank { "GET" }.uppercase()
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            instanceFollowRedirects = true
+            doInput = true
+            setRequestProperty("User-Agent", "D-Harness/1.4")
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+            if (!body.isNullOrEmpty() && requestMethod != "GET" && requestMethod != "HEAD") {
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            }
+        }
+        val code = conn.responseCode
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        val text = stream?.bufferedReader()?.use { it.readText() }?.take(500_000) ?: ""
+        val json = try { if (text.isNotBlank()) JSONObject(text) else null } catch (_: Exception) {
+            try { JSONArray(text); null } catch (_: Exception) { null }
+        }
+        // If array response, wrap
+        val out = JSONObject().put("status", code).put("ok", code in 200..299).put("text", text.take(100_000))
+        if (json != null) out.put("json", json)
+        else if (text.trimStart().startsWith("[")) {
+            try { out.put("json", JSONArray(text)) } catch (_: Exception) {}
+        }
+        return out
+    }
+
+    // ─── Workspace (Termux-style agent home) ───────────────────
+
+    @JavascriptInterface
+    fun workspacePwd(): String {
+        return JSONObject()
+            .put("ok", true)
+            .put("path", workspaceRoot.absolutePath)
+            .put("exists", workspaceRoot.exists())
+            .put("writable", workspaceRoot.canWrite())
+            .toString()
+    }
+
+    @JavascriptInterface
+    fun workspaceLs(path: String?): String {
+        return try {
+            val dir = safeWorkspace(path)
+            if (!dir.exists()) return JSONObject().put("ok", false).put("error", "not found").toString()
+            if (!dir.isDirectory) return JSONObject().put("ok", false).put("error", "not a directory").toString()
+            val arr = JSONArray()
+            dir.listFiles()?.sortedBy { it.name.lowercase() }?.forEach { f ->
+                arr.put(JSONObject()
+                    .put("name", f.name)
+                    .put("type", if (f.isDirectory) "dir" else "file")
+                    .put("size", if (f.isFile) f.length() else JSONObject.NULL)
+                    .put("mtime", f.lastModified()))
+            }
+            JSONObject().put("ok", true).put("path", dir.absolutePath).put("entries", arr).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceRead(path: String, maxBytes: Int): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
+            val limit = if (maxBytes > 0) maxBytes else 512_000
+            val bytes = f.readBytes()
+            val slice = if (bytes.size > limit) bytes.copyOf(limit) else bytes
+            val text = slice.toString(Charsets.UTF_8)
+            JSONObject()
+                .put("ok", true)
+                .put("path", f.absolutePath)
+                .put("size", bytes.size)
+                .put("truncated", bytes.size > limit)
+                .put("content", text)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceWrite(path: String, content: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            f.parentFile?.mkdirs()
+            f.writeText(content, Charsets.UTF_8)
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", f.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceWriteB64(path: String, contentB64: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            f.parentFile?.mkdirs()
+            val bytes = Base64.decode(contentB64, Base64.DEFAULT)
+            FileOutputStream(f).use { it.write(bytes) }
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", bytes.size)
+                .put("sha256", sha256(bytes)).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceReadB64(path: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
+            val bytes = f.readBytes()
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", bytes.size)
+                .put("sha256", sha256(bytes))
+                .put("contentB64", Base64.encodeToString(bytes, Base64.NO_WRAP)).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceMkdir(path: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            val ok = f.mkdirs() || f.isDirectory
+            JSONObject().put("ok", ok).put("path", f.absolutePath).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceRm(path: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.exists()) return JSONObject().put("ok", false).put("error", "not found").toString()
+            if (f.isDirectory) {
+                val children = f.list()
+                if (children != null && children.isNotEmpty()) {
+                    return JSONObject().put("ok", false).put("error", "directory not empty").toString()
+                }
+            }
+            val ok = f.delete()
+            JSONObject().put("ok", ok).put("path", f.absolutePath).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceStat(path: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.exists()) return JSONObject().put("ok", false).put("error", "not found").toString()
+            JSONObject().put("ok", true)
+                .put("path", f.absolutePath)
+                .put("type", if (f.isDirectory) "dir" else "file")
+                .put("size", if (f.isFile) f.length() else JSONObject.NULL)
+                .put("mtime", f.lastModified())
+                .put("readable", f.canRead())
+                .put("writable", f.canWrite())
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceTree(path: String?, depth: Int): String {
+        return try {
+            val maxDepth = depth.coerceIn(1, 4)
+            fun walk(dir: File, d: Int): JSONArray {
+                val arr = JSONArray()
+                if (d > maxDepth || !dir.isDirectory) return arr
+                dir.listFiles()?.sortedBy { it.name.lowercase() }?.forEach { f ->
+                    val o = JSONObject().put("name", f.name).put("type", if (f.isDirectory) "dir" else "file")
+                    if (f.isFile) o.put("size", f.length())
+                    if (f.isDirectory && d < maxDepth) o.put("children", walk(f, d + 1))
+                    arr.put(o)
+                }
+                return arr
+            }
+            val root = safeWorkspace(path)
+            JSONObject().put("ok", true).put("path", root.absolutePath).put("tree", walk(root, 1)).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    /**
+     * Download a file from GitHub Contents API into the workspace.
+     * dest defaults to the repo-relative path basename under workspace/github/owner/repo/
+     */
+    @JavascriptInterface
+    fun githubPull(owner: String, repo: String, path: String, ref: String?, dest: String?): String {
+        return try {
+            val token = githubToken()
+                ?: return JSONObject().put("ok", false).put("error", "no github PAT in keys").toString()
+            val q = if (!ref.isNullOrBlank()) "?ref=${java.net.URLEncoder.encode(ref, "UTF-8")}" else ""
+            val apiPath = "/repos/$owner/$repo/contents/${path.trimStart('/').trim()}$q"
+            val raw = githubRequestSync("GET", apiPath, null, token)
+            val status = raw.optInt("status", 0)
+            val json = raw.optJSONObject("json")
+                ?: return JSONObject().put("ok", false).put("error", "bad response").put("status", status).toString()
+            if (status !in 200..299) {
+                return JSONObject().put("ok", false).put("error", raw.optString("text")).put("status", status).toString()
+            }
+            if (json.optString("type") == "dir") {
+                return JSONObject().put("ok", false).put("error", "path is a directory; pull a file").toString()
+            }
+            val contentB64 = json.optString("content", "").replace("\n", "")
+            if (contentB64.isEmpty()) {
+                return JSONObject().put("ok", false).put("error", "empty content (use download_url for large files)").toString()
+            }
+            val bytes = Base64.decode(contentB64, Base64.DEFAULT)
+            val destRel = if (!dest.isNullOrBlank()) dest.trim().removePrefix("/")
+            else "github/$owner/$repo/${path.trimStart('/')}"
+            val out = safeWorkspace(destRel)
+            out.parentFile?.mkdirs()
+            FileOutputStream(out).use { it.write(bytes) }
+            JSONObject()
+                .put("ok", true)
+                .put("path", out.absolutePath)
+                .put("rel", destRel)
+                .put("bytes", bytes.size)
+                .put("sha", json.optString("sha"))
+                .put("sha256", sha256(bytes))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    /** Upload a workspace file to GitHub (create or update via Contents API). */
+    @JavascriptInterface
+    fun githubPushFile(
+        owner: String, repo: String, path: String, branch: String,
+        message: String, localPath: String
+    ): String {
+        return try {
+            val token = githubToken()
+                ?: return JSONObject().put("ok", false).put("error", "no github PAT in keys").toString()
+            val local = safeWorkspace(localPath)
+            if (!local.isFile) return JSONObject().put("ok", false).put("error", "local file not found").toString()
+            val bytes = local.readBytes()
+            val contentB64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            val remotePath = path.trimStart('/')
+            // get existing sha if file exists
+            var sha: String? = null
+            try {
+                val existing = githubRequestSync(
+                    "GET",
+                    "/repos/$owner/$repo/contents/$remotePath?ref=${java.net.URLEncoder.encode(branch, "UTF-8")}",
+                    null,
+                    token
+                )
+                if (existing.optInt("status") == 200) {
+                    sha = existing.optJSONObject("json")?.optString("sha")
+                }
+            } catch (_: Exception) {}
+            val body = JSONObject()
+                .put("message", message)
+                .put("content", contentB64)
+                .put("branch", branch)
+            if (!sha.isNullOrBlank()) body.put("sha", sha)
+            val put = githubRequestSync("PUT", "/repos/$owner/$repo/contents/$remotePath", body.toString(), token)
+            val status = put.optInt("status", 0)
+            JSONObject()
+                .put("ok", status in 200..299)
+                .put("status", status)
+                .put("json", put.opt("json"))
+                .put("local", local.absolutePath)
+                .put("bytes", bytes.size)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
 
 }

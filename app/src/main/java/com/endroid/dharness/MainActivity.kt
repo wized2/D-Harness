@@ -441,7 +441,9 @@ After TOOL_RESULT appears, continue the answer. Never invent tool results.
 
 ## Best tools for real work
 - list_tools() / describe(name) — exact names + schemas
-- file.commit(path, contentB64, sha256?) — BYTE-EXACT writes (use for source); file.verify_roundtrip()
+- workspace.* — agent home dir (pwd/ls/read/write/mkdir/rm/stat/tree)
+- github.pull / github.push_file — download GitHub file into workspace, upload workspace file back
+- file.commit(path, contentB64, sha256?) — BYTE-EXACT writes under harness_fs; file.verify_roundtrip()
 - file.read_b64 / fs.* — sandbox files under harness_fs
 - github.* — me, repos, pr, pr_files, pr_reviews, pr_commits, issue, contents, search, issue_comment, pr_create, request
   Requires PAT key "github" in Settings. Prefer helpers over hand-built paths.
