@@ -14,7 +14,6 @@ import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
-import android.os.Process
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -57,7 +56,7 @@ class HarnessBridge(
     private val settings = context.getSharedPreferences("dharness_settings", Context.MODE_PRIVATE)
     private val fsRoot = File(context.filesDir, "harness_fs").also { it.mkdirs() }
     private val inFlight = ConcurrentHashMap<String, Long>()
-    private val childProcs = ConcurrentHashMap<Int, Process>()
+    private val childProcs = ConcurrentHashMap<Int, java.lang.Process>()
 
     private val execAllow = setOf(
         "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date",
@@ -255,14 +254,16 @@ class HarnessBridge(
             val pb = ProcessBuilder(argv).directory(cwd).redirectErrorStream(false)
             val proc = pb.start()
             val pid = try {
-                if (Build.VERSION.SDK_INT >= 26) proc.pid().toInt() else Process.myPid()
+                // java.lang.Process#pid() is API 26+ / JDK 9+
+                val m = proc.javaClass.getMethod("pid")
+                (m.invoke(proc) as Long).toInt()
             } catch (_: Exception) {
                 (100000 + (Math.random() * 900000).toInt())
             }
             childProcs[pid] = proc
             val finished = proc.waitFor(timeoutMs.coerceIn(500, 60_000).toLong(), TimeUnit.MILLISECONDS)
             if (!finished) {
-                proc.destroyForcibly()
+                try { proc.javaClass.getMethod("destroyForcibly").invoke(proc) } catch (_: Exception) { proc.destroy() }
                 childProcs.remove(pid)
                 return JSONObject().put("ok", false).put("error", "timeout").put("pid", pid)
                     .put("durationMs", System.currentTimeMillis() - t0).toString()
@@ -481,7 +482,8 @@ class HarnessBridge(
     fun processList(): String {
         val arr = JSONArray()
         childProcs.forEach { (pid, p) ->
-            arr.put(JSONObject().put("pid", pid).put("alive", p.isAlive))
+            val alive = try { p.javaClass.getMethod("isAlive").invoke(p) as Boolean } catch (_: Exception) { true }
+            arr.put(JSONObject().put("pid", pid).put("alive", alive))
         }
         return JSONObject().put("ok", true).put("processes", arr).toString()
     }
@@ -489,7 +491,7 @@ class HarnessBridge(
     @JavascriptInterface
     fun processKill(pid: Int): String {
         val p = childProcs.remove(pid) ?: return JSONObject().put("ok", false).put("error", "unknown pid").toString()
-        p.destroyForcibly()
+        try { p.javaClass.getMethod("destroyForcibly").invoke(p) } catch (_: Exception) { p.destroy() }
         return JSONObject().put("ok", true).toString()
     }
 
