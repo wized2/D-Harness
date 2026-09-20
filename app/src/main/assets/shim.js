@@ -21,7 +21,7 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '6.3.0';
+  const VERSION = '6.4.0';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false, maxStorageKB: 100,
@@ -1028,25 +1028,65 @@
     });
   }
 
-  // ---------- Input / Send ----------
-  const getInput = () =>
-    document.querySelector('textarea[placeholder="Message DeepSeek"]') ||
-    document.querySelector('textarea[name="search"]') ||
-    document.querySelector('textarea');
-
-  function setNativeValue(el, value) {
-    const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
-    if (desc && desc.set) desc.set.call(el, value); else el.value = value;
+  // ---------- Input / Send (DeepSeek React-controlled composer) ----------
+  function getInput() {
+    const sels = [
+      'textarea[placeholder="Message DeepSeek"]',
+      'textarea[placeholder*="DeepSeek" i]',
+      'textarea[placeholder*="Message" i]',
+      'div.ds-scroll-area textarea',
+      'form textarea',
+      'textarea[name="search"]',
+      'textarea',
+    ];
+    for (const sel of sels) {
+      try {
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent !== null) return el;
+      } catch (e) {}
+    }
+    // contenteditable fallback
+    const ce = document.querySelector('[contenteditable="true"]');
+    return ce || null;
   }
 
-  const SEND_SELECTOR = 'div[role="button"].ds-button--primary.ds-button--circle.ds-button--filled';
-  const SEND_ICON_PREFIX = 'M8.3125';
+  function setNativeValue(el, value) {
+    if (!el) return;
+    if (el.isContentEditable) {
+      el.focus();
+      el.textContent = value;
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: value }));
+      return;
+    }
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, 'value')
+      || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+    if (desc && desc.set) desc.set.call(el, value);
+    else el.value = value;
+    // React 17/18 listen for InputEvent
+    try {
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: value }));
+    } catch (e) {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  const SEND_SELECTOR = 'div[role="button"].ds-button--primary.ds-button--circle, div[role="button"].ds-button--primary, button[type="submit"]';
+  const SEND_ICON_PREFIXES = ['M8.3125', 'M10.5', 'M2 ', 'M3 ']; // tolerate icon path churn
   function findEnabledSendButton() {
-    for (const b of document.querySelectorAll(SEND_SELECTOR)) {
-      if (b.classList.contains('ds-button--disabled')) continue;
+    const nodes = document.querySelectorAll(SEND_SELECTOR);
+    for (const b of nodes) {
+      if (b.classList.contains('ds-button--disabled') || b.getAttribute('aria-disabled') === 'true' || b.disabled) continue;
       if (b.offsetParent === null) continue;
       const d = b.querySelector('svg path')?.getAttribute('d') || '';
-      if (!d.startsWith(SEND_ICON_PREFIX)) continue;
+      // Prefer icon that looks like send/arrow; else first enabled primary circle
+      if (d && SEND_ICON_PREFIXES.some((p) => d.startsWith(p))) return b;
+    }
+    // fallback: any enabled primary circle button near composer
+    for (const b of document.querySelectorAll('div[role="button"].ds-button--circle.ds-button--filled')) {
+      if (b.classList.contains('ds-button--disabled')) continue;
+      if (b.offsetParent === null) continue;
       return b;
     }
     return null;
@@ -1055,24 +1095,35 @@
   async function sendMessage(text) {
     const input = getInput();
     if (!input) { log('no input'); setStatus('error'); return false; }
-    input.focus();
+    try { input.focus(); } catch (e) {}
     setNativeValue(input, text);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    await new Promise(r => setTimeout(r, 40));
-
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-    input.dispatchEvent(new KeyboardEvent('keyup',   { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-
+    // wait briefly for React to enable send
     let t0 = Date.now();
-    while (input.value.length > 0 && Date.now() - t0 < 500) await new Promise(r => setTimeout(r, 25));
-    if (input.value.length === 0) { log('sent via Enter'); return true; }
-
-    t0 = Date.now();
     let btn = null;
-    while (Date.now() - t0 < CONFIG.sendTimeoutMs) { btn = findEnabledSendButton(); if (btn) break; await new Promise(r => setTimeout(r, 25)); }
-    if (btn) { btn.click(); log('sent via button'); return true; }
-
+    while (Date.now() - t0 < Math.min(CONFIG.sendTimeoutMs, 2500)) {
+      btn = findEnabledSendButton();
+      if (btn) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    if (btn) {
+      btn.click();
+      // confirm cleared
+      t0 = Date.now();
+      while (Date.now() - t0 < 800) {
+        const v = input.isContentEditable ? (input.textContent || '') : (input.value || '');
+        if (!v || v.length < text.length / 2) { log('sent via button'); return true; }
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      log('sent via button (no clear confirm)'); return true;
+    }
+    // Enter fallback
+    const ke = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    input.dispatchEvent(new KeyboardEvent('keydown', ke));
+    input.dispatchEvent(new KeyboardEvent('keypress', ke));
+    input.dispatchEvent(new KeyboardEvent('keyup', ke));
+    await new Promise((r) => setTimeout(r, 80));
+    const v = input.isContentEditable ? (input.textContent || '') : (input.value || '');
+    if (!v) { log('sent via Enter'); return true; }
     log('send failed'); setStatus('error'); return false;
   }
 
@@ -1177,7 +1228,7 @@
     const resHtml = preview ? `<span class="ds-shim-res${isError ? ' err' : ''}">${esc(preview)}</span>` : '';
     el.innerHTML =
       `<span class="ds-shim-chev">${CHEV_SVG}</span>` +
-      `<span class="ds-shim-txt">${running ? 'Running tool…' : 'Tool used'}</span>` +
+      `<span class="ds-shim-txt">${running ? 'Running…' : 'Tool'}</span>` +
       resHtml;
     return el;
   }
@@ -1284,13 +1335,17 @@
       if (busySince && Date.now() - busySince > 60000) { busy = false; busySince = 0; log('busy watchdog reset'); }
       else return;
     }
-    for (const el of document.querySelectorAll('div.ds-message')) {
+    // Only walk recent assistant bubbles (cheap + avoids full-DOM thrash)
+    const all = document.querySelectorAll('div.ds-message');
+    const start = Math.max(0, all.length - 24);
+    for (let i = start; i < all.length; i++) {
+      const el = all[i];
       if (processed.has(el)) continue;
+      if (!el.querySelector('div.ds-markdown.ds-assistant-message-main-content, .ds-assistant-message-main-content, pre code')) continue;
       const wrapper = findWrapper(el);
       if (wrapper?.querySelector(':scope > [data-ds-shim-tagline]')) { processed.add(el); continue; }
       const text = messageTextForTools(el);
       if (!text || text.startsWith('TOOL_RESULT:')) continue;
-      if (!el.querySelector('div.ds-markdown.ds-assistant-message-main-content')) continue;
       const tool = extractToolCall(text);
       if (!tool) continue;
       processed.add(el);

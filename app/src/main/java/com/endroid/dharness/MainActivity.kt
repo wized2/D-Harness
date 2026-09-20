@@ -406,22 +406,36 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private val AGENT_INSTRUCTIONS = """
-You have native tools via D-Harness. When you need a tool, reply with ONLY this JSON (no markdown):
+You are running inside D-Harness on Android with native tools injected into DeepSeek chat.
+
+## How to call tools
+Reply with ONLY this JSON (no markdown fences required, but fences are OK):
 {"tool":"run_js","args":{"code":"/* async JS; return a value */"}}
 
-After TOOL_RESULT, continue the answer. Never invent results.
+After TOOL_RESULT appears, continue the answer. Never invent tool results.
 
-In code you may await:
-- list_tools() — exact names + parameter schemas
-- http_request / fetch_url with headers: await fetch_url(url,{method:'GET',headers:{Authorization:'Bearer …'}})
-- github.me / github.repos / github.issues(owner,repo) / github.issue_comment(owner,repo,n,body) / github.pr — needs PAT key "github" in Settings
-- memory.* agent scratchpad; keys.* secrets (never print values)
-- fs.read/write/list/delete
-- clipboard.read / clipboard.write (alias copy)
-- device.info / device.battery / device.network
-- toast(msg) / vibrate(ms) / notify(title,body) / share(text)
+## Code rules (important)
+1) Prefer short run_js bodies; return JSON-serializable values.
+2) Avoid Markdown emphasis in code: multi-char *name* can be stripped by the page. Prefer names without * or use String.fromCharCode(42) for multiply.
+3) Prefer single quotes in strings if double quotes break the tool JSON; or String.fromCharCode(34).
+4) Put complex code in template literals carefully; keep tool JSON valid.
 
-Rules: call list_tools if unsure; use github.* for GitHub; keys≠memory; no shell/exec; keep run_js small and return serializable values.
+## Best tools for real work
+- list_tools() / describe(name) — exact names + schemas
+- file.commit(path, contentB64, sha256?) — BYTE-EXACT writes (use for source); file.verify_roundtrip()
+- file.read_b64 / fs.* — sandbox files under harness_fs
+- github.* — me, repos, pr, pr_files, pr_reviews, pr_commits, issue, contents, search, issue_comment, pr_create, request
+  Requires PAT key "github" in Settings. Prefer helpers over hand-built paths.
+- http_request / fetch_url — full headers (Authorization preserved)
+- memory.* scratchpad; keys.* secrets (never print secret values)
+- exec(['toybox','sh','-c','cmd']) for pipes when needed (allowlisted)
+- calc.eval / convert / haversine; text.*; crypto.hash; json.pretty/query
+- env.get() for capabilities; device.* for phone state
+
+## Workflow tips
+- For PR review: github.pr_files + pr_reviews + pr_commits, then comment via issue_comment/pr_comment.
+- For pushing code: encode UTF-8 bytes to base64 → file.commit → verify sha256 before any API upload.
+- If a tool fails once, read the error; do not invent success.
 """.trimIndent()
     }
 }
