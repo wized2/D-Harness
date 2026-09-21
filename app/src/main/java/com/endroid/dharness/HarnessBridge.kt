@@ -255,7 +255,7 @@ class HarnessBridge(
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
-            .put("version", "1.5.3")
+            .put("version", "1.5.4")
             .put("notes", JSONObject()
                 .put("memory", "agent scratchpad")
                 .put("keys", "secrets/PAT — never echo values")

@@ -1,6 +1,6 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.2.0-native
+ * @version 7.6.0-stable
  * @description run_js tool bridge + draggable status dot + management panel
  *              + opacity-flash send + throttled DOM scanning
  */
@@ -18,19 +18,22 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '7.5.1-tools';
+  const VERSION = '7.6.0-stable';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
     maxStorageKB: 100,
-    sendTimeoutMs: 4000,
+    sendTimeoutMs: 5000,
     sandboxTimeoutMs: 20000,
-    dedupe: false,
+    dedupe: true,              // ALWAYS skip already-answered tool calls
     // perf knobs
-    scanThrottleMs: 400,       // min interval between DOM scans
-    fallbackScanMs: 1500,      // periodic scan when observer is quiet
-    hideFlashMs: 120,          // max time input stays invisible
+    scanThrottleMs: 800,       // min interval between DOM scans
+    fallbackScanMs: 2500,      // periodic scan when observer is quiet
+    hideFlashMs: 80,           // max time input stays invisible
+    maxScanMessages: 24,       // only inspect the last N messages
   }, window.__DS_SHIM_CONFIG__ || {});
+  // Force dedupe on — infinite TOOL_RESULT loops are worse than any edge case
+  CONFIG.dedupe = true;
 
   // ---------- Storage ----------
   const LS = {
@@ -1145,7 +1148,7 @@
   }
 
   // ============================================================
-  // DEDUP SIG
+  // DEDUP SIG (durable across React re-renders)
   // ============================================================
   function occurrenceIndex(dsMessage, toolJson, cachedMsgs) {
     const all = cachedMsgs || document.querySelectorAll('div.ds-message');
@@ -1160,8 +1163,14 @@
   const fullSig = (dsMessage, toolJson, cachedMsgs) =>
     CONV_ID + ':' + hashStr(toolJson) + ':' + occurrenceIndex(dsMessage, toolJson, cachedMsgs);
 
+  // Session-level set: survives DOM node replacement (WeakSet does not)
+  const SESSION_DONE = new Set(Object.keys(DONE));
+  // In-flight sigs so we never double-run the same call
+  const IN_FLIGHT = new Set();
+  let sendRetryTimer = null;
+
   // ============================================================
-  // PROCESS
+  // PROCESS — run once per sig, send TOOL_RESULT once
   // ============================================================
   let busy = false;
 
@@ -1171,62 +1180,102 @@
     const args = tool.obj.args || {};
     const code = args.code;
 
-    if (CONFIG.dedupe && DONE[sig]) {
+    // Durable skip: DONE (localStorage) or SESSION_DONE or in-flight
+    if (DONE[sig] || SESSION_DONE.has(sig) || IN_FLIGHT.has(sig)) {
       const prev = DONE[sig];
-      log('deduped:', sig);
-      const preview = prev.ok ? String(prev.result).slice(0, 40) : 'error';
-      collapseToolMessage(dsMessage, preview, !prev.ok, false);
-      setStatus(prev.ok ? 'idle' : 'warn');
+      log('skip already-handled:', sig.slice(0, 48));
+      try { dsMessage.setAttribute('data-ds-shim-sig', sig); } catch (e) {}
+      if (prev) {
+        const preview = prev.ok ? String(prev.result).slice(0, 40) : 'error';
+        collapseToolMessage(dsMessage, preview, !prev.ok, false);
+      } else {
+        collapseToolMessage(dsMessage, 'done', false, false);
+      }
       return;
     }
 
-    log('tool call:', toolName, code ? code.slice(0, 80) : JSON.stringify(args).slice(0, 80), '| sig:', sig);
+    IN_FLIGHT.add(sig);
+    try { dsMessage.setAttribute('data-ds-shim-sig', sig); } catch (e) {}
+    log('tool call:', toolName, code ? code.slice(0, 80) : JSON.stringify(args).slice(0, 80), '| sig:', sig.slice(0, 40));
     collapseToolMessage(dsMessage, '', false, true);
     setStatus('running');
 
     let res;
-    if (toolName === 'run_js' && typeof code === 'string') {
-      res = await runInSandbox(code);
-    } else if (toolHandlers[toolName]) {
-      try {
-        const result = await toolHandlers[toolName](args);
-        res = { ok: true, result: result };
-      } catch (e) {
-        res = { ok: false, error: String(e && e.message || e) };
+    try {
+      if (toolName === 'run_js' && typeof code === 'string') {
+        res = await runInSandbox(code);
+      } else if (toolHandlers[toolName]) {
+        try {
+          const result = await toolHandlers[toolName](args);
+          res = { ok: true, result: result };
+        } catch (e) {
+          res = { ok: false, error: String(e && e.message || e) };
+        }
+      } else {
+        // Unknown top-level tool name — tell the model the correct form
+        res = {
+          ok: false,
+          error: 'unknown tool "' + toolName + '". Prefer run_js with helpers, e.g. ' +
+            '{"tool":"run_js","args":{"code":"return await list_tools()"}} or ' +
+            '{"tool":"run_js","args":{"code":"return await device.info()"}}'
+        };
       }
-    } else {
-      res = { ok: false, error: 'unknown tool: ' + toolName + ' (use list_tools call field for correct form)' };
+    } catch (e) {
+      res = { ok: false, error: String(e && e.message || e) };
     }
-    log('result:', res);
+    log('result ok=', res && res.ok);
+
+    // Mark DONE *before* send so a failed/slow send never re-executes the tool
+    DONE[sig] = { ok: !!res.ok, result: res.result, error: res.error, t: Date.now() };
+    SESSION_DONE.add(sig);
+    saveDone();
+    refreshCounts();
 
     const preview = res.ok ? String(res.result).slice(0, 80) : ('error: ' + (res.error || ''));
     collapseToolMessage(dsMessage, preview, !res.ok, false);
 
-    const payload = JSON.stringify({ ok: res.ok, result: res.result, error: res.error, sig: sig, ts: Date.now() });
+    const payload = JSON.stringify({
+      ok: res.ok,
+      result: res.result,
+      error: res.error,
+      sig: sig,
+      ts: Date.now()
+    });
+    const msg = 'TOOL_RESULT: ' + payload;
+
     let okSend = false;
-    try { okSend = await sendMessage('TOOL_RESULT: ' + payload); } catch (e) { log('send threw', e); }
+    try { okSend = await sendMessage(msg); } catch (e) { log('send threw', e); }
 
     if (okSend) {
-      DONE[sig] = { ok: res.ok, result: res.result, error: res.error, t: Date.now() };
-      saveDone(); refreshCounts();
       setStatus(res.ok ? 'idle' : 'error');
-    } else {
-      processed.delete(dsMessage);
-      setStatus('error');
-      showToast('Result not sent — retrying…');
-      setTimeout(async () => {
-        try {
-          const again = await sendMessage('TOOL_RESULT: ' + payload);
-          if (again) {
-            DONE[sig] = { ok: res.ok, result: res.result, error: res.error, t: Date.now() };
-            saveDone(); refreshCounts();
-            processed.add(dsMessage);
-            setStatus(res.ok ? 'idle' : 'error');
-            showToast('TOOL_RESULT sent');
-          }
-        } catch (e) { log('retry send failed', e); }
-      }, 600);
+      IN_FLIGHT.delete(sig);
+      return;
     }
+
+    // Send failed — retry send ONLY (do not re-run tool). Cap at 2 retries.
+    setStatus('warn');
+    showToast('Sending result…');
+    let attempts = 0;
+    const tryAgain = async () => {
+      attempts++;
+      try {
+        const again = await sendMessage(msg);
+        if (again) {
+          setStatus(res.ok ? 'idle' : 'error');
+          showToast('TOOL_RESULT sent');
+          IN_FLIGHT.delete(sig);
+          return;
+        }
+      } catch (e) { log('retry send failed', e); }
+      if (attempts < 2) {
+        sendRetryTimer = setTimeout(tryAgain, 900);
+      } else {
+        IN_FLIGHT.delete(sig);
+        setStatus('error');
+        showToast('Could not send TOOL_RESULT — tap Fab → retry if needed');
+      }
+    };
+    sendRetryTimer = setTimeout(tryAgain, 700);
   }
 
   // ============================================================
@@ -1236,14 +1285,9 @@
     for (const el of msgs) {
       const wrapper = el.parentElement;
       if (!wrapper) continue;
-
-      // Fast skip: already hidden correctly
-      const isHidden = wrapper.getAttribute('data-ds-shim-hidden') === '1';
-      if (isHidden && !CONFIG.debug) continue;
-
+      if (wrapper.getAttribute('data-ds-shim-hidden') === '1' && !CONFIG.debug) continue;
       const text = (el.textContent || '').trim();
       if (!text.startsWith('TOOL_RESULT:')) continue;
-
       if (CONFIG.debug) wrapper.removeAttribute('data-ds-shim-hidden');
       else wrapper.setAttribute('data-ds-shim-hidden', '1');
     }
@@ -1266,45 +1310,73 @@
   }
 
   function scanForToolCalls(msgs) {
-    if (busy) return;
-    for (const el of msgs) {
+    if (busy || IN_FLIGHT.size > 0) return;
+    // Only look at the tail — older history was already handled
+    const list = Array.from(msgs);
+    const start = Math.max(0, list.length - (CONFIG.maxScanMessages || 24));
+    for (let i = start; i < list.length; i++) {
+      const el = list[i];
       if (processed.has(el)) continue;
+      // Already tagged by a previous run (survives some re-renders if attribute sticks)
+      const existingSig = el.getAttribute && el.getAttribute('data-ds-shim-sig');
+      if (existingSig && (DONE[existingSig] || SESSION_DONE.has(existingSig))) {
+        processed.add(el);
+        continue;
+      }
 
       const wrapper = el.parentElement;
-      if (wrapper?.firstElementChild?.getAttribute('data-ds-shim-tagline') === '1') {
+      if (wrapper && wrapper.firstElementChild &&
+          wrapper.firstElementChild.getAttribute('data-ds-shim-tagline') === '1') {
+        // Already collapsed — treat as handled
         processed.add(el);
         continue;
       }
 
       const text = messageSourceText(el);
-      if (!text || text.startsWith('TOOL_RESULT:')) continue;
+      if (!text || text.startsWith('TOOL_RESULT:')) {
+        processed.add(el);
+        continue;
+      }
+      // Only assistant messages
       if (!el.querySelector('div.ds-markdown.ds-assistant-message-main-content')) continue;
 
       const tool = extractToolCall(text);
       if (!tool) continue;
 
+      const sig = fullSig(el, tool.full, list);
+      if (DONE[sig] || SESSION_DONE.has(sig) || IN_FLIGHT.has(sig)) {
+        processed.add(el);
+        collapseToolMessage(el, DONE[sig] ? String(DONE[sig].result || '').slice(0, 40) : 'done', false, false);
+        continue;
+      }
+
       processed.add(el);
       busy = true;
-      processToolCall(el, tool, msgs)
+      processToolCall(el, tool, list)
         .catch(e => { log('error:', e); setStatus('error'); })
         .finally(() => { busy = false; });
-      return;
+      return; // one tool at a time
     }
   }
 
   // ---------- Throttled scheduler ----------
   let lastTickAt = 0;
   let tickScheduled = false;
+  let lastHidePass = 0;
 
   function runTick() {
     tickScheduled = false;
     lastTickAt = performance.now();
     if (document.hidden) return;
     try {
-      const msgs = document.querySelectorAll('div.ds-message');
-      hideUserToolResults(msgs);
-      reapplyHiding();
-      scanForToolCalls(msgs);
+      const all = document.querySelectorAll('div.ds-message');
+      hideUserToolResults(all);
+      // reapplyHiding is expensive — at most every 2s
+      if (performance.now() - lastHidePass > 2000) {
+        reapplyHiding();
+        lastHidePass = performance.now();
+      }
+      scanForToolCalls(all);
     } catch (e) {
       log('tick error:', e);
       setStatus('error');
@@ -1313,6 +1385,12 @@
 
   function scheduleTick(urgent = false) {
     if (tickScheduled) return;
+    if (busy || IN_FLIGHT.size > 0) {
+      // while a tool is running, stay quiet
+      tickScheduled = true;
+      setTimeout(() => { tickScheduled = false; scheduleTick(false); }, 600);
+      return;
+    }
     tickScheduled = true;
     const now = performance.now();
     const wait = urgent ? 0 : Math.max(0, CONFIG.scanThrottleMs - (now - lastTickAt));
@@ -1323,20 +1401,17 @@
     }
   }
 
-  // Observer: only structural changes (no characterData → quieter)
+  // Observer: structural only; disconnect while busy is handled via scheduleTick gate
   const observer = new MutationObserver(() => scheduleTick(false));
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // Fallback periodic scan
   const fallbackTimer = setInterval(() => scheduleTick(false), CONFIG.fallbackScanMs);
 
-  // Resume fresh when tab becomes visible
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) scheduleTick(true);
   });
 
-  // Initial
-  setTimeout(() => scheduleTick(true), 600);
+  setTimeout(() => scheduleTick(true), 800);
 
   // ============================================================
   // PUBLIC API
@@ -1346,6 +1421,8 @@
     stop() {
       observer.disconnect();
       clearInterval(fallbackTimer);
+      if (sendRetryTimer) clearTimeout(sendRetryTimer);
+      IN_FLIGHT.clear();
       setStatus('off');
       style.remove();
       document.querySelectorAll('[data-ds-shim-tagline]').forEach(el => el.remove());

@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (prefs.getBoolean("pending_inject", false)) {
             prefs.edit().putBoolean("pending_inject", false).apply()
-            injectShim()
+            injectShim(force = true)
         }
         if (prefs.getBoolean("pending_clear_cache", false)) {
             prefs.edit().putBoolean("pending_clear_cache", false).apply()
@@ -157,9 +157,10 @@ class MainActivity : AppCompatActivity() {
                 progress.visibility = View.GONE
                 setFabStatus("#4DB")
                 if (prefs.getBoolean("auto_inject", true)) {
-                    // Single delayed inject so SPA DOM + cookies are ready
-                    view?.postDelayed({ injectShim() }, 500)
-                    view?.postDelayed({ injectShim() }, 2500)
+                    // SPA: inject after DOM settles; retry if first pass races React
+                    view?.postDelayed({ injectShim(force = false) }, 400)
+                    view?.postDelayed({ injectShim(force = false) }, 1800)
+                    view?.postDelayed({ injectShim(force = false) }, 4500)
                 }
             }
         }
@@ -310,7 +311,11 @@ class MainActivity : AppCompatActivity() {
         webView.evaluateJavascript(js, null)
     }
 
-    private fun injectShim() {
+    private fun injectShim(force: Boolean = false) {
+        if (force) {
+            webView.evaluateJavascript("window.__DS_FORCE_REINJECT__=true;", null)
+        }
+
         try {
             val bridgeB64 = android.util.Base64.encodeToString(
                 assets.open("native_bridge.js").readBytes(), android.util.Base64.NO_WRAP
@@ -337,16 +342,24 @@ class MainActivity : AppCompatActivity() {
                     } catch(e) {}
                     return '';
                   }
-                  try {
-                    if (window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.stop) window.__DS_TOOL_SHIM__.stop();
-                  } catch(e) {}
                   window.__DS_SHIM_CONFIG__ = Object.assign(window.__DS_SHIM_CONFIG__ || {}, {
                     hideFab: true,
-                    dedupe: false,
+                    dedupe: true,
                     nativePreferred: true,
-                    sendTimeoutMs: 4000,
-                    hideFlashMs: 100
+                    sendTimeoutMs: 5000,
+                    hideFlashMs: 80,
+                    scanThrottleMs: 800,
+                    fallbackScanMs: 2500
                   });
+                  // Skip full re-inject if same stable shim already live (avoids clearing session state)
+                  var existing = window.__DS_TOOL_SHIM__;
+                  if (existing && existing.version && String(existing.version).indexOf('7.6') === 0 && !window.__DS_FORCE_REINJECT__) {
+                    console.log('[D-Harness] shim already live', existing.version);
+                    return 'already';
+                  }
+                  try {
+                    if (existing && existing.stop) existing.stop();
+                  } catch(e) {}
                   var bridge = dec('$bridgeB64');
                   var shim = dec('$shimB64');
                   try { (0, eval)(bridge); } catch(e) { console.error('bridge', e); }
@@ -370,6 +383,7 @@ class MainActivity : AppCompatActivity() {
                     var f = document.getElementById('__ds_shim_fab'); if (f) f.style.display='none';
                     var p = document.getElementById('__ds_shim_panel'); if (p) p.hidden = true;
                   } catch(e) {}
+                  try { delete window.__DS_FORCE_REINJECT__; } catch(e) {}
                   var ok = !!(window.__DS_TOOL_SHIM__);
                   console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'v=', window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.version, 'theme=', $autoTheme);
                   return ok ? 'ok' : 'fail';
@@ -425,49 +439,41 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private val AGENT_INSTRUCTIONS = """
-You are running inside D-Harness on Android with native tools injected into DeepSeek chat.
+You are running inside D-Harness (Android). Native tools are available in run_js.
 
-## How to call tools
-Reply with ONLY this JSON (no markdown fences required, but fences are OK):
-{"tool":"run_js","args":{"code":"/* async JS; return a value */"}}
+## How to call a tool (exact format)
+Send ONE JSON object as your entire reply (markdown code fence optional):
 
-After 
-TOOL CALLING RULES (D-Harness):
-- list_tools entries include a "call" field showing the exact invocation form (e.g. workspace.write(path, content)).
-  Dotted names are NOT dispatch keys for __ds_call_tool — use the namespace method or the "call" form.
-- Prefer global helpers: workspace.*, github.*, memory.*, file.*, fs.*, clipboard.*, device.*, calc.*, text.*.
-- run_js: put code in a fenced/code block when possible. Avoid Markdown *emphasis* around identifiers in code
-  (patterns like *word* may be stripped by the chat renderer). Prefer single quotes in JS strings; if you need
-  a double quote, use String.fromCharCode(34). Prefer code from code blocks so quotes and * stay intact.
-- github.request defaults method to GET when omitted.
-- github.pr_files / pr_reviews / pr_commits / contents / search / issue are available for PR review workflows.
+{"tool":"run_js","args":{"code":"return await list_tools()"}}
 
-TOOL_RESULT appears, continue the answer. Never invent tool results.
+After you receive a message starting with TOOL_RESULT:, use that data and continue.
+Never invent tool results. Never repeat a tool call that already returned TOOL_RESULT.
 
-## Code rules (important)
-1) Prefer short run_js bodies; return JSON-serializable values.
-2) Avoid Markdown emphasis in code: multi-char *name* can be stripped by the page. Prefer names without * or use String.fromCharCode(42) for multiply.
-3) Prefer single quotes in strings if double quotes break the tool JSON; or String.fromCharCode(34).
-4) Put complex code in template literals carefully; keep tool JSON valid.
+## Correct run_js examples
+{"tool":"run_js","args":{"code":"return await list_tools()"}}
+{"tool":"run_js","args":{"code":"return await device.info()"}}
+{"tool":"run_js","args":{"code":"return await github.me()"}}
+{"tool":"run_js","args":{"code":"return await workspace.pwd()"}}
+{"tool":"run_js","args":{"code":"return await workspace.ls()"}}
+{"tool":"run_js","args":{"code":"return await memory.set('k','v')"}}
 
-## Best tools for real work
-- list_tools() / describe(name) — exact names + schemas
-- workspace.* — agent home dir (pwd/ls/read/write/mkdir/rm/stat/tree)
-- github.pull / github.push_file — download GitHub file into workspace, upload workspace file back
-- file.commit(path, contentB64, sha256?) — BYTE-EXACT writes under harness_fs; file.verify_roundtrip()
-- file.read_b64 / fs.* — sandbox files under harness_fs
-- github.* — me, repos, pr, pr_files, pr_reviews, pr_commits, issue, contents, search, issue_comment, pr_create, request
-  Requires PAT key "github" in Settings. Prefer helpers over hand-built paths.
-- http_request / fetch_url — full headers (Authorization preserved)
-- memory.* scratchpad; keys.* secrets (never print secret values)
-- exec(['toybox','sh','-c','cmd']) for pipes when needed (allowlisted)
-- calc.eval / convert / haversine; text.*; crypto.hash; json.pretty/query
-- env.get() for capabilities; device.* for phone state
+## Available helpers inside run_js (async)
+- list_tools() / describe(name)
+- workspace.pwd/ls/read/write/mkdir/rm/stat/tree/append
+- github.me/repos/pr/pr_files/pr_reviews/pr_commits/issue/contents/search/request/issue_comment/pull/push_file/branch_create/compare/repo
+- memory.get/set/delete/list/clear · keys.get/set/delete/list
+- file.commit/read_b64/verify_roundtrip · fs.read/write/list/delete
+- http_request({url,method,headers,body}) · fetch_url(url)
+- device.info/battery/network/uptime/storage/memory/locale/timezone/sensors
+- clipboard.read/write · toast/vibrate/notify/share · env.get · exec(argv)
+- calc.eval · text.* · crypto.hash · json.pretty
 
-## Workflow tips
-- For PR review: github.pr_files + pr_reviews + pr_commits, then comment via issue_comment/pr_comment.
-- For pushing code: encode UTF-8 bytes to base64 → file.commit → verify sha256 before any API upload.
-- If a tool fails once, read the error; do not invent success.
+## Rules
+1) Prefer run_js + helpers above. Do not invent tool names like "bash" or "shell".
+2) Keep code short. Prefer single quotes in JS strings.
+3) Put code in a fenced block when possible so * and quotes stay intact.
+4) One tool call per reply. Wait for TOOL_RESULT before the next call.
+5) GitHub tools need a PAT named "github" in D-Harness Settings.
 """.trimIndent()
     }
 }
