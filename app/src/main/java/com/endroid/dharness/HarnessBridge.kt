@@ -234,10 +234,21 @@ class HarnessBridge(
         tool("diff.lines", "Simple line diff a vs b", JSONObject().put("a", "string").put("b", "string"))
 
 
+
+        tool("device.uptime", "Device uptime millis/hours", JSONObject())
+        tool("device.storage", "Internal free/total storage bytes", JSONObject())
+        tool("device.memory", "Runtime + ActivityManager memory", JSONObject())
+        tool("github.branch_create", "Create branch from SHA/ref", JSONObject().put("owner", "string").put("repo", "string").put("branch", "string").put("from", "string?"))
+        tool("github.compare", "Compare base...head", JSONObject().put("owner", "string").put("repo", "string").put("base", "string").put("head", "string"))
+        tool("file.append", "Append UTF-8 to harness_fs file", JSONObject().put("path", "string").put("content", "string"))
+        tool("workspace.append", "Append UTF-8 in workspace", JSONObject().put("path", "string").put("content", "string"))
+        tool("text.replace", "Replace all in string", JSONObject().put("text", "string").put("find", "string").put("replace", "string"))
+        tool("text.lines", "Split text into lines", JSONObject().put("text", "string"))
+
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
-            .put("version", "1.4.0")
+            .put("version", "1.5.2")
             .put("notes", JSONObject()
                 .put("memory", "agent scratchpad")
                 .put("keys", "secrets/PAT — never echo values")
@@ -1625,6 +1636,178 @@ class HarnessBridge(
                 .put("local", local.absolutePath)
                 .put("bytes", bytes.size)
                 .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+
+
+    @JavascriptInterface
+    fun deviceUptime(): String {
+        return try {
+            val ms = android.os.SystemClock.elapsedRealtime()
+            JSONObject()
+                .put("ok", true)
+                .put("elapsedRealtimeMs", ms)
+                .put("hours", ms / 3_600_000.0)
+                .put("uptimeMillis", android.os.SystemClock.uptimeMillis())
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun deviceStorage(): String {
+        return try {
+            val path = context.filesDir
+            val free = path.usableSpace
+            val total = path.totalSpace
+            JSONObject()
+                .put("ok", true)
+                .put("path", path.absolutePath)
+                .put("freeBytes", free)
+                .put("totalBytes", total)
+                .put("usedBytes", total - free)
+                .put("freeGb", free / 1e9)
+                .put("totalGb", total / 1e9)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun deviceMemory(): String {
+        return try {
+            val rt = Runtime.getRuntime()
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val mi = ActivityManager.MemoryInfo()
+            am.getMemoryInfo(mi)
+            JSONObject()
+                .put("ok", true)
+                .put("runtimeMax", rt.maxMemory())
+                .put("runtimeTotal", rt.totalMemory())
+                .put("runtimeFree", rt.freeMemory())
+                .put("runtimeUsed", rt.totalMemory() - rt.freeMemory())
+                .put("availMem", mi.availMem)
+                .put("totalMem", mi.totalMem)
+                .put("lowMemory", mi.lowMemory)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubBranchCreate(owner: String, repo: String, branch: String, from: String?): String {
+        return try {
+            val token = githubToken()
+                ?: return JSONObject().put("ok", false).put("error", "no github PAT").toString()
+            val fromRef = if (!from.isNullOrBlank()) from.trim() else "heads/main"
+            val refPath = if (fromRef.startsWith("heads/") || fromRef.startsWith("tags/")) fromRef else "heads/$fromRef"
+            // resolve SHA of source ref
+            val refResp = githubRequestSync("GET", "/repos/$owner/$repo/git/ref/$refPath", null, token)
+            if (refResp.optInt("status") !in 200..299) {
+                // try master
+                val alt = githubRequestSync("GET", "/repos/$owner/$repo/git/ref/heads/master", null, token)
+                if (alt.optInt("status") !in 200..299) {
+                    return JSONObject().put("ok", false).put("error", "source ref not found").put("status", refResp.optInt("status")).toString()
+                }
+                val sha = alt.optJSONObject("json")?.optJSONObject("object")?.optString("sha")
+                    ?: return JSONObject().put("ok", false).put("error", "no sha").toString()
+                val body = JSONObject().put("ref", "refs/heads/$branch").put("sha", sha).toString()
+                val created = githubRequestSync("POST", "/repos/$owner/$repo/git/refs", body, token)
+                return JSONObject().put("ok", created.optInt("status") in 200..299)
+                    .put("status", created.optInt("status")).put("json", created.opt("json")).toString()
+            }
+            val sha = refResp.optJSONObject("json")?.optJSONObject("object")?.optString("sha")
+                ?: return JSONObject().put("ok", false).put("error", "no sha").toString()
+            val body = JSONObject().put("ref", "refs/heads/$branch").put("sha", sha).toString()
+            val created = githubRequestSync("POST", "/repos/$owner/$repo/git/refs", body, token)
+            JSONObject().put("ok", created.optInt("status") in 200..299)
+                .put("status", created.optInt("status")).put("json", created.opt("json")).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubCompare(owner: String, repo: String, base: String, head: String): String {
+        return try {
+            val token = githubToken()
+                ?: return JSONObject().put("ok", false).put("error", "no github PAT").toString()
+            val path = "/repos/$owner/$repo/compare/${base.trim()}...${head.trim()}"
+            val r = githubRequestSync("GET", path, null, token)
+            val status = r.optInt("status")
+            val json = r.optJSONObject("json")
+            val out = JSONObject().put("ok", status in 200..299).put("status", status)
+            if (json != null) {
+                out.put("status_text", json.optString("status"))
+                    .put("ahead_by", json.optInt("ahead_by"))
+                    .put("behind_by", json.optInt("behind_by"))
+                    .put("total_commits", json.optInt("total_commits"))
+                    .put("html_url", json.optString("html_url"))
+                val files = json.optJSONArray("files")
+                if (files != null) {
+                    val compact = JSONArray()
+                    for (i in 0 until minOf(files.length(), 50)) {
+                        val f = files.optJSONObject(i) ?: continue
+                        compact.put(JSONObject()
+                            .put("filename", f.optString("filename"))
+                            .put("status", f.optString("status"))
+                            .put("additions", f.optInt("additions"))
+                            .put("deletions", f.optInt("deletions")))
+                    }
+                    out.put("files", compact)
+                }
+            }
+            out.toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun fileAppend(path: String, content: String): String {
+        return try {
+            val f = safeFile(path)
+            f.parentFile?.mkdirs()
+            java.io.FileWriter(f, true).use { it.write(content) }
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", f.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceAppend(path: String, content: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            f.parentFile?.mkdirs()
+            java.io.FileWriter(f, true).use { it.write(content) }
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", f.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textReplace(text: String, find: String, replace: String): String {
+        return try {
+            val out = text.replace(find, replace)
+            JSONObject().put("ok", true).put("text", out).put("count", text.split(find).size - 1).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textLines(text: String): String {
+        return try {
+            val lines = text.split("\n")
+            JSONObject().put("ok", true).put("count", lines.size).put("lines", JSONArray(lines)).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }

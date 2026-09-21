@@ -33,6 +33,14 @@ function _j(fn) {
 window.__DHarnessNative = {
   available: typeof DHarness !== 'undefined',
 
+
+  device_uptime: function () { return _j(function () { return DHarness.deviceUptime(); }); },
+  device_storage: function () { return _j(function () { return DHarness.deviceStorage(); }); },
+  device_memory: function () { return _j(function () { return DHarness.deviceMemory(); }); },
+  file_append: function (path, content) { return _j(function () { return DHarness.fileAppend(path, content); }); },
+  workspace_append: function (path, content) { return _j(function () { return DHarness.workspaceAppend(path, content); }); },
+  text_replace: function (text, find, replace) { return _j(function () { return DHarness.textReplace(text, find, replace); }); },
+  text_lines: function (text) { return _j(function () { return DHarness.textLines(text); }); },
   workspace: {
     pwd: function () { return _j(function () { return DHarness.workspacePwd(); }); },
     ls: function (path) { return _j(function () { return DHarness.workspaceLs(path || null); }); },
@@ -123,6 +131,12 @@ window.__DHarnessNative = {
         }
         return r;
       });
+    },
+    branch_create: function (owner, repo, branch, from) {
+      return _j(function () { return DHarness.githubBranchCreate(owner, repo, branch, from || null); });
+    },
+    compare: function (owner, repo, base, head) {
+      return _j(function () { return DHarness.githubCompare(owner, repo, base, head); });
     },
     pull: function (owner, repo, path, ref, dest) {
       return _j(function () { return DHarness.githubPull(owner, repo, path, ref || null, dest || null); });
@@ -261,6 +275,9 @@ window.__DHarnessNative = {
     copy: function (text) { return this.write(text); }
   },
   device: {
+    uptime: function () { return window.__DHarnessNative.device_uptime(); },
+    storage: function () { return window.__DHarnessNative.device_storage(); },
+    memory: function () { return window.__DHarnessNative.device_memory(); },
     info: function () { return _j(function () { return DHarness.deviceInfo(); }); },
     battery: function () { return _j(function () { return DHarness.battery(); }); },
     network: function () { return _j(function () { return DHarness.network(); }); },

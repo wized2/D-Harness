@@ -18,7 +18,7 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '7.4.0-reliability';
+  const VERSION = '7.5.0-tools';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -704,6 +704,8 @@
         if (op === 'search') return await g.search(args.query, args.type);
         if (op === 'pr_create') return await g.pr_create(args.owner, args.repo, args.title, args.head, args.base, args.body, args.draft);
         if (op === 'issue_comment') return await g.issue_comment(args.owner, args.repo, args.number, args.body);
+        if (op === 'branch_create') return await g.branch_create(args.owner, args.repo, args.branch, args.from);
+        if (op === 'compare') return await g.compare(args.owner, args.repo, args.base, args.head);
         if (op === 'pull') return await g.pull(args.owner, args.repo, args.path, args.ref, args.dest);
         if (op === 'push_file') return await g.push_file(args.owner, args.repo, args.path, args.branch, args.message, args.localPath);
         return await g[op](args);
@@ -727,11 +729,14 @@
     },
     async device(args) {
       const nat = N();
-      if (!nat || !nat.device) throw new Error('device requires native bridge');
-      const op = args && args.op;
-      if (op && typeof nat.device[op] === 'function') return await nat.device[op]();
-      if (typeof nat.device.info === 'function') return await nat.device.info();
-      return nat.device;
+      if (!nat) throw new Error('device requires native bridge');
+      const op = args && (args.op || args.action);
+      if (op === 'uptime') return await (nat.device_uptime ? nat.device_uptime() : nat.device?.uptime?.());
+      if (op === 'storage') return await (nat.device_storage ? nat.device_storage() : nat.device?.storage?.());
+      if (op === 'memory') return await (nat.device_memory ? nat.device_memory() : nat.device?.memory?.());
+      if (op && nat.device && typeof nat.device[op] === 'function') return await nat.device[op]();
+      if (nat.device && typeof nat.device.info === 'function') return await nat.device.info();
+      return nat.device || { error: 'no device surface' };
     },
     async env(args) {
       const nat = N();
@@ -809,6 +814,7 @@
       if (op === 'tree') return await w.tree(args.path, args.depth);
       throw new Error('unknown workspace op: ' + op);
     },
+
     async appInfo() {
       const nat = N();
       if (nat && nat.appInfo) return await nat.appInfo();
