@@ -84,6 +84,9 @@ window.__DHarnessNative = {
       return window.__DHarnessNative.github.request('POST', '/repos/' + owner + '/' + repo + '/issues/' + number + '/comments', { body: body });
     },
     pr: function (owner, repo, number) {
+      if (!owner || !repo || number == null || number === '') {
+        return Promise.resolve({ ok: false, error: 'invalid arguments', expected: 'github.pr(owner, repo, number)' });
+      }
       return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/pulls/' + number);
     },
     pr_files: function (owner, repo, number) {
@@ -99,10 +102,18 @@ window.__DHarnessNative = {
       return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/issues/' + number);
     },
     contents: function (owner, repo, path, ref) {
+      if (!owner || !repo || !path) {
+        return Promise.resolve({ ok: false, error: 'invalid arguments', expected: 'github.contents(owner, repo, path, ref?)' });
+      }
       var q = ref ? ('?ref=' + encodeURIComponent(ref)) : '';
       return window.__DHarnessNative.github.request('GET', '/repos/' + owner + '/' + repo + '/contents/' + path.replace(/^\/+/, '') + q).then(function (r) {
-        // Normalize contents envelope
-        if (r && r.json && typeof r.json === 'object' && !Array.isArray(r.json)) {
+        r = r || {};
+        if (typeof r.status === 'undefined') r.status = r.ok ? 200 : 0;
+        if (typeof r.ok === 'undefined') r.ok = !!(r.status >= 200 && r.status < 300);
+        if (typeof r.text === 'undefined') r.text = '';
+        // Normalize contents envelope — always expose these fields
+        r.content = null; r.sha = null; r.encoding = null; r.download_url = null; r.name = null; r.path = null;
+        if (r.json && typeof r.json === 'object' && !Array.isArray(r.json)) {
           r.content = r.json.content || null;
           r.sha = r.json.sha || null;
           r.encoding = r.json.encoding || null;

@@ -114,8 +114,21 @@ class HarnessBridge(
     @JavascriptInterface
     fun listTools(): String {
         val tools = JSONArray()
-        fun tool(name: String, desc: String, params: JSONObject) {
-            tools.put(JSONObject().put("name", name).put("description", desc).put("params", params))
+        fun tool(name: String, desc: String, params: JSONObject, call: String? = null) {
+            val o = JSONObject().put("name", name).put("description", desc).put("params", params)
+            // Dotted names are labels; actual dispatch is via namespace methods (e.g. workspace.write(...)).
+            val callForm = call ?: when {
+                name.contains('.') -> {
+                    val parts = name.split('.', limit = 2)
+                    val args = params.keys().asSequence().toList()
+                    if (args.isEmpty()) "${parts[0]}.${parts[1]}()"
+                    else "${parts[0]}.${parts[1]}(${args.joinToString(", ")})"
+                }
+                else -> if (params.length() == 0) "$name()" else "$name(${params.keys().asSequence().joinToString(", ")})"
+            }
+            o.put("call", callForm)
+            o.put("via", if (name.contains('.')) "global" else "dispatch")
+            tools.put(o)
         }
         tool("list_tools", "List tools + schemas", JSONObject())
         tool("describe", "Describe tool or group", JSONObject().put("name", "string"))
@@ -127,6 +140,13 @@ class HarnessBridge(
         tool("github.issues", "List issues", JSONObject().put("owner", "string").put("repo", "string"))
         tool("github.issue_comment", "Comment on issue/PR", JSONObject().put("owner", "string").put("repo", "string").put("number", "number").put("body", "string"))
         tool("github.pr", "Get PR", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
+        tool("github.pr_files", "PR changed files + patches", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
+        tool("github.pr_reviews", "PR reviews", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
+        tool("github.pr_commits", "PR commits", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
+        tool("github.issue", "Get issue", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
+        tool("github.contents", "Repo file contents", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?"))
+        tool("github.search", "Search issues/PRs/code", JSONObject().put("query", "string").put("type", "string?"))
+        tool("github.pr_create", "Create PR", JSONObject().put("owner", "string").put("repo", "string").put("title", "string").put("head", "string").put("base", "string?").put("body", "string?"))
         tool("memory.get", "Scratch KV get", JSONObject().put("key", "string"))
         tool("memory.set", "Scratch KV set", JSONObject().put("key", "string").put("value", "string"))
         tool("memory.delete", "Scratch KV delete", JSONObject().put("key", "string"))
@@ -755,12 +775,14 @@ class HarnessBridge(
                 }
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.bufferedReader()?.use { it.readText() }?.take(150_000) ?: ""
+                val rawAll = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                val truncated = rawAll.length > 400_000
+                val text = if (truncated) rawAll.take(400_000) else rawAll
                 var parsed: Any? = null
                 try { parsed = JSONObject(text) } catch (_: Exception) {
                     try { parsed = JSONArray(text) } catch (_: Exception) {}
                 }
-                val out = JSONObject().put("status", code).put("ok", code in 200..299).put("text", text)
+                val out = JSONObject().put("status", code).put("ok", code in 200..299).put("text", text).put("truncated", truncated)
                 if (parsed is JSONObject) out.put("json", parsed)
                 else if (parsed is JSONArray) out.put("json", parsed)
                 out.toString()

@@ -18,7 +18,7 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '7.3.0-workspace';
+  const VERSION = '7.4.0-reliability';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -838,14 +838,32 @@
     }
   });
 
-  function runInSandbox(code, timeoutMs = CONFIG.sandboxTimeoutMs) {
+  function runInSandboxOnce(code, timeoutMs) {
     if (!iframeReady) return Promise.resolve({ ok: false, error: 'iframe not ready' });
     return new Promise((resolve) => {
       const id = ++msgId;
       const timer = setTimeout(() => { pending.delete(id); resolve({ ok: false, error: 'timeout' }); }, timeoutMs);
       pending.set(id, (res) => { clearTimeout(timer); resolve(res); });
-      iframe.contentWindow.postMessage({ type: 'run', id, code }, '*');
+      try {
+        iframe.contentWindow.postMessage({ type: 'run', id, code }, '*');
+      } catch (e) {
+        clearTimeout(timer);
+        pending.delete(id);
+        resolve({ ok: false, error: String(e && e.message || e) });
+      }
     });
+  }
+
+  async function runInSandbox(code, timeoutMs = CONFIG.sandboxTimeoutMs) {
+    // Bounded wait if iframe is still booting (avoids false "iframe not ready" probes)
+    for (let attempt = 0; attempt < 10; attempt++) {
+      if (iframeReady) {
+        const res = await runInSandboxOnce(code, timeoutMs);
+        if (!(res && res.error === 'iframe not ready')) return res;
+      }
+      await new Promise(function (r) { setTimeout(r, 150); });
+    }
+    return { ok: false, error: 'iframe not ready' };
   }
 
   // ============================================================
@@ -946,6 +964,40 @@
   // ============================================================
   // PARSING
   // ============================================================
+  function messageSourceText(el) {
+    // Prefer <pre>/<code> so Markdown emphasis (*word*) and quotes stay intact.
+    try {
+      const blocks = el.querySelectorAll('pre, code');
+      if (blocks && blocks.length) {
+        const joined = Array.from(blocks).map(function (n) { return (n.textContent || ''); }).join('\n');
+        if (joined.indexOf('"tool"') !== -1) return joined;
+      }
+    } catch (e) {}
+    return (el.textContent || '').trim();
+  }
+
+  function normalizeToolJson(raw) {
+    // Smart quotes / common MD artifacts that break JSON.parse
+    return String(raw)
+      .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
+      .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
+  }
+
+  function tryParseToolCandidate(cand) {
+    const norm = normalizeToolJson(cand);
+    try {
+      const obj = JSON.parse(norm);
+      if (obj && typeof obj.tool === 'string') {
+        if (obj.tool === 'run_js') {
+          if (obj.args && typeof obj.args.code === 'string') return { obj, full: cand };
+        } else {
+          return { obj, full: cand };
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
   function extractToolCall(text) {
     let idx = 0;
     while ((idx = text.indexOf('"tool"', idx)) !== -1) {
@@ -965,10 +1017,8 @@
             depth--;
             if (depth === 0) {
               const cand = text.slice(start, i + 1);
-              try {
-                const obj = JSON.parse(cand);
-                if (obj && obj.tool === 'run_js' && obj.args && typeof obj.args.code === 'string') return { obj, full: cand };
-              } catch {}
+              const parsed = tryParseToolCandidate(cand);
+              if (parsed) return parsed;
               break;
             }
           }
@@ -979,9 +1029,7 @@
     return null;
   }
 
-  // ============================================================
-  // DOM HELPERS
-  // ============================================================
+  
   function findWrapper(dsMessage) {
     const p = dsMessage.parentElement;
     if (!p) return null;
@@ -1113,7 +1161,9 @@
 
   async function processToolCall(dsMessage, tool, cachedMsgs) {
     const sig = fullSig(dsMessage, tool.full, cachedMsgs);
-    const code = tool.obj.args.code;
+    const toolName = tool.obj.tool;
+    const args = tool.obj.args || {};
+    const code = args.code;
 
     if (CONFIG.dedupe && DONE[sig]) {
       const prev = DONE[sig];
@@ -1124,11 +1174,23 @@
       return;
     }
 
-    log('tool call:', code, '| sig:', sig);
+    log('tool call:', toolName, code ? code.slice(0, 80) : JSON.stringify(args).slice(0, 80), '| sig:', sig);
     collapseToolMessage(dsMessage, '', false, true);
     setStatus('running');
 
-    const res = await runInSandbox(code);
+    let res;
+    if (toolName === 'run_js' && typeof code === 'string') {
+      res = await runInSandbox(code);
+    } else if (toolHandlers[toolName]) {
+      try {
+        const result = await toolHandlers[toolName](args);
+        res = { ok: true, result: result };
+      } catch (e) {
+        res = { ok: false, error: String(e && e.message || e) };
+      }
+    } else {
+      res = { ok: false, error: 'unknown tool: ' + toolName + ' (use list_tools call field for correct form)' };
+    }
     log('result:', res);
 
     const preview = res.ok ? String(res.result).slice(0, 80) : ('error: ' + (res.error || ''));
@@ -1208,7 +1270,7 @@
         continue;
       }
 
-      const text = (el.textContent || '').trim();
+      const text = messageSourceText(el);
       if (!text || text.startsWith('TOOL_RESULT:')) continue;
       if (!el.querySelector('div.ds-markdown.ds-assistant-message-main-content')) continue;
 
