@@ -18,7 +18,7 @@
     delete window.__DS_TOOL_SHIM__;
   }
 
-  const VERSION = '7.5.0-tools';
+  const VERSION = '7.5.1-tools';
   const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,

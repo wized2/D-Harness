@@ -244,11 +244,18 @@ class HarnessBridge(
         tool("workspace.append", "Append UTF-8 in workspace", JSONObject().put("path", "string").put("content", "string"))
         tool("text.replace", "Replace all in string", JSONObject().put("text", "string").put("find", "string").put("replace", "string"))
         tool("text.lines", "Split text into lines", JSONObject().put("text", "string"))
+        tool("device.locale", "Device locale / language tags", JSONObject())
+        tool("device.timezone", "Default timezone id + offset", JSONObject())
+        tool("device.sensors", "List available hardware sensors", JSONObject().put("limit", "number?"))
+        tool("net.dns", "Resolve host via InetAddress", JSONObject().put("host", "string"))
+        tool("time.sleep", "Sleep on native thread (ms, max 10000)", JSONObject().put("ms", "number"))
+        tool("text.snippet", "First N lines of text", JSONObject().put("text", "string").put("lines", "number?"))
+        tool("github.repo", "Compact repo metadata", JSONObject().put("owner", "string").put("repo", "string"))
 
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
-            .put("version", "1.5.2")
+            .put("version", "1.5.3")
             .put("notes", JSONObject()
                 .put("memory", "agent scratchpad")
                 .put("keys", "secrets/PAT — never echo values")
@@ -1813,5 +1820,127 @@ class HarnessBridge(
         }
     }
 
+
+
+    @JavascriptInterface
+    fun deviceLocale(): String {
+        return try {
+            val loc = java.util.Locale.getDefault()
+            JSONObject()
+                .put("ok", true)
+                .put("language", loc.language)
+                .put("country", loc.country)
+                .put("displayName", loc.displayName)
+                .put("toLanguageTag", loc.toLanguageTag())
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun deviceTimezone(): String {
+        return try {
+            val tz = java.util.TimeZone.getDefault()
+            JSONObject()
+                .put("ok", true)
+                .put("id", tz.id)
+                .put("displayName", tz.displayName)
+                .put("rawOffsetMs", tz.rawOffset)
+                .put("dstSavings", tz.dstSavings)
+                .put("inDaylightTime", tz.inDaylightTime(java.util.Date()))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun deviceSensors(limit: Int): String {
+        return try {
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager
+            val all = sm.getSensorList(android.hardware.Sensor.TYPE_ALL)
+            val lim = if (limit <= 0) 40 else limit.coerceIn(1, 80)
+            val arr = JSONArray()
+            for (s in all.take(lim)) {
+                arr.put(
+                    JSONObject()
+                        .put("name", s.name)
+                        .put("type", s.type)
+                        .put("vendor", s.vendor)
+                        .put("power", s.power.toDouble())
+                        .put("resolution", s.resolution.toDouble())
+                )
+            }
+            JSONObject().put("ok", true).put("count", all.size).put("shown", arr.length()).put("sensors", arr).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun netDns(host: String): String {
+        return try {
+            val addrs = java.net.InetAddress.getAllByName(host.trim())
+            val arr = JSONArray()
+            for (a in addrs) arr.put(a.hostAddress)
+            JSONObject().put("ok", true).put("host", host).put("addresses", arr).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun timeSleep(ms: Int): String {
+        return try {
+            val wait = ms.coerceIn(0, 10_000)
+            Thread.sleep(wait.toLong())
+            JSONObject().put("ok", true).put("sleptMs", wait).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textSnippet(text: String, lines: Int): String {
+        return try {
+            val n = if (lines <= 0) 20 else lines.coerceIn(1, 500)
+            val parts = text.split("\n")
+            val take = parts.take(n)
+            JSONObject()
+                .put("ok", true)
+                .put("totalLines", parts.size)
+                .put("shown", take.size)
+                .put("text", take.joinToString("\n"))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubRepo(owner: String, repo: String): String {
+        return try {
+            val token = githubToken()
+                ?: return JSONObject().put("ok", false).put("error", "no github PAT").toString()
+            val r = githubRequestSync("GET", "/repos/$owner/$repo", null, token)
+            val status = r.optInt("status")
+            val json = r.optJSONObject("json")
+            val out = JSONObject().put("ok", status in 200..299).put("status", status)
+            if (json != null) {
+                out.put("full_name", json.optString("full_name"))
+                    .put("default_branch", json.optString("default_branch"))
+                    .put("stars", json.optInt("stargazers_count"))
+                    .put("forks", json.optInt("forks_count"))
+                    .put("open_issues", json.optInt("open_issues_count"))
+                    .put("language", json.optString("language"))
+                    .put("private", json.optBoolean("private"))
+                    .put("html_url", json.optString("html_url"))
+            }
+            out.toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
 
 }

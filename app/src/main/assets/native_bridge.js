@@ -37,6 +37,13 @@ window.__DHarnessNative = {
   device_uptime: function () { return _j(function () { return DHarness.deviceUptime(); }); },
   device_storage: function () { return _j(function () { return DHarness.deviceStorage(); }); },
   device_memory: function () { return _j(function () { return DHarness.deviceMemory(); }); },
+  device_locale: function () { return _j(function () { return DHarness.deviceLocale(); }); },
+  device_timezone: function () { return _j(function () { return DHarness.deviceTimezone(); }); },
+  device_sensors: function (limit) { return _j(function () { return DHarness.deviceSensors(limit || 0); }); },
+  net_dns: function (host) { return _j(function () { return DHarness.netDns(String(host)); }); },
+  time_sleep: function (ms) { return _j(function () { return DHarness.timeSleep(ms || 0); }); },
+  text_snippet: function (text, lines) { return _j(function () { return DHarness.textSnippet(String(text), lines || 0); }); },
+  github_repo: function (owner, repo) { return _j(function () { return DHarness.githubRepo(String(owner), String(repo)); }); },
   file_append: function (path, content) { return _j(function () { return DHarness.fileAppend(path, content); }); },
   workspace_append: function (path, content) { return _j(function () { return DHarness.workspaceAppend(path, content); }); },
   text_replace: function (text, find, replace) { return _j(function () { return DHarness.textReplace(text, find, replace); }); },
@@ -132,6 +139,7 @@ window.__DHarnessNative = {
         return r;
       });
     },
+    repo: function (owner, repo) { return window.__DHarnessNative.github_repo(owner, repo); },
     branch_create: function (owner, repo, branch, from) {
       return _j(function () { return DHarness.githubBranchCreate(owner, repo, branch, from || null); });
     },
@@ -262,7 +270,8 @@ window.__DHarnessNative = {
   json_query: function (json, path) { return _j(function () { return DHarness.jsonQuery(json, path); }); },
   net: {
     ping: function (host, timeoutMs) { return _j(function () { return DHarness.netPing(host, timeoutMs || 3000); }); },
-    port: function (host, port, timeoutMs) { return _j(function () { return DHarness.netPort(host, port, timeoutMs || 3000); }); }
+    port: function (host, port, timeoutMs) { return _j(function () { return DHarness.netPort(host, port, timeoutMs || 3000); }); },
+    dns: function (host) { return window.__DHarnessNative.net_dns(host); }
   },
   process: {
     list: function () { return _j(function () { return DHarness.processList(); }); },
@@ -278,6 +287,9 @@ window.__DHarnessNative = {
     uptime: function () { return window.__DHarnessNative.device_uptime(); },
     storage: function () { return window.__DHarnessNative.device_storage(); },
     memory: function () { return window.__DHarnessNative.device_memory(); },
+    locale: function () { return window.__DHarnessNative.device_locale(); },
+    timezone: function () { return window.__DHarnessNative.device_timezone(); },
+    sensors: function (limit) { return window.__DHarnessNative.device_sensors(limit); },
     info: function () { return _j(function () { return DHarness.deviceInfo(); }); },
     battery: function () { return _j(function () { return DHarness.battery(); }); },
     network: function () { return _j(function () { return DHarness.network(); }); },
