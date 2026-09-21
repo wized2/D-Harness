@@ -326,7 +326,6 @@ class MainActivity : AppCompatActivity() {
             val themeB64 = android.util.Base64.encodeToString(
                 assets.open("claude_theme.js").readBytes(), android.util.Base64.NO_WRAP
             )
-            val dedupe = prefs.getBoolean("dedupe", true)
             val autoTheme = prefs.getBoolean("auto_theme", false)
             val js = """
                 (function(){
