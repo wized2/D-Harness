@@ -353,7 +353,7 @@ class MainActivity : AppCompatActivity() {
                   });
                   // Skip full re-inject if same stable shim already live (avoids clearing session state)
                   var existing = window.__DS_TOOL_SHIM__;
-                  if (existing && existing.version && String(existing.version).indexOf('7.6') === 0 && !window.__DS_FORCE_REINJECT__) {
+                  if (existing && existing.version && String(existing.version).indexOf('7.5') === 0 && !window.__DS_FORCE_REINJECT__) {
                     console.log('[D-Harness] shim already live', existing.version);
                     return 'already';
                   }

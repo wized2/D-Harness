@@ -1,13 +1,51 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.6.0-stable
+ * @version 7.5.0-native (upstream dsh.js + D-Harness native bridge tools)
  * @description run_js tool bridge + draggable status dot + management panel
- *              + opacity-flash send + throttled DOM scanning
+ *
+ * 7.5.0:
+ *  - full re-audit for stray symbols: removed the checkmark from the console load banner
+ *    and the decorative arrow character from the result chip (now a plain "- "). Nothing
+ *    rendered in the UI (tagline, FAB, panel, toasts) uses emoji or pictographic
+ *    characters; the only glyphs are the custom terminal SVG icon and a plain arrow SVG
+ *    used for expand/collapse.
+ *
+ * 7.4.1:
+ *  - leading icon is a custom terminal glyph (own SVG) instead of trying to clone
+ *    DeepSeek's own chevron; it pulses in place while a tool call runs. The small arrow
+ *    at the end goes back to being purely an expand/collapse control.
+ *
+ * 7.4.0:
+ *  - tagline no longer uses emoji glyphs; the collapse chevron is now the only status
+ *    icon — it spins while a tool runs and rotates on expand/collapse otherwise, the same
+ *    two jobs DeepSeek's own "Thought for Ns" header uses its chevron for. When that
+ *    native header is present on the page, its actual SVG is cloned so the icon matches
+ *    pixel-for-pixel; otherwise a plain fallback chevron is used
+ *
+ * 7.3.0:
+ *  - sendMessage no longer fades the textarea's opacity with a CSS transition; it hides
+ *    the whole composer bar (textarea + send button + toggles) with a single, un-animated
+ *    visibility:hidden, and pins its height, so no partial paint, button-state flicker,
+ *    or layout reflow is visible while a TOOL_RESULT is sent — and no rAF chain on restore
+ *
+ * 7.2.0 (verified against a live capture, DeepSeek build main.84ce94ca1f):
+ *  - stable per-message ID (React fiber messageId / data-virtual-list-item-key) replaces
+ *    occurrenceIndex dedupe, so the virtual list recycling nodes can't re-run or skip calls
+ *  - only the LAST message is scanned; runs only when generation is finished (stop/spinner
+ *    icon gone + text settled) and only for messages newer than what was on screen at load
+ *  - tool JSON is read from the ANSWER only (not the thinking block) and must end the message
+ *  - result is marked sent only after the send succeeds (unsent ones retry once)
+ *  - user's composer draft is preserved while sending TOOL_RESULT
+ *  - sandbox iframe is rebuilt on timeout (infinite loops no longer wedge it)
+ *  - confirm prompts for clipboard_read / geo_get / non-GET fetch_url; private hosts blocked
+ *  - TOOL_RESULT payload is truncated; memory.set reports quota failures
+ *  - cheaper scanning (no textContent over every message on every tick)
  */
 (function () {
   'use strict';
   if (window.top !== window.self) return;
   if (window.__DS_TOOL_SHIM__) {
+    if (!window.__DS_FORCE_REINJECT__) { console.log('[shim] already loaded'); return; }
     try { window.__DS_TOOL_SHIM__.stop && window.__DS_TOOL_SHIM__.stop(); } catch (e) {}
     try {
       document.getElementById('__ds_shim_style__')?.remove();
@@ -15,29 +53,30 @@
       document.getElementById('__ds_shim_panel')?.remove();
       document.getElementById('__ds_shim_toast')?.remove();
     } catch (e) {}
-    delete window.__DS_TOOL_SHIM__;
+    try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '7.6.0-stable';
-  const CONV_ID = location.pathname.split('/').filter(Boolean).pop() || 'unknown';
+  const VERSION = '7.5.0-native';
+  const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
     maxStorageKB: 100,
-    sendTimeoutMs: 5000,
+    sendTimeoutMs: 3000,
     sandboxTimeoutMs: 20000,
-    dedupe: true,              // ALWAYS skip already-answered tool calls
+    dedupe: true,
+    confirmSensitive: true,    // ask before clipboard_read / geo_get / non-GET fetch_url
+    callMustBeLast: true,      // tool JSON must end the assistant answer (ignores quoted examples)
+    maxResultChars: 20000,     // truncate TOOL_RESULT payload
+    settleMs: 1200,            // last message must be unchanged this long before we act
     // perf knobs
-    scanThrottleMs: 800,       // min interval between DOM scans
-    fallbackScanMs: 2500,      // periodic scan when observer is quiet
-    hideFlashMs: 80,           // max time input stays invisible
-    maxScanMessages: 24,       // only inspect the last N messages
+    scanThrottleMs: 400,       // min interval between DOM scans
+    fallbackScanMs: 1500,      // periodic scan when observer is quiet
+    hideFlashMs: 250,          // max time input stays invisible
   }, window.__DS_SHIM_CONFIG__ || {});
-  // Force dedupe on — infinite TOOL_RESULT loops are worse than any edge case
-  CONFIG.dedupe = true;
 
   // ---------- Storage ----------
   const LS = {
-    done:      '__ds_shim__done_v2',
+    done:      '__ds_shim__done_v3',
     memory:    '__ds_shim__memory_v1',
     fs:        '__ds_shim__fs_v1',
     fabPos:    '__ds_shim__fab_pos_v1',
@@ -52,6 +91,13 @@
     if (e.length > 1000) { e.sort((a, b) => (b[1].t || 0) - (a[1].t || 0)); DONE = Object.fromEntries(e.slice(0, 1000)); }
     lsSet(LS.done, DONE);
   };
+
+  // message key ("sessionId:messageId") -> tagline info, so collapsed tool calls survive
+  // virtual-list re-mounts and page reloads
+  const collapsedByMsg = new Map();
+  for (const v of Object.values(DONE)) {
+    if (v && v.mk) collapsedByMsg.set(v.mk, { preview: v.preview || '', err: !v.ok });
+  }
 
   function hashStr(s) {
     let h1 = 0x811c9dc5, h2 = 0x01000193;
@@ -69,6 +115,11 @@
   const log = (...a) => { pushLog('info', ...a); if (CONFIG.debug) console.log('%c[shim]', 'color:#0af;font-weight:bold', ...a); };
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const clip = (s) => {
+    if (s == null) return s;
+    s = String(s);
+    return s.length > CONFIG.maxResultChars ? s.slice(0, CONFIG.maxResultChars) + `…[truncated ${s.length - CONFIG.maxResultChars} chars]` : s;
+  };
 
   // ---------- Styles ----------
   const style = document.createElement('style');
@@ -96,18 +147,19 @@
       background: var(--dsw-alias-bg-hover, rgba(120,150,180,0.08));
     }
     [data-ds-shim-tagline="1"] .ds-shim-inner {
-      display: flex; align-items: center; gap: 6px; height: 100%;
+      display: flex; align-items: center; gap: 7px; height: 100%;
     }
     [data-ds-shim-tagline="1"] .ds-shim-ico {
-      width: 16px; height: 16px;
+      width: 15px; height: 15px;
       display: inline-flex; align-items: center; justify-content: center;
-      font-size: 13px; opacity: .85; flex-shrink: 0;
+      opacity: .75; flex-shrink: 0;
     }
+    [data-ds-shim-tagline="1"] .ds-shim-ico svg { display: block; width: 100%; height: 100%; }
     [data-ds-shim-tagline="1"][data-ds-shim-running="1"] .ds-shim-ico {
-      animation: dsshim-spin 1s linear infinite;
+      animation: dsshim-pulse-ico 1.2s ease-in-out infinite;
     }
-    @keyframes dsshim-spin { to { transform: rotate(360deg); } }
-    [data-ds-shim-tagline="1"] .ds-shim-txt { font-weight: 400; white-space: nowrap; }
+    @keyframes dsshim-pulse-ico { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+    [data-ds-shim-tagline="1"] .ds-shim-txt { font-weight: 400; font-size: 14px; white-space: nowrap; }
     [data-ds-shim-tagline="1"] .ds-shim-chip {
       font-family: ui-monospace,SFMono-Regular,Menlo,monospace;
       font-size: 12px;
@@ -121,8 +173,10 @@
       white-space: nowrap;
       margin-left: 2px;
     }
-    [data-ds-shim-tagline="1"] .ds-shim-chip::before { content: '→ '; opacity: .5; font-family: system-ui; }
+    [data-ds-shim-tagline="1"] .ds-shim-chip::before { content: '- '; opacity: .5; font-family: system-ui; }
     [data-ds-shim-tagline="1"] .ds-shim-chip.err { color: #f88; background: rgba(240,130,130,0.10); }
+    /* Collapse arrow: expand/collapse only (no longer doubles as a busy spinner —
+       the terminal icon's pulse handles that instead). */
     [data-ds-shim-tagline="1"] .ds-shim-chev {
       width: 14px; height: 14px;
       display: inline-flex; align-items: center; justify-content: center;
@@ -249,7 +303,7 @@
     </div>
     <div class="ds-shim-panel-body">
       <div class="ds-shim-row"><span>Status</span><span class="ds-shim-status" data-status="idle">idle</span></div>
-      <div class="ds-shim-row"><span>Conversation</span><code>${esc(CONV_ID.slice(0, 12))}…</code></div>
+      <div class="ds-shim-row"><span>Conversation</span><code class="ds-shim-conv">${esc(getConvId().slice(0, 12))}…</code></div>
       <hr />
       <div class="ds-shim-row"><span>Deduped calls</span><b class="ds-shim-done-count">0</b></div>
       <div class="ds-shim-row"><span>Memory keys</span><b class="ds-shim-mem-count">0</b></div>
@@ -257,6 +311,7 @@
       <hr />
       <label class="ds-shim-toggle"><input type="checkbox" data-opt="debug" /><span>Debug (show TOOL_RESULT)</span></label>
       <label class="ds-shim-toggle"><input type="checkbox" data-opt="dedupe" checked /><span>Dedupe executed tool calls</span></label>
+      <label class="ds-shim-toggle"><input type="checkbox" data-opt="confirmSensitive" checked /><span>Confirm clipboard / geo / POST</span></label>
       <hr />
       <div class="ds-shim-actions">
         <button data-act="resetFab">Reset dot</button>
@@ -410,8 +465,10 @@
     if (show) {
       positionPanel();
       refreshCounts();
+      panel.querySelector('.ds-shim-conv').textContent = getConvId().slice(0, 12) + '…';
       panel.querySelector('[data-opt="debug"]').checked = !!CONFIG.debug;
       panel.querySelector('[data-opt="dedupe"]').checked = !!CONFIG.dedupe;
+      panel.querySelector('[data-opt="confirmSensitive"]').checked = !!CONFIG.confirmSensitive;
     }
   }
   panel.querySelector('.ds-shim-close').onclick = () => togglePanel(false);
@@ -423,15 +480,25 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !panel.hidden) togglePanel(false);
   });
+
+  // first visible text of an element, without building the whole textContent
+  function firstText(el) {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = w.nextNode())) {
+      const t = n.nodeValue.trim();
+      if (t) return t.slice(0, 40);
+    }
+    return '';
+  }
+
   panel.querySelectorAll('[data-opt]').forEach(input => {
     input.addEventListener('change', () => {
       CONFIG[input.dataset.opt] = input.checked;
       log('option', input.dataset.opt, '=', input.checked);
       if (input.dataset.opt === 'debug') {
-        const msgs = document.querySelectorAll('div.ds-message');
-        for (const el of msgs) {
-          const text = (el.textContent || '').trim();
-          if (!text.startsWith('TOOL_RESULT:')) continue;
+        for (const el of document.querySelectorAll('div.ds-message')) {
+          if (!firstText(el).startsWith('TOOL_RESULT:')) continue;
           const wrapper = el.parentElement;
           if (!wrapper) continue;
           if (CONFIG.debug) wrapper.removeAttribute('data-ds-shim-hidden');
@@ -449,7 +516,7 @@
     lsSet(LS.fabHidden, true); fab.setAttribute('data-hidden', '1');
     showToast('Dot hidden');
   };
-  panel.querySelector('[data-act="clearDone"]').onclick   = () => { DONE = {}; saveDone(); refreshCounts(); log('done cleared'); };
+  panel.querySelector('[data-act="clearDone"]').onclick   = () => { DONE = {}; collapsedByMsg.clear(); saveDone(); refreshCounts(); log('done cleared'); };
   panel.querySelector('[data-act="clearMemory"]').onclick = () => { lsSet(LS.memory, {}); refreshCounts(); log('memory cleared'); };
   panel.querySelector('[data-act="clearFs"]').onclick     = () => { lsSet(LS.fs, {}); refreshCounts(); log('fs cleared'); };
   panel.querySelector('[data-act="copyLogs"]').onclick = async () => {
@@ -468,10 +535,7 @@
   if (lsGet(LS.fabHidden, false)) fab.setAttribute('data-hidden', '1');
 
   // ---------- Sandbox ----------
-  const iframe = document.createElement('iframe');
-  iframe.sandbox = 'allow-scripts';
-  iframe.style.display = 'none';
-  iframe.srcdoc = `<!doctype html><html><body><script>
+  const SANDBOX_HTML = `<!doctype html><html><body><script>
     const pendingTool = new Map();
     let toolId = 0;
     window.__ds_call_tool = (name, args) => new Promise((resolve, reject) => {
@@ -500,54 +564,6 @@
       read: ()     => window.__ds_call_tool('clipboard_read', {}),
     };
     window.geo = { get: (opts) => window.__ds_call_tool('geo_get', opts || {}) };
-    window.workspace = {
-      pwd: () => window.__ds_call_tool('workspace', { op:'pwd' }),
-      ls: (path) => window.__ds_call_tool('workspace', { op:'ls', path }),
-      read: (path, maxBytes) => window.__ds_call_tool('workspace', { op:'read', path, maxBytes }),
-      write: (path, content) => window.__ds_call_tool('workspace', { op:'write', path, content }),
-      write_b64: (path, contentB64) => window.__ds_call_tool('workspace', { op:'write_b64', path, contentB64 }),
-      read_b64: (path) => window.__ds_call_tool('workspace', { op:'read_b64', path }),
-      mkdir: (path) => window.__ds_call_tool('workspace', { op:'mkdir', path }),
-      rm: (path) => window.__ds_call_tool('workspace', { op:'rm', path }),
-      stat: (path) => window.__ds_call_tool('workspace', { op:'stat', path }),
-      tree: (path, depth) => window.__ds_call_tool('workspace', { op:'tree', path, depth }),
-    };
-    window.list_tools = () => window.__ds_call_tool('list_tools', {});
-    window.describe = (name) => window.__ds_call_tool('describe', { name });
-    window.http_request = (opts) => window.__ds_call_tool('http_request', opts || {});
-    window.github = {
-      pull: (o,r,path,ref,dest) => window.__ds_call_tool('github', { op:'pull', owner:o, repo:r, path, ref, dest }),
-      push_file: (o,r,path,branch,message,localPath) => window.__ds_call_tool('github', { op:'push_file', owner:o, repo:r, path, branch, message, localPath }),
-      me: () => window.__ds_call_tool('github', { op:'me' }),
-      repos: (limit) => window.__ds_call_tool('github', { op:'repos', limit }),
-      pr: (o,r,n) => window.__ds_call_tool('github', { op:'pr', owner:o, repo:r, number:n }),
-      pr_files: (o,r,n) => window.__ds_call_tool('github', { op:'pr_files', owner:o, repo:r, number:n }),
-      pr_reviews: (o,r,n) => window.__ds_call_tool('github', { op:'pr_reviews', owner:o, repo:r, number:n }),
-      pr_commits: (o,r,n) => window.__ds_call_tool('github', { op:'pr_commits', owner:o, repo:r, number:n }),
-      issue: (o,r,n) => window.__ds_call_tool('github', { op:'issue', owner:o, repo:r, number:n }),
-      contents: (o,r,path,ref) => window.__ds_call_tool('github', { op:'contents', owner:o, repo:r, path, ref }),
-      search: (q,type) => window.__ds_call_tool('github', { op:'search', query:q, type }),
-      request: (m,path,body) => window.__ds_call_tool('github', { op:'request', method:m, path, body }),
-      issue_comment: (o,r,n,body) => window.__ds_call_tool('github', { op:'issue_comment', owner:o, repo:r, number:n, body }),
-    };
-    window.keys = {
-      get: (k) => window.__ds_call_tool('keys', { op:'get', key:k }),
-      set: (k,v) => window.__ds_call_tool('keys', { op:'set', key:k, value:v }),
-      delete: (k) => window.__ds_call_tool('keys', { op:'delete', key:k }),
-      list: () => window.__ds_call_tool('keys', { op:'list' }),
-    };
-    window.exec = (argv) => window.__ds_call_tool('exec', { argv });
-    window.device = { info: () => window.__ds_call_tool('device', { op:'info' }) };
-    window.env = { get: () => window.__ds_call_tool('env', {}) };
-    window.toast = (msg) => window.__ds_call_tool('toast', { message: msg });
-    window.vibrate = (ms) => window.__ds_call_tool('vibrate', { ms });
-    window.notify = (title, body) => window.__ds_call_tool('notify', { title, body });
-    window.share = (text) => window.__ds_call_tool('share', { text });
-    window.appInfo = () => window.__ds_call_tool('appInfo', {});
-    window.file.commit = (path, contentB64, sha256) => window.__ds_call_tool('file', { op:'commit', path, contentB64, sha256 });
-    window.file.read_b64 = (path) => window.__ds_call_tool('file', { op:'read_b64', path });
-    window.file.verify_roundtrip = () => window.__ds_call_tool('file', { op:'verify_roundtrip' });
-
     window.fs = {
       read:   (path)                => window.__ds_call_tool('fs', { op:'read', path }),
       write:  (path, content, mime) => window.__ds_call_tool('fs', { op:'write', path, content, mime }),
@@ -567,27 +583,77 @@
       }
     };
   <\/script></body></html>`;
-  document.body.appendChild(iframe);
+
+  let iframe = null;
   let iframeReady = false;
-  iframe.onload = () => { iframeReady = true; };
+  let readyWaiters = [];
+
+  function mountSandbox() {
+    if (iframe) iframe.remove();
+    iframeReady = false;
+    iframe = document.createElement('iframe');
+    iframe.sandbox = 'allow-scripts';
+    iframe.style.display = 'none';
+    iframe.srcdoc = SANDBOX_HTML;
+    iframe.onload = () => { iframeReady = true; readyWaiters.splice(0).forEach(f => f()); };
+    document.body.appendChild(iframe);
+  }
+
+  function waitSandboxReady(ms) {
+    if (iframeReady) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      function done() { clearTimeout(t); resolve(true); }
+      const t = setTimeout(() => { readyWaiters = readyWaiters.filter(f => f !== done); resolve(false); }, ms);
+      readyWaiters.push(done);
+    });
+  }
+
+  const pending = new Map();
+  let msgId = 0;
+
+  function resetSandbox(reason) {
+    log('sandbox reset:', reason);
+    for (const [id, cb] of [...pending]) { pending.delete(id); cb({ ok: false, error: 'sandbox reset (' + reason + ')' }); }
+    mountSandbox();
+  }
+  mountSandbox();
 
   // ---------- Tool handlers ----------
   const sizeGuard = (s) => {
     const kb = (String(s).length * 2) / 1024;
     if (kb > CONFIG.maxStorageKB) throw new Error(`payload too large: ${kb.toFixed(1)}KB > ${CONFIG.maxStorageKB}KB`);
   };
+
+  async function confirmUser(what) {
+    if (!CONFIG.confirmSensitive) return;
+    if (!window.confirm('DeepSeek tool wants to ' + what + '.\nAllow?')) throw new Error('denied by user');
+  }
+
+  // Blocks same-host and private/loopback/link-local targets (cannot stop redirects to them).
+  const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local|.*\.internal|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[::1?\]|\[f[cd][0-9a-f]{2}:|\[fe80:)/i;
+  function assertSafeUrl(url) {
+    let u;
+    try { u = new URL(url); } catch { throw new Error('invalid url'); }
+    if (!/^https?:$/.test(u.protocol)) throw new Error('blocked protocol: ' + u.protocol);
+    if (u.hostname === location.hostname) throw new Error('blocked: same-origin fetch');
+    if (PRIVATE_HOST.test(u.hostname)) throw new Error('blocked private host: ' + u.hostname);
+    return u;
+  }
+
   const toolHandlers = {
     async memory({ op, key, value }) {
       const m = lsGet(LS.memory, {});
       if (op === 'get')    return { value: key in m ? m[key] : null };
-      if (op === 'set')    { sizeGuard(value); m[key] = value; lsSet(LS.memory, m); return { ok: true }; }
+      if (op === 'set')    { sizeGuard(value); m[key] = value; if (!lsSet(LS.memory, m)) throw new Error('storage full'); return { ok: true }; }
       if (op === 'delete') { delete m[key]; lsSet(LS.memory, m); return { ok: true }; }
       if (op === 'list')   return { keys: Object.keys(m) };
       if (op === 'clear')  { lsSet(LS.memory, {}); return { ok: true }; }
       throw new Error('unknown memory op: ' + op);
     },
     async fetch_url({ url, method = 'GET', headers = {}, body = null, json = null, timeoutMs = 15000 }) {
-      if (/^https?:\/\/chat\.deepseek\.com/i.test(url)) throw new Error('blocked: same-origin fetch');
+      const u = assertSafeUrl(url);
+      const verb = String(method).toUpperCase();
+      if (verb !== 'GET' && verb !== 'HEAD') await confirmUser('send a ' + verb + ' request to ' + u.hostname);
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
@@ -624,10 +690,12 @@
     },
     async clipboard_read() {
       if (!navigator.clipboard?.readText) throw new Error('clipboard read unsupported');
+      await confirmUser('read your clipboard');
       return { text: await navigator.clipboard.readText() };
     },
     async geo_get({ timeoutMs = 10000 } = {}) {
       if (!navigator.geolocation) throw new Error('geolocation unsupported');
+      await confirmUser('read your location');
       return await new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(
           p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, timestamp: p.timestamp }),
@@ -647,12 +715,7 @@
     },
   };
 
-  const pending = new Map();
-  let msgId = 0;
-
-
-  // ---- Native Android bridge (D-Harness) ---------------------------------
-  // Prefer Kotlin tools when window.__DHarnessNative is present.
+  // --- D-Harness native bridge tools (preserves HarnessBridge) ---
   const N = () => window.__DHarnessNative;
 
   async function nativeCall(path, args) {
@@ -825,10 +888,12 @@
     },
   });
 
+
   window.addEventListener('message', async (e) => {
-    if (e.source !== iframe.contentWindow) return;
+    if (!iframe || e.source !== iframe.contentWindow) return;
     const d = e.data; if (!d) return;
     if (d.__dsShimToolCall === true) {
+      const source = e.source;
       let payload;
       try {
         const h = toolHandlers[d.name];
@@ -838,7 +903,8 @@
       } catch (err) {
         payload = { __dsShimToolResult: true, id: d.id, ok: false, error: String(err && err.message || err) };
       }
-      iframe.contentWindow.postMessage(payload, '*');
+      // sandbox may have been rebuilt while the handler ran
+      if (iframe && iframe.contentWindow === source) source.postMessage(payload, '*');
       return;
     }
     if (d.__dsShim === true) {
@@ -847,36 +913,37 @@
     }
   });
 
-  function runInSandboxOnce(code, timeoutMs) {
-    if (!iframeReady) return Promise.resolve({ ok: false, error: 'iframe not ready' });
+  async function runInSandbox(code, timeoutMs = CONFIG.sandboxTimeoutMs) {
+    if (!(await waitSandboxReady(3000))) return { ok: false, error: 'sandbox not ready' };
     return new Promise((resolve) => {
       const id = ++msgId;
-      const timer = setTimeout(() => { pending.delete(id); resolve({ ok: false, error: 'timeout' }); }, timeoutMs);
-      pending.set(id, (res) => { clearTimeout(timer); resolve(res); });
-      try {
-        iframe.contentWindow.postMessage({ type: 'run', id, code }, '*');
-      } catch (e) {
-        clearTimeout(timer);
+      const timer = setTimeout(() => {
         pending.delete(id);
-        resolve({ ok: false, error: String(e && e.message || e) });
-      }
+        resolve({ ok: false, error: 'timeout' });
+        resetSandbox('timeout');   // a stuck script would otherwise wedge the iframe forever
+      }, timeoutMs);
+      pending.set(id, (res) => { clearTimeout(timer); resolve(res); });
+      iframe.contentWindow.postMessage({ type: 'run', id, code }, '*');
     });
   }
 
-  async function runInSandbox(code, timeoutMs = CONFIG.sandboxTimeoutMs) {
-    // Bounded wait if iframe is still booting (avoids false "iframe not ready" probes)
-    for (let attempt = 0; attempt < 10; attempt++) {
-      if (iframeReady) {
-        const res = await runInSandboxOnce(code, timeoutMs);
-        if (!(res && res.error === 'iframe not ready')) return res;
-      }
-      await new Promise(function (r) { setTimeout(r, 150); });
-    }
-    return { ok: false, error: 'iframe not ready' };
-  }
-
   // ============================================================
-  // INPUT / SEND (with opacity flash)
+  // INPUT / SEND
+  //
+  // Nothing on screen should change while a TOOL_RESULT is sent: no textarea flash,
+  // no send-button icon flicker, no composer resize/reflow.
+  //
+  // v7.2's opacity fade on the textarea alone left two things visible: the send button
+  // (outside the faded element) flipping enabled/disabled, and — because the fade used a
+  // CSS transition plus two nested requestAnimationFrame steps to restore it — several
+  // extra paints stretched over multiple frames, which is what showed up as "lag".
+  //
+  // v7.3 instead:
+  //  - hides the WHOLE composer (textarea + buttons) with visibility:hidden, a single
+  //    style write with no transition, so nothing animates and nothing partial paints
+  //  - freezes the composer's height for the duration, so the autosize logic reacting to
+  //    a large JSON payload can't resize the box and reflow the page underneath it
+  //  - restores the draft and un-hides in one synchronous step, not spread across frames
   // ============================================================
   const getInput = () =>
     document.querySelector('textarea[placeholder="Message DeepSeek"]') ||
@@ -889,17 +956,38 @@
   }
 
   const SEND_SELECTOR = 'div[role="button"].ds-button--primary.ds-button--circle.ds-button--filled';
-  const SEND_ICON_PREFIX = 'M8.3125';
+  const SEND_ICON_PREFIX = 'M8.3125';       // arrow (idle / ready to send)
+  const STOP_ICON_PREFIX = 'M2 4.88';       // rounded square (generating)
+  const SPINNER_ICON_PREFIX = 'M34,18';     // ring (request sent, waiting for first token)
+  const btnIcon = (b) => b.querySelector('svg path')?.getAttribute('d') || '';
 
   function findEnabledSendButton() {
     for (const b of document.querySelectorAll(SEND_SELECTOR)) {
       if (b.classList.contains('ds-button--disabled')) continue;
       if (b.offsetParent === null) continue;
-      const d = b.querySelector('svg path')?.getAttribute('d') || '';
-      if (!d.startsWith(SEND_ICON_PREFIX)) continue;
+      if (!btnIcon(b).startsWith(SEND_ICON_PREFIX)) continue;
       return b;
     }
     return null;
+  }
+
+  function isGenerating() {
+    for (const b of document.querySelectorAll(SEND_SELECTOR)) {
+      const d = btnIcon(b);
+      if (d.startsWith(STOP_ICON_PREFIX) || d.startsWith(SPINNER_ICON_PREFIX)) return true;
+    }
+    return false;
+  }
+
+  // Smallest ancestor of the textarea that also contains the send button, i.e. the whole
+  // composer bar. Hiding this (not just the textarea) also hides the send button's
+  // enabled/disabled flicker and the toggle chips.
+  function getComposerRoot(input) {
+    let node = input;
+    for (let i = 0; i < 8 && node && node !== document.body; i++, node = node.parentElement) {
+      if (node.querySelector(SEND_SELECTOR)) return node;
+    }
+    return input.parentElement || input;
   }
 
   let sendingLock = false;
@@ -911,37 +999,33 @@
     const input = getInput();
     if (!input) { sendingLock = false; log('no input'); setStatus('error'); return false; }
 
-    // --- Opacity flash: hide composer while we fill+send ---
-    const prevOpacity = input.style.opacity;
-    const prevPointer = input.style.pointerEvents;
-    const prevTransition = input.style.transition;
-    input.style.transition = 'none';
-    input.style.opacity = '0';
-    input.style.pointerEvents = 'none';
+    const root = getComposerRoot(input);
+    const draft = input.value;   // user's unsent text, restored afterwards
 
-    const restore = () => {
-      // Restore on next frame to avoid flicker with React's clear
-      requestAnimationFrame(() => {
-        input.style.opacity = prevOpacity;
-        input.style.pointerEvents = prevPointer;
-        requestAnimationFrame(() => {
-          input.style.transition = prevTransition;
-        });
-      });
-    };
+    // One style write, no transition: visibility:hidden removes the element from paint
+    // entirely (unlike opacity, nothing partially shows through) while keeping its layout
+    // box, so surrounding content doesn't jump. Height is pinned so the textarea's own
+    // autosize logic can't grow/shrink the composer while the payload sits in it.
+    const prevVisibility = root.style.visibility;
+    const prevPointerEvents = root.style.pointerEvents;
+    const rect = root.getBoundingClientRect();
+    const prevMinHeight = root.style.minHeight;
+    const prevMaxHeight = root.style.maxHeight;
+    root.style.minHeight = rect.height + 'px';
+    root.style.maxHeight = rect.height + 'px';
+    root.style.visibility = 'hidden';
+    root.style.pointerEvents = 'none';
 
     try {
       input.focus();
       setNativeValue(input, text);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(60);
+      await sleep(60);   // let React process onChange (enables the send button)
 
-      // Try Enter
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
       input.dispatchEvent(new KeyboardEvent('keyup',   { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
 
-      // Wait for clear
       let cleared = false;
       let t0 = Date.now();
       while (Date.now() - t0 < 500) {
@@ -950,7 +1034,6 @@
       }
 
       if (!cleared) {
-        // Fallback: click button
         let btn = null;
         t0 = Date.now();
         while (Date.now() - t0 < CONFIG.sendTimeoutMs) {
@@ -958,14 +1041,22 @@
           if (btn) break;
           await sleep(50);
         }
-        if (btn) { btn.click(); cleared = true; }
+        if (btn) { btn.click(); cleared = true; await sleep(120); }
       }
 
       if (!cleared) { log('send failed'); setStatus('error'); return false; }
       log('sent');
       return true;
     } finally {
-      restore();
+      // Put the draft back and reveal everything in one go — no intermediate state to see.
+      if (draft) {
+        setNativeValue(input, draft);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      root.style.visibility = prevVisibility;
+      root.style.pointerEvents = prevPointerEvents;
+      root.style.minHeight = prevMinHeight;
+      root.style.maxHeight = prevMaxHeight;
       sendingLock = false;
     }
   }
@@ -973,40 +1064,6 @@
   // ============================================================
   // PARSING
   // ============================================================
-  function messageSourceText(el) {
-    // Prefer <pre>/<code> so Markdown emphasis (*word*) and quotes stay intact.
-    try {
-      const blocks = el.querySelectorAll('pre, code');
-      if (blocks && blocks.length) {
-        const joined = Array.from(blocks).map(function (n) { return (n.textContent || ''); }).join('\n');
-        if (joined.indexOf('"tool"') !== -1) return joined;
-      }
-    } catch (e) {}
-    return (el.textContent || '').trim();
-  }
-
-  function normalizeToolJson(raw) {
-    // Smart quotes / common MD artifacts that break JSON.parse
-    return String(raw)
-      .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
-      .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
-  }
-
-  function tryParseToolCandidate(cand) {
-    const norm = normalizeToolJson(cand);
-    try {
-      const obj = JSON.parse(norm);
-      if (obj && typeof obj.tool === 'string') {
-        if (obj.tool === 'run_js') {
-          if (obj.args && typeof obj.args.code === 'string') return { obj, full: cand };
-        } else {
-          return { obj, full: cand };
-        }
-      }
-    } catch (e) {}
-    return null;
-  }
-
   function extractToolCall(text) {
     let idx = 0;
     while ((idx = text.indexOf('"tool"', idx)) !== -1) {
@@ -1026,8 +1083,13 @@
             depth--;
             if (depth === 0) {
               const cand = text.slice(start, i + 1);
-              const parsed = tryParseToolCandidate(cand);
-              if (parsed) return parsed;
+              try {
+                const obj = JSON.parse(cand);
+                if (obj && typeof obj.tool === 'string' && obj.tool) {
+                  if (obj.tool === 'run_js' && !(obj.args && typeof obj.args.code === 'string')) { idx = i + 1; break; }
+                  return { obj, full: cand, end: i + 1 };
+                }
+              } catch {}
               break;
             }
           }
@@ -1038,7 +1100,36 @@
     return null;
   }
 
-  
+  // ============================================================
+  // MESSAGE IDENTITY (stable across virtual-list recycling)
+  // ============================================================
+  // DeepSeek renders each message under a React component with props {sessionId, messageId}.
+  // Optimistic messages have NEGATIVE ids until the server confirms; only positive ids are real.
+  function msgInfo(el) {
+    try {
+      const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
+      let f = fk ? el[fk] : null;
+      for (let i = 0; f && i < 10; i++, f = f.return) {
+        const p = f.memoizedProps;
+        if (p && typeof p === 'object' && p.messageId != null) {
+          return { id: String(p.messageId), sessionId: p.sessionId ? String(p.sessionId) : null };
+        }
+      }
+    } catch {}
+    const key = el.closest('[data-virtual-list-item-key]')?.getAttribute('data-virtual-list-item-key');
+    return key != null ? { id: key, sessionId: null } : null;
+  }
+  const isRealId = (id) => /^\d+$/.test(id);
+  const mkOf = (info) => (info.sessionId || getConvId()) + ':' + info.id;
+  function maxRealId(msgs) {
+    let m = -1;
+    for (const el of msgs) { const i = msgInfo(el); if (i && isRealId(i.id)) m = Math.max(m, +i.id); }
+    return m;
+  }
+
+  // ============================================================
+  // DOM HELPERS
+  // ============================================================
   function findWrapper(dsMessage) {
     const p = dsMessage.parentElement;
     if (!p) return null;
@@ -1051,7 +1142,10 @@
 
   // ============================================================
   // TAGLINE
+  // No emoji/text glyphs. A custom terminal icon identifies "tool call" (it pulses while
+  // running), and a separate small arrow handles expand/collapse.
   // ============================================================
+  const TERMINAL_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 6.3L6.5 8.8L4 11.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.3H11.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
   const CHEV_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function createTagline(preview = '', isError = false, running = false) {
@@ -1062,15 +1156,14 @@
     const inner = document.createElement('div');
     inner.className = 'ds-shim-inner';
 
-    const ico = document.createElement('div');
+    const ico = document.createElement('span');
     ico.className = 'ds-shim-ico';
-    ico.textContent = running ? '⏳' : '🔧';
+    ico.innerHTML = TERMINAL_SVG;
+    inner.appendChild(ico);
 
     const txt = document.createElement('span');
     txt.className = 'ds-shim-txt';
     txt.textContent = running ? 'Running tool…' : 'Tool used';
-
-    inner.appendChild(ico);
     inner.appendChild(txt);
 
     if (preview) {
@@ -1091,7 +1184,6 @@
 
   function updateTagline(tagline, preview, isError, running) {
     tagline.toggleAttribute('data-ds-shim-running', !!running);
-    tagline.querySelector('.ds-shim-ico').textContent = running ? '⏳' : '🔧';
     tagline.querySelector('.ds-shim-txt').textContent = running ? 'Running tool…' : 'Tool used';
     let chip = tagline.querySelector('.ds-shim-chip');
     if (preview !== undefined) {
@@ -1110,8 +1202,6 @@
   // ============================================================
   // COLLAPSE
   // ============================================================
-  const processed = new WeakSet();
-
   function applyHiding(wrapper, tagline) {
     for (const child of wrapper.children) {
       if (child === tagline) continue;
@@ -1148,134 +1238,50 @@
   }
 
   // ============================================================
-  // DEDUP SIG (durable across React re-renders)
-  // ============================================================
-  function occurrenceIndex(dsMessage, toolJson, cachedMsgs) {
-    const all = cachedMsgs || document.querySelectorAll('div.ds-message');
-    let n = 0;
-    for (const m of all) {
-      if (m === dsMessage) return n;
-      const txt = m.textContent || '';
-      if (txt.includes(toolJson)) n++;
-    }
-    return n;
-  }
-  const fullSig = (dsMessage, toolJson, cachedMsgs) =>
-    CONV_ID + ':' + hashStr(toolJson) + ':' + occurrenceIndex(dsMessage, toolJson, cachedMsgs);
-
-  // Session-level set: survives DOM node replacement (WeakSet does not)
-  const SESSION_DONE = new Set(Object.keys(DONE));
-  // In-flight sigs so we never double-run the same call
-  const IN_FLIGHT = new Set();
-  let sendRetryTimer = null;
-
-  // ============================================================
-  // PROCESS — run once per sig, send TOOL_RESULT once
+  // PROCESS
   // ============================================================
   let busy = false;
+  const handled = new Set();   // message keys already examined this page load
+  const retried = new Set();
+  const baseline = new Map();  // sessionId -> highest real message id on screen when first seen
 
-  async function processToolCall(dsMessage, tool, cachedMsgs) {
-    const sig = fullSig(dsMessage, tool.full, cachedMsgs);
-    const toolName = tool.obj.tool;
-    const args = tool.obj.args || {};
-    const code = args.code;
-
-    // Durable skip: DONE (localStorage) or SESSION_DONE or in-flight
-    if (DONE[sig] || SESSION_DONE.has(sig) || IN_FLIGHT.has(sig)) {
-      const prev = DONE[sig];
-      log('skip already-handled:', sig.slice(0, 48));
-      try { dsMessage.setAttribute('data-ds-shim-sig', sig); } catch (e) {}
-      if (prev) {
-        const preview = prev.ok ? String(prev.result).slice(0, 40) : 'error';
-        collapseToolMessage(dsMessage, preview, !prev.ok, false);
-      } else {
-        collapseToolMessage(dsMessage, 'done', false, false);
-      }
-      return;
-    }
-
-    IN_FLIGHT.add(sig);
-    try { dsMessage.setAttribute('data-ds-shim-sig', sig); } catch (e) {}
-    log('tool call:', toolName, code ? code.slice(0, 80) : JSON.stringify(args).slice(0, 80), '| sig:', sig.slice(0, 40));
+  async function processToolCall(dsMessage, tool, mk, sig) {
+    const tname = tool.obj.tool;
+    log('tool call:', tname, tool.obj.args, '| msg:', mk);
     collapseToolMessage(dsMessage, '', false, true);
     setStatus('running');
 
     let res;
-    try {
-      if (toolName === 'run_js' && typeof code === 'string') {
-        res = await runInSandbox(code);
-      } else if (toolHandlers[toolName]) {
+    if (tname === 'run_js') {
+      const code = tool.obj.args && tool.obj.args.code;
+      res = await runInSandbox(code);
+    } else {
+      const h = toolHandlers[tname];
+      if (!h) {
+        res = { ok: false, error: 'unknown tool: ' + tname + ' — try run_js with list_tools()' };
+      } else {
         try {
-          const result = await toolHandlers[toolName](args);
-          res = { ok: true, result: result };
-        } catch (e) {
-          res = { ok: false, error: String(e && e.message || e) };
+          const result = await h(tool.obj.args || {});
+          res = { ok: true, result };
+        } catch (err) {
+          res = { ok: false, error: String(err && err.message || err) };
         }
-      } else {
-        // Unknown top-level tool name — tell the model the correct form
-        res = {
-          ok: false,
-          error: 'unknown tool "' + toolName + '". Prefer run_js with helpers, e.g. ' +
-            '{"tool":"run_js","args":{"code":"return await list_tools()"}} or ' +
-            '{"tool":"run_js","args":{"code":"return await device.info()"}}'
-        };
       }
-    } catch (e) {
-      res = { ok: false, error: String(e && e.message || e) };
     }
-    log('result ok=', res && res.ok);
+    log('result:', res);
 
-    // Mark DONE *before* send so a failed/slow send never re-executes the tool
-    DONE[sig] = { ok: !!res.ok, result: res.result, error: res.error, t: Date.now() };
-    SESSION_DONE.add(sig);
-    saveDone();
-    refreshCounts();
+    const preview = res.ok ? String(res.result).slice(0, 40) : 'error';
+    const payload = 'TOOL_RESULT: ' + JSON.stringify({ ok: res.ok, result: clip(res.result), error: clip(res.error) });
+    // marked unsent until the send actually succeeds, so a failed send can be retried
+    DONE[sig] = { ok: res.ok, preview, mk, sent: false, payload, t: Date.now() };
+    collapsedByMsg.set(mk, { preview, err: !res.ok });
+    saveDone(); refreshCounts();
 
-    const preview = res.ok ? String(res.result).slice(0, 80) : ('error: ' + (res.error || ''));
     collapseToolMessage(dsMessage, preview, !res.ok, false);
+    setStatus(res.ok ? 'idle' : 'error');
 
-    const payload = JSON.stringify({
-      ok: res.ok,
-      result: res.result,
-      error: res.error,
-      sig: sig,
-      ts: Date.now()
-    });
-    const msg = 'TOOL_RESULT: ' + payload;
-
-    let okSend = false;
-    try { okSend = await sendMessage(msg); } catch (e) { log('send threw', e); }
-
-    if (okSend) {
-      setStatus(res.ok ? 'idle' : 'error');
-      IN_FLIGHT.delete(sig);
-      return;
-    }
-
-    // Send failed — retry send ONLY (do not re-run tool). Cap at 2 retries.
-    setStatus('warn');
-    showToast('Sending result…');
-    let attempts = 0;
-    const tryAgain = async () => {
-      attempts++;
-      try {
-        const again = await sendMessage(msg);
-        if (again) {
-          setStatus(res.ok ? 'idle' : 'error');
-          showToast('TOOL_RESULT sent');
-          IN_FLIGHT.delete(sig);
-          return;
-        }
-      } catch (e) { log('retry send failed', e); }
-      if (attempts < 2) {
-        sendRetryTimer = setTimeout(tryAgain, 900);
-      } else {
-        IN_FLIGHT.delete(sig);
-        setStatus('error');
-        showToast('Could not send TOOL_RESULT — tap Fab → retry if needed');
-      }
-    };
-    sendRetryTimer = setTimeout(tryAgain, 700);
+    const sent = await sendMessage(payload);
+    if (sent && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); }
   }
 
   // ============================================================
@@ -1285,9 +1291,9 @@
     for (const el of msgs) {
       const wrapper = el.parentElement;
       if (!wrapper) continue;
-      if (wrapper.getAttribute('data-ds-shim-hidden') === '1' && !CONFIG.debug) continue;
-      const text = (el.textContent || '').trim();
-      if (!text.startsWith('TOOL_RESULT:')) continue;
+      const isHidden = wrapper.getAttribute('data-ds-shim-hidden') === '1';
+      if (isHidden && !CONFIG.debug) continue;
+      if (!firstText(el).startsWith('TOOL_RESULT:')) continue;
       if (CONFIG.debug) wrapper.removeAttribute('data-ds-shim-hidden');
       else wrapper.setAttribute('data-ds-shim-hidden', '1');
     }
@@ -1309,74 +1315,92 @@
     }
   }
 
-  function scanForToolCalls(msgs) {
-    if (busy || IN_FLIGHT.size > 0) return;
-    // Only look at the tail — older history was already handled
-    const list = Array.from(msgs);
-    const start = Math.max(0, list.length - (CONFIG.maxScanMessages || 24));
-    for (let i = start; i < list.length; i++) {
-      const el = list[i];
-      if (processed.has(el)) continue;
-      // Already tagged by a previous run (survives some re-renders if attribute sticks)
-      const existingSig = el.getAttribute && el.getAttribute('data-ds-shim-sig');
-      if (existingSig && (DONE[existingSig] || SESSION_DONE.has(existingSig))) {
-        processed.add(el);
-        continue;
-      }
-
+  // Re-collapse tool-call messages after the virtual list re-mounts them or the page reloads.
+  function restoreCollapsed(msgs) {
+    if (!collapsedByMsg.size) return;
+    for (const el of msgs) {
       const wrapper = el.parentElement;
-      if (wrapper && wrapper.firstElementChild &&
-          wrapper.firstElementChild.getAttribute('data-ds-shim-tagline') === '1') {
-        // Already collapsed — treat as handled
-        processed.add(el);
-        continue;
-      }
-
-      const text = messageSourceText(el);
-      if (!text || text.startsWith('TOOL_RESULT:')) {
-        processed.add(el);
-        continue;
-      }
-      // Only assistant messages
-      if (!el.querySelector('div.ds-markdown.ds-assistant-message-main-content')) continue;
-
-      const tool = extractToolCall(text);
-      if (!tool) continue;
-
-      const sig = fullSig(el, tool.full, list);
-      if (DONE[sig] || SESSION_DONE.has(sig) || IN_FLIGHT.has(sig)) {
-        processed.add(el);
-        collapseToolMessage(el, DONE[sig] ? String(DONE[sig].result || '').slice(0, 40) : 'done', false, false);
-        continue;
-      }
-
-      processed.add(el);
-      busy = true;
-      processToolCall(el, tool, list)
-        .catch(e => { log('error:', e); setStatus('error'); })
-        .finally(() => { busy = false; });
-      return; // one tool at a time
+      if (!wrapper || wrapper.firstElementChild?.getAttribute('data-ds-shim-tagline') === '1') continue;
+      const info = msgInfo(el);
+      if (!info || !isRealId(info.id)) continue;
+      const c = collapsedByMsg.get(mkOf(info));
+      if (c) collapseToolMessage(el, c.preview, c.err, false);
     }
+  }
+
+  // The last message must stop changing for CONFIG.settleMs before we act on it.
+  let settle = { el: null, len: -1, at: 0 };
+  function isSettled(el) {
+    const len = (el.textContent || '').length;
+    const now = performance.now();
+    if (settle.el !== el || settle.len !== len) { settle = { el, len, at: now }; return false; }
+    return now - settle.at >= CONFIG.settleMs;
+  }
+
+  function scanForToolCalls(msgs) {
+    if (busy || !msgs.length) return;
+    const el = msgs[msgs.length - 1];              // tool calls only ever matter on the newest message
+    const info = msgInfo(el);
+    if (!info || !isRealId(info.id)) return;       // optimistic / unknown: wait for the real id
+
+    const sid = info.sessionId || getConvId();
+    if (!baseline.has(sid)) baseline.set(sid, maxRealId(msgs));
+    const mk = sid + ':' + info.id;
+    if (handled.has(mk)) return;
+
+    if (isGenerating() || !isSettled(el)) return;
+
+    // Read the ANSWER only (the thinking block is a separate .ds-markdown without this class).
+    const main = el.querySelector('div.ds-markdown.ds-assistant-message-main-content');
+    if (!main) return;
+    const text = (main.textContent || '').trim();
+    const tool = text ? extractToolCall(text) : null;
+    if (!tool) { handled.add(mk); return; }
+    if (CONFIG.callMustBeLast && text.slice(text.lastIndexOf(tool.full) + tool.full.length).trim()) {
+      handled.add(mk); log('ignored: text after tool call', mk); return;
+    }
+
+    const sig = mk + ':' + hashStr(tool.full);
+    handled.add(mk);
+    const prev = DONE[sig];
+
+    if (CONFIG.dedupe && prev) {
+      log('deduped:', sig);
+      collapseToolMessage(el, prev.preview || '', !prev.ok, false);
+      setStatus(prev.ok ? 'idle' : 'warn');
+      if (prev.sent === false && prev.payload && !retried.has(sig)) {
+        retried.add(sig);
+        busy = true;
+        log('resending unsent result', sig);
+        sendMessage(prev.payload)
+          .then(ok => { if (ok && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); } })
+          .finally(() => { busy = false; });
+      }
+      return;
+    }
+
+    if (+info.id <= baseline.get(sid)) { log('skipped (was already on screen at load):', mk); return; }
+
+    busy = true;
+    processToolCall(el, tool, mk, sig)
+      .catch(e => { log('error:', e); setStatus('error'); })
+      .finally(() => { busy = false; });
   }
 
   // ---------- Throttled scheduler ----------
   let lastTickAt = 0;
   let tickScheduled = false;
-  let lastHidePass = 0;
 
   function runTick() {
     tickScheduled = false;
     lastTickAt = performance.now();
     if (document.hidden) return;
     try {
-      const all = document.querySelectorAll('div.ds-message');
-      hideUserToolResults(all);
-      // reapplyHiding is expensive — at most every 2s
-      if (performance.now() - lastHidePass > 2000) {
-        reapplyHiding();
-        lastHidePass = performance.now();
-      }
-      scanForToolCalls(all);
+      const msgs = document.querySelectorAll('div.ds-message');
+      hideUserToolResults(msgs);
+      restoreCollapsed(msgs);
+      reapplyHiding();
+      scanForToolCalls(msgs);
     } catch (e) {
       log('tick error:', e);
       setStatus('error');
@@ -1385,12 +1409,6 @@
 
   function scheduleTick(urgent = false) {
     if (tickScheduled) return;
-    if (busy || IN_FLIGHT.size > 0) {
-      // while a tool is running, stay quiet
-      tickScheduled = true;
-      setTimeout(() => { tickScheduled = false; scheduleTick(false); }, 600);
-      return;
-    }
     tickScheduled = true;
     const now = performance.now();
     const wait = urgent ? 0 : Math.max(0, CONFIG.scanThrottleMs - (now - lastTickAt));
@@ -1401,17 +1419,19 @@
     }
   }
 
-  // Observer: structural only; disconnect while busy is handled via scheduleTick gate
+  // Observer: only structural changes (no characterData -> quieter)
   const observer = new MutationObserver(() => scheduleTick(false));
   observer.observe(document.body, { childList: true, subtree: true });
 
+  // Fallback periodic scan (also drives the "settled" timer when the DOM is quiet)
   const fallbackTimer = setInterval(() => scheduleTick(false), CONFIG.fallbackScanMs);
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) scheduleTick(true);
   });
 
-  setTimeout(() => scheduleTick(true), 800);
+  // Initial
+  setTimeout(() => scheduleTick(true), 600);
 
   // ============================================================
   // PUBLIC API
@@ -1421,20 +1441,20 @@
     stop() {
       observer.disconnect();
       clearInterval(fallbackTimer);
-      if (sendRetryTimer) clearTimeout(sendRetryTimer);
-      IN_FLIGHT.clear();
       setStatus('off');
       style.remove();
       document.querySelectorAll('[data-ds-shim-tagline]').forEach(el => el.remove());
       document.querySelectorAll('[data-ds-shim-hidden]').forEach(el => el.removeAttribute('data-ds-shim-hidden'));
       document.querySelectorAll('[data-ds-shim-wrapper]').forEach(el => el.removeAttribute('data-ds-shim-wrapper'));
       fab.remove(); panel.remove(); toast.remove();
+      if (iframe) iframe.remove();
       delete window.__DS_TOOL_SHIM__;
       console.log('%c[shim] stopped', 'color:#0af');
     },
     tick: () => scheduleTick(true),
     send: sendMessage,
     run: runInSandbox,
+    resetSandbox: () => resetSandbox('manual'),
     showPanel: () => togglePanel(true),
     hidePanel: () => togglePanel(false),
     resetFab: () => { lsSet(LS.fabPos, null); applyPos(null); },
@@ -1442,10 +1462,13 @@
     stats() {
       const s = {
         version: VERSION,
-        convId: CONV_ID,
+        convId: getConvId(),
         done: Object.keys(DONE).length,
+        unsent: Object.values(DONE).filter(v => v.sent === false).length,
         memoryKeys: Object.keys(lsGet(LS.memory, {})).length,
         fsFiles: Object.keys(lsGet(LS.fs, {})).length,
+        generating: isGenerating(),
+        baseline: Object.fromEntries(baseline),
         logs: LOGS.length,
       };
       console.log('[shim] stats:', s);
@@ -1456,12 +1479,13 @@
       const out = [];
       document.querySelectorAll('div.ds-message').forEach((el, i) => {
         const wrapper = el.parentElement;
+        const info = msgInfo(el);
         out.push({
           i,
-          textPreview: (el.textContent || '').slice(0, 50),
+          id: info ? info.id : null,
+          textPreview: firstText(el).slice(0, 40),
           wrapperChildren: wrapper ? wrapper.children.length : 0,
           hasTagline: wrapper?.firstElementChild?.getAttribute('data-ds-shim-tagline') === '1',
-          hidden: el.getAttribute('data-ds-shim-hidden'),
         });
       });
       console.table(out);
@@ -1470,6 +1494,6 @@
   };
 
   refreshCounts();
-  console.log(`%c✅ DeepSeek Tool Shim v${VERSION} loaded`, 'color:#0af;font-weight:bold');
+  console.log(`%c[shim] DeepSeek Tool Shim v${VERSION} loaded`, 'color:#0af;font-weight:bold');
   console.log('API: __DS_TOOL_SHIM__.stats() | .inspect() | .showPanel()');
 })();

@@ -1,3 +1,9 @@
+## 1.5.6
+- Replace shim with upstream **dsh.js** (v7.5.0-native)
+- Keep full native bridge tools (list_tools, device, github, workspace, …)
+- Support direct tool JSON + run_js; force re-inject works
+- Inject skip gate matches 7.5.x
+
 ## 1.5.5
 - README + agent prompt aligned with shim **v7.6.0-stable** and native tools
 - Stronger auto-inject retries (0.3s / 1.2s / 3s / 7s) without resetting live shim state
