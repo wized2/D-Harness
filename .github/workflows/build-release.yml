@@ -48,13 +48,19 @@ jobs:
           gradle :app:assembleRelease --no-daemon --stacktrace
           find app/build/outputs -name '*.apk' -ls
 
+      - name: Read version
+        id: ver
+        run: |
+          VN=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "name=$VN" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VN" >> "$GITHUB_OUTPUT"
+
       - name: Prepare APK
         run: |
           mkdir -p dist
           SRC=$(find app/build/outputs/apk -name '*.apk' | head -1)
           test -n "$SRC"
-          cp "$SRC" dist/D-Harness-1.5.2.apk
-          unzip -t dist/D-Harness-1.5.2.apk | tail -5
+          cp "$SRC" "dist/D-Harness-${{ steps.ver.outputs.name }}.apk"
           ls -la dist/
 
       - name: Upload artifact
@@ -63,17 +69,27 @@ jobs:
           name: D-Harness-release
           path: dist/*.apk
 
-      - name: Release v1.5.2
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.2
-          name: D-Harness v1.5.2
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: D-Harness ${{ steps.ver.outputs.name }}
           body: |
-            ## D-Harness 1.5.2 (signed)
-            Installable signed APK — fixes "package invalid" from unsigned build.
-            - Tool Shim v6.2 + native bridge
-            - Icon safe-zone (white on black)
-          files: dist/D-Harness-1.5.2.apk
+            ## D-Harness ${{ steps.ver.outputs.name }} (signed)
+
+            DeepSeek Chat WebView shell with **Tool Shim v7.6.0-stable** + native bridge.
+
+            ### Highlights
+            - Auto-inject with multi-retry (stable session / no infinite TOOL_RESULT loops)
+            - Native tools: memory, files, HTTP (no CORS), device, clipboard, share
+            - Durable tool dedupe across reloads
+
+            ### Install
+            Download **D-Harness-${{ steps.ver.outputs.name }}.apk** below.
+
+            MIT · offline-friendly private storage
+          files: dist/D-Harness-${{ steps.ver.outputs.name }}.apk
           fail_on_unmatched_files: true
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

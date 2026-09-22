@@ -158,9 +158,10 @@ class MainActivity : AppCompatActivity() {
                 setFabStatus("#4DB")
                 if (prefs.getBoolean("auto_inject", true)) {
                     // SPA: inject after DOM settles; retry if first pass races React
-                    view?.postDelayed({ injectShim(force = false) }, 400)
-                    view?.postDelayed({ injectShim(force = false) }, 1800)
-                    view?.postDelayed({ injectShim(force = false) }, 4500)
+                    view?.postDelayed({ injectShim(force = false) }, 300)
+                    view?.postDelayed({ injectShim(force = false) }, 1200)
+                    view?.postDelayed({ injectShim(force = false) }, 3000)
+                    view?.postDelayed({ injectShim(force = false) }, 7000)
                 }
             }
         }
