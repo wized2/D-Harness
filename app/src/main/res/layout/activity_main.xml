@@ -20,35 +20,25 @@
         android:max="100"
         android:progress="0"
         android:visibility="gone"
-        android:progressTint="@color/primary" />
+        android:progressTint="#4D6BFE" />
 
+    <!-- Draggable FAB opens native settings -->
     <FrameLayout
         android:id="@+id/fab"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
         android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="10dp"
+        android:layout_marginEnd="8dp"
         android:background="@drawable/bg_fab"
-        android:elevation="8dp"
+        android:elevation="6dp"
         android:clickable="true"
-        android:focusable="true"
-        android:contentDescription="Settings">
-
-        <ImageView
-            android:id="@+id/fabIcon"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:layout_gravity="center"
-            android:src="@drawable/ic_fab_whale"
-            android:importantForAccessibility="no" />
+        android:focusable="true">
 
         <View
             android:id="@+id/fabDot"
-            android:layout_width="8dp"
-            android:layout_height="8dp"
-            android:layout_gravity="top|end"
-            android:layout_margin="6dp"
-            android:background="@drawable/bg_fab_dot"
-            android:visibility="gone" />
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_fab_dot" />
     </FrameLayout>
 </FrameLayout>

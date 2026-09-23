@@ -2,27 +2,28 @@ package com.endroid.dharness
 
 import android.content.SharedPreferences
 import android.os.Bundle
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.SwitchCompat
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 
 class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener { finish() }
 
         val prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
         val keys = getSharedPreferences("dharness_keys", MODE_PRIVATE)
         val mem = getSharedPreferences("dharness_mem", MODE_PRIVATE)
         val keysList = findViewById<TextView>(R.id.keysList)
-        val patInput = findViewById<EditText>(R.id.patInput)
-        val patHelper = findViewById<TextView>(R.id.patHelper)
+        val patLayout = findViewById<TextInputLayout>(R.id.patLayout)
+        val patInput = findViewById<TextInputEditText>(R.id.patInput)
 
         fun refreshKeys(store: SharedPreferences = keys) {
             val names = store.all.keys.sorted()
@@ -31,21 +32,21 @@ class SettingsActivity : AppCompatActivity() {
 
         fun updatePatHelper() {
             val saved = keys.contains("github") || keys.contains("github_pat")
-            patHelper.text =
+            patLayout.helperText =
                 if (saved) "Saved — enter a new token to replace"
                 else "Stored as key github"
         }
 
         findViewById<TextView>(R.id.versionText).text =
             try {
-                "v${packageManager.getPackageInfo(packageName, 0).versionName}"
+                "D-Harness v${packageManager.getPackageInfo(packageName, 0).versionName}"
             } catch (_: Exception) {
                 ""
             }
 
         updatePatHelper()
 
-        findViewById<Button>(R.id.btnSavePat).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnSavePat).setOnClickListener {
             val v = patInput.text?.toString()?.trim().orEmpty()
             if (v.isNotEmpty()) {
                 keys.edit().putString("github", v).putString("github_pat", v).apply()
@@ -56,10 +57,10 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        val swDesktop = findViewById<SwitchCompat>(R.id.switchDesktop)
-        val swInject = findViewById<SwitchCompat>(R.id.switchInject)
-        val swDedupe = findViewById<SwitchCompat>(R.id.switchDedupe)
-        val swTheme = findViewById<SwitchCompat>(R.id.switchTheme)
+        val swDesktop = findViewById<MaterialSwitch>(R.id.switchDesktop)
+        val swInject = findViewById<MaterialSwitch>(R.id.switchInject)
+        val swDedupe = findViewById<MaterialSwitch>(R.id.switchDedupe)
+        val swTheme = findViewById<MaterialSwitch>(R.id.switchTheme)
         swDesktop.isChecked = prefs.getBoolean("desktop", false)
         swInject.isChecked = prefs.getBoolean("auto_inject", true)
         swDedupe.isChecked = prefs.getBoolean("dedupe", true)
@@ -80,11 +81,11 @@ class SettingsActivity : AppCompatActivity() {
             prefs.edit().putBoolean("pending_inject", true).apply()
         }
 
-        val keyName = findViewById<EditText>(R.id.keyName)
-        val keyValue = findViewById<EditText>(R.id.keyValue)
+        val keyName = findViewById<TextInputEditText>(R.id.keyName)
+        val keyValue = findViewById<TextInputEditText>(R.id.keyValue)
         refreshKeys()
 
-        findViewById<Button>(R.id.btnSaveKey).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnSaveKey).setOnClickListener {
             val n = keyName.text?.toString()?.trim().orEmpty()
             val v = keyValue.text?.toString()?.trim().orEmpty()
             if (n.isNotEmpty() && v.isNotEmpty()) {
@@ -95,7 +96,7 @@ class SettingsActivity : AppCompatActivity() {
                 refreshKeys()
             }
         }
-        findViewById<Button>(R.id.btnDeleteKey).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnDeleteKey).setOnClickListener {
             val n = keyName.text?.toString()?.trim().orEmpty()
             if (n.isNotEmpty()) {
                 keys.edit().remove(n).apply()
@@ -104,42 +105,44 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<Button>(R.id.btnSendInstructions).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnSendInstructions).setOnClickListener {
             prefs.edit().putBoolean("pending_instructions", true).apply()
             finish()
         }
-        findViewById<Button>(R.id.btnReload).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnReload).setOnClickListener {
             prefs.edit().putBoolean("pending_reload", true).apply()
             finish()
         }
-        findViewById<Button>(R.id.btnReinject).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnReinject).setOnClickListener {
             prefs.edit().putBoolean("pending_inject", true).apply()
             finish()
         }
-        findViewById<Button>(R.id.btnClearCache).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnClearCache).setOnClickListener {
             prefs.edit().putBoolean("pending_clear_cache", true).apply()
             finish()
         }
-        findViewById<Button>(R.id.btnClearMemory).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnClearMemory).setOnClickListener {
             mem.edit().clear().apply()
             Toast.makeText(this, "Agent memory cleared", Toast.LENGTH_SHORT).show()
         }
-        findViewById<Button>(R.id.btnClearFs).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnClearFs).setOnClickListener {
             prefs.edit().putBoolean("pending_clear_fs", true).apply()
             Toast.makeText(this, "Native FS clear queued", Toast.LENGTH_SHORT).show()
             finish()
         }
 
         findViewById<TextView>(R.id.toolsList).text = """
-            Tools (run_js):
-            list_tools / describe — discover APIs
-            paste_box({path}) — paste UI → workspace file
-            workspace.* — sandbox files
-            memory.* — scratchpad · keys.* — secrets
-            http_request / github.* — network (PAT for GitHub)
-            device.* — phone info
+            Quick map:
+            list_tools / describe = discover tools
+            workspace.* = sandbox files
+            paste_box = paste UI → workspace file
+            memory.* = scratchpad
+            keys.* = secrets (PAT) — never print values
+            http_request / fetch_url = headers supported
+            github.* = needs PAT key github
+            No shell/exec on device (safety)
         """.trimIndent()
 
-        findViewById<Button>(R.id.btnClose).setOnClickListener { finish() }
+        findViewById<MaterialButton>(R.id.btnClose).setOnClickListener { finish() }
     }
 }
