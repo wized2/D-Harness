@@ -1,3 +1,8 @@
+## 1.5.10
+- Settings: fix collapsed PAT field (helperText, not EditText.hint)
+- Clear 10dp gaps between maintenance buttons; 56dp switch rows
+- Restore previous launcher mark (black background)
+
 ## 1.5.9
 - Settings: expressive M3 (tertiary amber accents, outlined cards, clear section roles & spacing)
 - Launcher: black adaptive background + brand mark; source SVG in assets/raw

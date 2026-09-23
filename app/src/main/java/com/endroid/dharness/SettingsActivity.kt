@@ -9,6 +9,7 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 
 class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,10 +22,19 @@ class SettingsActivity : AppCompatActivity() {
         val keys = getSharedPreferences("dharness_keys", MODE_PRIVATE)
         val mem = getSharedPreferences("dharness_mem", MODE_PRIVATE)
         val keysList = findViewById<TextView>(R.id.keysList)
+        val patLayout = findViewById<TextInputLayout>(R.id.patLayout)
+        val patInput = findViewById<TextInputEditText>(R.id.patInput)
 
         fun refreshKeys(store: SharedPreferences = keys) {
             val names = store.all.keys.sorted()
             keysList.text = if (names.isEmpty()) "(no keys)" else names.joinToString("\n") { "• $it" }
+        }
+
+        fun updatePatHelper() {
+            val saved = keys.contains("github") || keys.contains("github_pat")
+            patLayout.helperText =
+                if (saved) "Saved — enter a new token to replace"
+                else "Stored as key github"
         }
 
         findViewById<TextView>(R.id.versionText).text =
@@ -34,16 +44,14 @@ class SettingsActivity : AppCompatActivity() {
                 ""
             }
 
-        val patInput = findViewById<TextInputEditText>(R.id.patInput)
-        if (keys.contains("github") || keys.contains("github_pat")) {
-            patInput.hint = "PAT saved (enter new to replace)"
-        }
+        updatePatHelper()
+
         findViewById<MaterialButton>(R.id.btnSavePat).setOnClickListener {
             val v = patInput.text?.toString()?.trim().orEmpty()
             if (v.isNotEmpty()) {
                 keys.edit().putString("github", v).putString("github_pat", v).apply()
                 patInput.setText("")
-                patInput.hint = "PAT saved"
+                updatePatHelper()
                 Toast.makeText(this, "GitHub PAT saved", Toast.LENGTH_SHORT).show()
                 refreshKeys()
             }
@@ -127,6 +135,7 @@ class SettingsActivity : AppCompatActivity() {
             Quick map:
             list_tools / describe = discover tools
             workspace.* = sandbox files
+            paste_box = paste UI → workspace file
             memory.* = scratchpad
             keys.* = secrets (PAT) — never print values
             http_request / fetch_url = headers supported
