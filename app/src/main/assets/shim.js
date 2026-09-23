@@ -571,6 +571,34 @@
       delete: (path)                => window.__ds_call_tool('fs', { op:'delete', path }),
       exists: (path)                => window.__ds_call_tool('fs', { op:'exists', path }),
     };
+    window.list_tools = () => window.__ds_call_tool('list_tools', {});
+    window.describe = (name) => window.__ds_call_tool('describe', { name: name });
+    window.paste_box = (opts) => window.__ds_call_tool('paste_box', opts || {});
+    window.workspace = {
+      pwd: () => window.__ds_call_tool('workspace', { op:'pwd' }),
+      ls: (path) => window.__ds_call_tool('workspace', { op:'ls', path: path }),
+      read: (path, maxBytes) => window.__ds_call_tool('workspace', { op:'read', path: path, maxBytes: maxBytes }),
+      write: (path, content) => window.__ds_call_tool('workspace', { op:'write', path: path, content: content }),
+      mkdir: (path) => window.__ds_call_tool('workspace', { op:'mkdir', path: path }),
+      rm: (path) => window.__ds_call_tool('workspace', { op:'rm', path: path }),
+      tree: (path, depth) => window.__ds_call_tool('workspace', { op:'tree', path: path, depth: depth }),
+    };
+    window.device = {
+      info: () => window.__ds_call_tool('device', { op:'info' }),
+      battery: () => window.__ds_call_tool('device', { op:'battery' }),
+      network: () => window.__ds_call_tool('device', { op:'network' }),
+    };
+    window.keys = {
+      list: () => window.__ds_call_tool('keys', { op:'list' }),
+      get: (k) => window.__ds_call_tool('keys', { op:'get', key: k }),
+      set: (k, v) => window.__ds_call_tool('keys', { op:'set', key: k, value: v }),
+    };
+    window.github = {
+      me: () => window.__ds_call_tool('github', { op:'me' }),
+      repos: (n) => window.__ds_call_tool('github', { op:'repos', limit: n }),
+      request: (method, path, body) => window.__ds_call_tool('github', { op:'request', method: method, path: path, body: body }),
+    };
+    window.http_request = (opts) => window.__ds_call_tool('http_request', opts || {});
     window.onmessage = async (e) => {
       const d = e.data;
       if (!d || d.type !== 'run') return;
@@ -879,6 +907,12 @@
       if (op === 'stat') return await w.stat(args.path);
       if (op === 'tree') return await w.tree(args.path, args.depth);
       throw new Error('unknown workspace op: ' + op);
+    },
+
+    async paste_box(args) {
+      const nat = N();
+      if (!nat || !nat.paste_box) throw new Error('paste_box requires native bridge');
+      return await nat.paste_box(args || {});
     },
 
     async appInfo() {
@@ -1254,7 +1288,8 @@
     let res;
     if (tname === 'run_js') {
       const code = tool.obj.args && tool.obj.args.code;
-      res = await runInSandbox(code);
+      const longWait = typeof code === 'string' && /paste_box\s*\(/.test(code);
+      res = await runInSandbox(code, longWait ? 600000 : undefined);
     } else {
       const h = toolHandlers[tname];
       if (!h) {

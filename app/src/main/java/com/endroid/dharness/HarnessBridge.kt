@@ -1474,31 +1474,37 @@ class HarnessBridge(
      * UI paste dialog. Model supplies [path] (workspace-relative). User pastes, taps Done →
      * file is written; result includes absolute path + dir. Cancel → cancelled:true.
      */
+
+    /**
+     * Paste dialog on UI thread. Model supplies workspace-relative [path].
+     * Done → write file, return absolute path. Cancel → cancelled:true.
+     */
     @JavascriptInterface
-    fun pasteBox(path: String, title: String?, hint: String?, callbackId: String) {
+    fun pasteBox(path: String?, title: String?, hint: String?, callbackId: String) {
         val activity = context as? android.app.Activity
         if (activity == null || activity.isFinishing) {
             deliver(callbackId, JSONObject().put("ok", false).put("error", "no activity").toString())
             return
         }
-        val safePath = path.trim().ifEmpty { "paste.txt" }
+        val safePath = (path ?: "paste.txt").trim().ifEmpty { "paste.txt" }
         activity.runOnUiThread {
             try {
                 val density = activity.resources.displayMetrics.density
                 val pad = (20 * density).toInt()
+                val scroll = android.widget.ScrollView(activity)
                 val container = android.widget.LinearLayout(activity).apply {
                     orientation = android.widget.LinearLayout.VERTICAL
-                    setPadding(pad, pad / 2, pad, 0)
+                    setPadding(pad, pad / 2, pad, pad / 2)
                 }
                 val pathLabel = android.widget.TextView(activity).apply {
                     text = "Save as: $safePath"
                     setTextColor(0xFFA8B0C0.toInt())
                     textSize = 13f
-                    setPadding(0, 0, 0, (8 * density).toInt())
+                    setPadding(0, 0, 0, (10 * density).toInt())
                 }
                 val input = android.widget.EditText(activity).apply {
-                    minLines = 10
-                    maxLines = 20
+                    minLines = 12
+                    maxLines = 24
                     gravity = android.view.Gravity.TOP or android.view.Gravity.START
                     inputType = android.text.InputType.TYPE_CLASS_TEXT or
                         android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
@@ -1509,25 +1515,38 @@ class HarnessBridge(
                     setBackgroundColor(0xFF1E2430.toInt())
                     setPadding(pad / 2, pad / 2, pad / 2, pad / 2)
                     isVerticalScrollBarEnabled = true
+                    isFocusable = true
+                    isFocusableInTouchMode = true
                 }
                 container.addView(pathLabel)
                 container.addView(
                     input,
                     android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                        (220 * density).toInt()
+                        (240 * density).toInt()
                     )
                 )
+                scroll.addView(container)
                 var delivered = false
                 fun once(json: String) {
                     if (delivered) return
                     delivered = true
                     deliver(callbackId, json)
                 }
-                com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
+                val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
                     .setTitle(title?.takeIf { it.isNotBlank() } ?: "Paste content")
-                    .setView(container)
-                    .setPositiveButton("Done") { _, _ ->
+                    .setView(scroll)
+                    .setPositiveButton("Done", null)
+                    .setNegativeButton("Cancel") { _, _ ->
+                        once(JSONObject().put("ok", false).put("cancelled", true).put("error", "cancelled").toString())
+                    }
+                    .setOnCancelListener {
+                        once(JSONObject().put("ok", false).put("cancelled", true).put("error", "cancelled").toString())
+                    }
+                    .create()
+                dialog.setOnShowListener {
+                    input.requestFocus()
+                    dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
                         val content = input.text?.toString() ?: ""
                         io.execute {
                             try {
@@ -1544,23 +1563,31 @@ class HarnessBridge(
                                         .put("bytes", f.length())
                                         .toString()
                                 )
+                                activity.runOnUiThread {
+                                    try { dialog.dismiss() } catch (_: Exception) {}
+                                }
                             } catch (e: Exception) {
                                 once(JSONObject().put("ok", false).put("error", e.message ?: "write failed").toString())
+                                activity.runOnUiThread {
+                                    try { dialog.dismiss() } catch (_: Exception) {}
+                                }
                             }
                         }
                     }
-                    .setNegativeButton("Cancel") { _, _ ->
-                        once(JSONObject().put("ok", false).put("cancelled", true).put("error", "cancelled").toString())
-                    }
-                    .setOnCancelListener {
-                        once(JSONObject().put("ok", false).put("cancelled", true).put("error", "cancelled").toString())
-                    }
-                    .show()
+                }
+                dialog.show()
             } catch (e: Exception) {
+                android.util.Log.e("DHarness", "pasteBox", e)
                 deliver(callbackId, JSONObject().put("ok", false).put("error", e.message ?: "dialog failed").toString())
             }
         }
     }
+
+
+    /** Absolute workspace path (for Settings / explorer). */
+    @JavascriptInterface
+    fun workspaceRootPath(): String =
+        JSONObject().put("ok", true).put("path", workspaceRoot.absolutePath).toString()
 
     @JavascriptInterface
     fun workspaceWrite(path: String, content: String): String {

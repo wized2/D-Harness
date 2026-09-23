@@ -1,6 +1,12 @@
 package com.endroid.dharness
 
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
+import android.os.Build
+import androidx.core.content.FileProvider
+import android.provider.DocumentsContract
+import java.io.File
 import android.os.Bundle
 import android.widget.TextView
 import android.widget.Toast
@@ -143,6 +149,62 @@ class SettingsActivity : AppCompatActivity() {
             No shell/exec on device (safety)
         """.trimIndent()
 
+        
+        val workspaceRoot = run {
+            val ext = getExternalFilesDir(null)
+            if (ext != null) File(ext, "workspace") else File(filesDir, "workspace")
+        }.also { it.mkdirs() }
+
+        findViewById<TextView>(R.id.workspacePathText).text = workspaceRoot.absolutePath
+
+        findViewById<MaterialButton>(R.id.btnExploreWorkspace).setOnClickListener {
+            openWorkspaceExplorer(workspaceRoot)
+        }
+
         findViewById<MaterialButton>(R.id.btnClose).setOnClickListener { finish() }
+    }
+
+    private fun openWorkspaceExplorer(dir: File) {
+        dir.mkdirs()
+        // 1) Try system Documents UI rooted at app external workspace (not Google Files app specifically)
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                val docId = "primary:Android/data/$packageName/files/workspace"
+                val treeUri = DocumentsContract.buildTreeDocumentUri(
+                    "com.android.externalstorage.documents",
+                    docId
+                )
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, treeUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(intent)
+                Toast.makeText(this, "Workspace:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
+                return
+            }
+        } catch (_: Exception) {
+        }
+        // 2) FileProvider folder view
+        try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", dir)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            return
+        } catch (_: Exception) {
+        }
+        // 3) Generic open document (system picker)
+        try {
+            startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            })
+            Toast.makeText(this, "Workspace path:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
+            return
+        } catch (e: Exception) {
+            Toast.makeText(this, "Cannot open files UI: ${e.message}\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
+        }
     }
 }

@@ -323,6 +323,30 @@
             </com.google.android.material.card.MaterialCardView>
 
             <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingBottom="8dp"
+                android:text="Workspace"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/colorTertiary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnExploreWorkspace"
+                style="@style/Widget.DHarness.Button.Tonal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="Explore workspace" />
+
+            <TextView
+                android:id="@+id/workspacePathText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <TextView
                 android:id="@+id/toolsList"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

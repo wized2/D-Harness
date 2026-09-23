@@ -1,3 +1,8 @@
+## 1.5.13
+- Fix **paste_box**: registered in shim toolHandlers + sandbox globals; robust Material dialog
+- Settings: **Explore workspace** opens system document UI at app workspace path
+- Sandbox also exposes list_tools, workspace, device, keys, github, http_request
+
 ## 1.5.12
 - Restore **Material 3** settings UI
 - Restore previous launcher icon
