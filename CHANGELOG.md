@@ -1,3 +1,7 @@
+## 1.5.15
+- paste_box: **no timeout** on direct tool + any run_js that mentions paste_box
+- Explore workspace: DocumentsUI **browse** mode only (FilesActivity) — never OPEN_DOCUMENT_TREE
+
 ## 1.5.14
 - Explore workspace: DocumentsUI browser mode via document URI (stock Files app)
 - **paste_box: no timeout** — user can paste/write as long as needed
