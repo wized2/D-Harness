@@ -951,15 +951,17 @@
     if (!(await waitSandboxReady(3000))) return { ok: false, error: 'sandbox not ready' };
     return new Promise((resolve) => {
       const id = ++msgId;
-      // timeoutMs === 0 → unlimited (paste_box waits on user)
+      // timeoutMs === 0 → unlimited (paste_box waits on user Done/Cancel)
       let timer = null;
-      if (timeoutMs !== 0) {
-        const ms = timeoutMs == null ? CONFIG.sandboxTimeoutMs : timeoutMs;
-        timer = setTimeout(() => {
-          pending.delete(id);
-          resolve({ ok: false, error: 'timeout' });
-          resetSandbox('timeout');
-        }, ms);
+      if (timeoutMs !== 0 && timeoutMs !== false) {
+        const ms = (timeoutMs == null || timeoutMs === undefined) ? CONFIG.sandboxTimeoutMs : timeoutMs;
+        if (ms > 0) {
+          timer = setTimeout(() => {
+            pending.delete(id);
+            resolve({ ok: false, error: 'timeout' });
+            resetSandbox('timeout');
+          }, ms);
+        }
       }
       pending.set(id, (res) => { if (timer) clearTimeout(timer); resolve(res); });
       iframe.contentWindow.postMessage({ type: 'run', id, code }, '*');
@@ -1291,9 +1293,16 @@
     setStatus('running');
 
     let res;
-    if (tname === 'run_js') {
+    if (tname === 'paste_box') {
+      try {
+        const result = await toolHandlers.paste_box(tool.obj.args || {});
+        res = { ok: true, result };
+      } catch (err) {
+        res = { ok: false, error: String(err && err.message || err) };
+      }
+    } else if (tname === 'run_js') {
       const code = tool.obj.args && tool.obj.args.code;
-      const longWait = typeof code === 'string' && /paste_box\s*\(/.test(code);
+      const longWait = typeof code === 'string' && code.indexOf('paste_box') !== -1;
       res = await runInSandbox(code, longWait ? 0 : undefined);
     } else {
       const h = toolHandlers[tname];
