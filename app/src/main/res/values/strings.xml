@@ -7,4 +7,6 @@
     <string name="menu_clear_cache">Clear cache</string>
     <string name="menu_share">Share page</string>
     <string name="loading">Loading DeepSeek…</string>
+    <string name="settings_title">Settings</string>
+    <string name="fab_settings">Open settings</string>
 </resources>

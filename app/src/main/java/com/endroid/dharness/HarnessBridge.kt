@@ -1524,7 +1524,7 @@ class HarnessBridge(
                     delivered = true
                     deliver(callbackId, json)
                 }
-                com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
+                androidx.appcompat.app.AlertDialog.Builder(activity)
                     .setTitle(title?.takeIf { it.isNotBlank() } ?: "Paste content")
                     .setView(container)
                     .setPositiveButton("Done") { _, _ ->

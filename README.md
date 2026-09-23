@@ -1,55 +1,37 @@
 # D-Harness
 
-Android shell for [DeepSeek Chat](https://chat.deepseek.com/) with a **tool shim** + **native bridge**.  
-The model can call real on-device tools (files, HTTP, GitHub, device, clipboard) without guessing APIs.
+Android shell for [DeepSeek Chat](https://chat.deepseek.com/) with a **tool shim** and **native bridge**.  
+The model can call real on-device tools (files, HTTP, GitHub, device, paste UI) without guessing APIs.
 
-## Features
-
-- **Material 3 settings** (dark, compact cards/switches)
-
+## Highlights
 
 - Full-screen WebView chat (cookies, uploads, geolocation)
-- **Shim** (upstream dsh.js): last-message scan, stable IDs, settle-before-run, TOOL_RESULT send
-- **Native bridge**: workspace FS, HTTP (no CORS), GitHub, memory/keys, device, calc/text/time
-- **Claude theme** (optional): latest Claude.js styling for DeepSeek UI
-- Auto-inject with retries · desktop UA · clear cache · force re-inject
-- Agent instructions built into the app (copy from menu / first-run paste)
+- **Shim** (dsh.js): stable tool IDs, settle-before-run, `TOOL_RESULT` delivery
+- **Native tools**: workspace FS, `paste_box`, HTTP (no CORS), GitHub, memory/keys, device
+- Optional **Claude theme** (Claude.js)
+- Sleek dark settings (**AppCompat only** — no Material library, smaller APK)
+- Draggable glass FAB with whale mark → settings
 
-## How tools work
-
-1. Model replies with **one** JSON tool call, e.g.
+## Tools (exact call)
 
 ```json
 {"tool":"run_js","args":{"code":"return await list_tools()"}}
 ```
 
-2. Shim runs the tool and posts a user message starting with `TOOL_RESULT:`.
-3. Model continues using that result. **One tool per reply.**
+One tool per reply → wait for `TOOL_RESULT:` → continue.
 
-### Discover
+| Tool | Purpose |
+|------|---------|
+| `list_tools` / `describe` | Discover APIs + examples |
+| `paste_box({path,title?})` | Paste dialog → save under workspace |
+| `workspace.*` | Sandbox files |
+| `memory.*` / `keys.*` | Scratchpad / secrets (PAT) |
+| `http_request` / `github.*` | Network (GitHub needs PAT key `github`) |
+| `device.*` | Phone info |
 
-```json
-{"tool":"run_js","args":{"code":"return await list_tools()"}}
-{"tool":"run_js","args":{"code":"return await describe('github')"}}
-```
+## Size
 
-### Common tools (inside `run_js`)
-
-| Area | Examples |
-|------|----------|
-| Memory | `memory.get/set/list` |
-| Secrets | `keys.set('github', pat)` · `keys.list()` |
-| Files | `workspace.pwd/ls/read/write/mkdir/tree` |
-| HTTP | `http_request({url, method, headers, body})` |
-| GitHub | `github.me/repos/pr/contents/request/…` (needs PAT) |
-| Device | `device.info/battery/network/storage/memory` |
-| Text/calc | `calc.eval` · `text.regex` · `time.now` · `uuid.v4` |
-
-Full catalog and paste-ready examples come from **`list_tools()`**.
-
-## GitHub PAT
-
-Settings → store key name **`github`** with a fine-scoped PAT. Never ask the model to echo the token.
+Release builds use **R8 minify + resource shrink**. UI uses **AppCompat only** (Material Components not linked) to keep the APK lean.
 
 ## Build
 
@@ -59,4 +41,4 @@ Settings → store key name **`github`** with a fine-scoped PAT. Never ask the m
 
 ## License
 
-MIT — shim adapted from DeepSeek Tool Shim / dsh.js; Claude theme from Claude.js; logo paths brand-aligned.
+MIT — shim from dsh.js; Claude theme from Claude.js.
