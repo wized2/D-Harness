@@ -164,47 +164,102 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btnClose).setOnClickListener { finish() }
     }
 
+
+    /**
+     * Open system Files / DocumentsUI browser on the app workspace under Android/data.
+     * Uses document URI scheme that stock DocumentsUI can resolve on Android 11–12+.
+     */
     private fun openWorkspaceExplorer(dir: File) {
         dir.mkdirs()
-        // 1) Try system Documents UI rooted at app external workspace (not Google Files app specifically)
-        try {
-            if (Build.VERSION.SDK_INT >= 26) {
-                val docId = "primary:Android/data/$packageName/files/workspace"
-                val treeUri = DocumentsContract.buildTreeDocumentUri(
-                    "com.android.externalstorage.documents",
-                    docId
-                )
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, treeUri)
+        val rel = "Android/data/$packageName/files/workspace"
+        val docAuthority = "com.android.externalstorage.documents"
+
+        fun tryView(uri: android.net.Uri, mime: String, pkg: String?): Boolean {
+            return try {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mime)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (pkg != null) setPackage(pkg)
                 }
                 startActivity(intent)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        // Document IDs: primary:Android/data/<pkg>/files/workspace
+        val docIdPrimary = "primary:$rel"
+        val docUri = DocumentsContract.buildDocumentUri(docAuthority, docIdPrimary)
+        val treeUri = DocumentsContract.buildTreeDocumentUri(docAuthority, docIdPrimary)
+
+        val documentsUiPkgs = listOf(
+            "com.android.documentsui",
+            "com.google.android.documentsui",
+            null // any handler
+        )
+        val mimes = listOf(
+            "vnd.android.document/root",
+            "vnd.android.document/directory",
+            DocumentsContract.Document.MIME_TYPE_DIR,
+            "*/*"
+        )
+
+        for (pkg in documentsUiPkgs) {
+            for (mime in mimes) {
+                if (tryView(docUri, mime, pkg)) {
+                    Toast.makeText(this, "Workspace:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
+                    return
+                }
+            }
+        }
+
+        // EXTRA_INITIAL_URI tree (API 26+)
+        if (Build.VERSION.SDK_INT >= 26) {
+            for (pkg in documentsUiPkgs) {
+                try {
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                        putExtra(DocumentsContract.EXTRA_INITIAL_URI, treeUri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        if (pkg != null) setPackage(pkg)
+                    }
+                    startActivity(intent)
+                    Toast.makeText(this, "Workspace:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
+                    return
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        // Raw content URI string (some OEMs)
+        try {
+            val raw = android.net.Uri.parse(
+                "content://$docAuthority/document/" +
+                    android.net.Uri.encode(docIdPrimary)
+            )
+            if (tryView(raw, "vnd.android.document/root", "com.android.documentsui") ||
+                tryView(raw, "vnd.android.document/root", null)
+            ) {
                 Toast.makeText(this, "Workspace:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
                 return
             }
         } catch (_: Exception) {
         }
-        // 2) FileProvider folder view
+
+        // FileProvider directory as last resort
         try {
             val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", dir)
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (tryView(uri, DocumentsContract.Document.MIME_TYPE_DIR, null)) {
+                return
             }
-            startActivity(intent)
-            return
         } catch (_: Exception) {
         }
-        // 3) Generic open document (system picker)
-        try {
-            startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-            })
-            Toast.makeText(this, "Workspace path:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
-            return
-        } catch (e: Exception) {
-            Toast.makeText(this, "Cannot open files UI: ${e.message}\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
-        }
+
+        Toast.makeText(
+            this,
+            "Open system Files app and go to:\n${dir.absolutePath}",
+            Toast.LENGTH_LONG
+        ).show()
     }
 }

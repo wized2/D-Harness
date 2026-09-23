@@ -1,3 +1,7 @@
+## 1.5.14
+- Explore workspace: DocumentsUI browser mode via document URI (stock Files app)
+- **paste_box: no timeout** — user can paste/write as long as needed
+
 ## 1.5.13
 - Fix **paste_box**: registered in shim toolHandlers + sandbox globals; robust Material dialog
 - Settings: **Explore workspace** opens system document UI at app workspace path

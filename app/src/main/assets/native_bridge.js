@@ -13,17 +13,25 @@ function _cbId() { return 'c' + Date.now().toString(36) + Math.random().toString
 function _asyncNative(fn, timeoutMs) {
   return new Promise(function (resolve, reject) {
     var id = _cbId();
-    var timer = setTimeout(function () {
-      if (window.__dHarnessFetchPending[id]) {
-        delete window.__dHarnessFetchPending[id];
-        reject(new Error('timeout'));
-      }
-    }, timeoutMs || 30000);
+    // timeoutMs === 0 → no timeout (paste_box etc.)
+    var timer = null;
+    if (timeoutMs !== 0) {
+      timer = setTimeout(function () {
+        if (window.__dHarnessFetchPending[id]) {
+          delete window.__dHarnessFetchPending[id];
+          reject(new Error('timeout'));
+        }
+      }, timeoutMs == null ? 30000 : timeoutMs);
+    }
     window.__dHarnessFetchPending[id] = {
-      resolve: function (d) { clearTimeout(timer); resolve(d); },
-      reject: function (e) { clearTimeout(timer); reject(e); }
+      resolve: function (d) { if (timer) clearTimeout(timer); resolve(d); },
+      reject: function (e) { if (timer) clearTimeout(timer); reject(e); }
     };
-    try { fn(id); } catch (e) { clearTimeout(timer); delete window.__dHarnessFetchPending[id]; reject(e); }
+    try { fn(id); } catch (e) {
+      if (timer) clearTimeout(timer);
+      delete window.__dHarnessFetchPending[id];
+      reject(e);
+    }
   });
 }
 function _j(fn) {
@@ -67,7 +75,7 @@ window.__DHarnessNative = {
     var hint = opts.hint || '';
     return _asyncNative(function (id) {
       DHarness.pasteBox(String(path), title != null ? String(title) : null, hint != null ? String(hint) : null, id);
-    }, 600000);
+    }, 0);
   },
   list_tools: function () { return _j(function () { return DHarness.listTools(); }); },
   describe: function (name) { return _j(function () { return DHarness.describeTool(String(name)); }); },

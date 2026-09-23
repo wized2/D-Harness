@@ -951,12 +951,17 @@
     if (!(await waitSandboxReady(3000))) return { ok: false, error: 'sandbox not ready' };
     return new Promise((resolve) => {
       const id = ++msgId;
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        resolve({ ok: false, error: 'timeout' });
-        resetSandbox('timeout');   // a stuck script would otherwise wedge the iframe forever
-      }, timeoutMs);
-      pending.set(id, (res) => { clearTimeout(timer); resolve(res); });
+      // timeoutMs === 0 → unlimited (paste_box waits on user)
+      let timer = null;
+      if (timeoutMs !== 0) {
+        const ms = timeoutMs == null ? CONFIG.sandboxTimeoutMs : timeoutMs;
+        timer = setTimeout(() => {
+          pending.delete(id);
+          resolve({ ok: false, error: 'timeout' });
+          resetSandbox('timeout');
+        }, ms);
+      }
+      pending.set(id, (res) => { if (timer) clearTimeout(timer); resolve(res); });
       iframe.contentWindow.postMessage({ type: 'run', id, code }, '*');
     });
   }
@@ -1289,7 +1294,7 @@
     if (tname === 'run_js') {
       const code = tool.obj.args && tool.obj.args.code;
       const longWait = typeof code === 'string' && /paste_box\s*\(/.test(code);
-      res = await runInSandbox(code, longWait ? 600000 : undefined);
+      res = await runInSandbox(code, longWait ? 0 : undefined);
     } else {
       const h = toolHandlers[tname];
       if (!h) {
