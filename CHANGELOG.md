@@ -1,3 +1,8 @@
+## 1.5.9
+- Settings: expressive M3 (tertiary amber accents, outlined cards, clear section roles & spacing)
+- Launcher: black adaptive background + brand mark; source SVG in assets/raw
+- New tool **paste_box**: dialog with text area, Done saves to workspace path, returns path/dir
+
 ## 1.5.8
 - Settings: Material 3 UI (cards, MaterialSwitch, outlined fields, toolbar)
 - Theme.Material3.Dark; compact buttons to limit layout weight

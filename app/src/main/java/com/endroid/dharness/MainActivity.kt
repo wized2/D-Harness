@@ -480,6 +480,10 @@ Rules:
 {"tool":"run_js","args":{"code":"return await keys.set('github','ghp_…')"}}
 {"tool":"run_js","args":{"code":"return await keys.list()"}}
 
+### Paste box (large text/code from user)
+{"tool":"run_js","args":{"code":"return await paste_box({path:'src/App.kt',title:'Paste source'})"}}
+Opens a dialog. User pastes, taps Done → file saved under workspace; result has path + dir. Cancel → cancelled.
+
 ### Workspace files (app sandbox)
 {"tool":"run_js","args":{"code":"return await workspace.pwd()"}}
 {"tool":"run_js","args":{"code":"return await workspace.ls()"}}

@@ -166,6 +166,11 @@ class HarnessBridge(
         tool("workspace.ls", "List workspace directory", JSONObject().put("path", "string?"))
         tool("workspace.read", "Read UTF-8 text file from workspace", JSONObject().put("path", "string").put("maxBytes", "int?"))
         tool("workspace.write", "Write UTF-8 text file in workspace", JSONObject().put("path", "string").put("content", "string"))
+        tool(
+            "paste_box",
+            "UI dialog: multi-line paste area + Done/Cancel. On Done saves to workspace path and returns absolute path. Use for large code/text the user must paste.",
+            JSONObject().put("path", "string").put("title", "string?").put("hint", "string?")
+        )
         tool("workspace.write_b64", "Write binary file from base64", JSONObject().put("path", "string").put("contentB64", "string"))
         tool("workspace.read_b64", "Read workspace file as base64 + sha256", JSONObject().put("path", "string"))
         tool("workspace.mkdir", "Create directory under workspace", JSONObject().put("path", "string"))
@@ -255,13 +260,14 @@ class HarnessBridge(
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
-            .put("version", "1.5.7")
+            .put("version", "1.5.9")
             .put("call", "{\"tool\":\"run_js\",\"args\":{\"code\":\"return await TOOL()\"}}")
             .put("notes", JSONObject()
                 .put("format", "One JSON tool call per reply; wait for TOOL_RESULT:")
                 .put("memory", "Scratchpad: memory.get/set/list/delete/clear")
                 .put("keys", "Secrets/PAT: keys.set('github', pat) — never echo values")
                 .put("workspace", "Sandbox files: workspace.pwd/ls/read/write/mkdir/tree")
+                .put("paste_box", "Opens paste UI; path required; returns {ok,path,bytes} or {ok:false,cancelled}")
                 .put("github", "Needs keys.github PAT; github.me/repos/pr/contents/request/…")
                 .put("http", "http_request({url,method,headers,body}) — no CORS")
                 .put("file.commit", "Byte-exact base64 writes with optional sha256 verify")
@@ -272,6 +278,7 @@ class HarnessBridge(
                 .put("return await describe('github')")
                 .put("return await memory.set('k','v')")
                 .put("return await workspace.ls()")
+                .put("return await paste_box({path:'src/main.kt',title:'Paste Kotlin'})")
                 .put("return await github.me()")
                 .put("return await http_request({url:'https://example.com',method:'GET'})")
                 .put("return await device.info()")
@@ -1459,6 +1466,99 @@ class HarnessBridge(
                 .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+
+    /**
+     * UI paste dialog. Model supplies [path] (workspace-relative). User pastes, taps Done →
+     * file is written; result includes absolute path + dir. Cancel → cancelled:true.
+     */
+    @JavascriptInterface
+    fun pasteBox(path: String, title: String?, hint: String?, callbackId: String) {
+        val activity = context as? android.app.Activity
+        if (activity == null || activity.isFinishing) {
+            deliver(callbackId, JSONObject().put("ok", false).put("error", "no activity").toString())
+            return
+        }
+        val safePath = path.trim().ifEmpty { "paste.txt" }
+        activity.runOnUiThread {
+            try {
+                val density = activity.resources.displayMetrics.density
+                val pad = (20 * density).toInt()
+                val container = android.widget.LinearLayout(activity).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    setPadding(pad, pad / 2, pad, 0)
+                }
+                val pathLabel = android.widget.TextView(activity).apply {
+                    text = "Save as: $safePath"
+                    setTextColor(0xFFA8B0C0.toInt())
+                    textSize = 13f
+                    setPadding(0, 0, 0, (8 * density).toInt())
+                }
+                val input = android.widget.EditText(activity).apply {
+                    minLines = 10
+                    maxLines = 20
+                    gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                        android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                        android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                    this.hint = hint?.takeIf { it.isNotBlank() } ?: "Paste text or code here"
+                    setTextColor(0xFFE8EAED.toInt())
+                    setHintTextColor(0xFF6B7385.toInt())
+                    setBackgroundColor(0xFF1E2430.toInt())
+                    setPadding(pad / 2, pad / 2, pad / 2, pad / 2)
+                    isVerticalScrollBarEnabled = true
+                }
+                container.addView(pathLabel)
+                container.addView(
+                    input,
+                    android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        (220 * density).toInt()
+                    )
+                )
+                var delivered = false
+                fun once(json: String) {
+                    if (delivered) return
+                    delivered = true
+                    deliver(callbackId, json)
+                }
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
+                    .setTitle(title?.takeIf { it.isNotBlank() } ?: "Paste content")
+                    .setView(container)
+                    .setPositiveButton("Done") { _, _ ->
+                        val content = input.text?.toString() ?: ""
+                        io.execute {
+                            try {
+                                val f = safeWorkspace(safePath)
+                                f.parentFile?.mkdirs()
+                                f.writeText(content, Charsets.UTF_8)
+                                once(
+                                    JSONObject()
+                                        .put("ok", true)
+                                        .put("path", f.absolutePath)
+                                        .put("relative", safePath)
+                                        .put("dir", f.parentFile?.absolutePath ?: workspaceRoot.absolutePath)
+                                        .put("workspace", workspaceRoot.absolutePath)
+                                        .put("bytes", f.length())
+                                        .toString()
+                                )
+                            } catch (e: Exception) {
+                                once(JSONObject().put("ok", false).put("error", e.message ?: "write failed").toString())
+                            }
+                        }
+                    }
+                    .setNegativeButton("Cancel") { _, _ ->
+                        once(JSONObject().put("ok", false).put("cancelled", true).put("error", "cancelled").toString())
+                    }
+                    .setOnCancelListener {
+                        once(JSONObject().put("ok", false).put("cancelled", true).put("error", "cancelled").toString())
+                    }
+                    .show()
+            } catch (e: Exception) {
+                deliver(callbackId, JSONObject().put("ok", false).put("error", e.message ?: "dialog failed").toString())
+            }
         }
     }
 

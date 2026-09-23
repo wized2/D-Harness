@@ -13,7 +13,7 @@
         android:layout_height="?attr/actionBarSize"
         android:background="?attr/colorSurface"
         app:title="Settings"
-        app:titleTextColor="?attr/colorOnSurface"
+        app:titleCentered="false"
         app:navigationIcon="@drawable/ic_close_m3"
         app:navigationIconTint="?attr/colorOnSurface" />
 
@@ -22,7 +22,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingHorizontal="20dp"
-        android:paddingBottom="8dp"
+        android:paddingBottom="4dp"
         android:textAppearance="?attr/textAppearanceLabelMedium"
         android:textColor="?attr/colorOnSurfaceVariant" />
 
@@ -31,41 +31,54 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
+        android:overScrollMode="ifContentScrolls"
         android:paddingHorizontal="16dp"
-        android:paddingBottom="16dp">
+        android:paddingTop="8dp"
+        android:paddingBottom="24dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:showDividers="none">
 
-            <!-- Keys -->
+            <!-- KEYS -->
             <TextView
+                style="@style/TextAppearance.DHarness.Section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="8dp"
-                android:text="Keys"
-                android:textAppearance="?attr/textAppearanceTitleSmall"
-                android:textColor="?attr/colorPrimary" />
+                android:paddingBottom="10dp"
+                android:text="KEYS" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/Widget.DHarness.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="20dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="14dp">
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingBottom="8dp"
+                        android:text="GitHub personal access token"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnSurface" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="GitHub PAT"
+                        android:hint="ghp_…"
                         app:boxBackgroundMode="outline"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp"
                         app:endIconMode="password_toggle">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/patInput"
@@ -80,15 +93,31 @@
                         style="@style/Widget.DHarness.Button"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="12dp"
                         android:text="Save as key github" />
+
+                    <com.google.android.material.divider.MaterialDivider
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginVertical="16dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingBottom="8dp"
+                        android:text="Other secrets"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnSurface" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
                         android:hint="Key name"
-                        app:boxBackgroundMode="outline">
+                        app:boxBackgroundMode="outline"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/keyName"
                             android:layout_width="match_parent"
@@ -100,9 +129,13 @@
                     <com.google.android.material.textfield.TextInputLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="10dp"
                         android:hint="Key value"
                         app:boxBackgroundMode="outline"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp"
                         app:endIconMode="password_toggle">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/keyValue"
@@ -115,121 +148,126 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="12dp"
                         android:orientation="horizontal">
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnSaveKey"
                             style="@style/Widget.DHarness.Button.Tonal"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginEnd="6dp"
+                            android:layout_marginEnd="8dp"
                             android:layout_weight="1"
-                            android:text="Save key" />
+                            android:text="Save" />
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnDeleteKey"
                             style="@style/Widget.DHarness.Button.Outlined"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="6dp"
+                            android:layout_marginStart="8dp"
                             android:layout_weight="1"
-                            android:text="Delete key" />
+                            android:text="Delete" />
                     </LinearLayout>
 
                     <TextView
                         android:id="@+id/keysList"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
+                        android:layout_marginTop="14dp"
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Options -->
+            <!-- OPTIONS -->
             <TextView
+                style="@style/TextAppearance.DHarness.Section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="Options"
-                android:textAppearance="?attr/textAppearanceTitleSmall"
-                android:textColor="?attr/colorPrimary" />
+                android:paddingBottom="10dp"
+                android:text="OPTIONS" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/Widget.DHarness.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="20dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingHorizontal="14dp"
-                    android:paddingVertical="6dp">
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="8dp">
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchDesktop"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="10dp"
                         android:text="Desktop site" />
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchInject"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="10dp"
                         android:text="Auto-inject tools" />
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchDedupe"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="10dp"
                         android:text="Dedupe tool calls" />
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchTheme"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="10dp"
                         android:text="Claude theme" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Agent -->
+            <!-- AGENT -->
             <TextView
+                style="@style/TextAppearance.DHarness.Section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="Agent"
-                android:textAppearance="?attr/textAppearanceTitleSmall"
-                android:textColor="?attr/colorPrimary" />
+                android:paddingBottom="10dp"
+                android:text="AGENT" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSendInstructions"
                 style="@style/Widget.DHarness.Button"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
+                android:layout_marginBottom="20dp"
                 android:text="Send tool instructions to chat" />
 
-            <!-- Maintenance -->
+            <!-- MAINTENANCE -->
             <TextView
+                style="@style/TextAppearance.DHarness.Section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="Maintenance"
-                android:textAppearance="?attr/textAppearanceTitleSmall"
-                android:textColor="?attr/colorPrimary" />
+                android:paddingBottom="10dp"
+                android:text="MAINTENANCE" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/Widget.DHarness.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="20dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="10dp">
+                    android:padding="12dp">
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnReload"
@@ -243,6 +281,7 @@
                         style="@style/Widget.DHarness.Button.Tonal"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
                         android:text="Re-inject shim" />
 
                     <com.google.android.material.button.MaterialButton
@@ -250,6 +289,7 @@
                         style="@style/Widget.DHarness.Button.Outlined"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
                         android:text="Clear WebView cache" />
 
                     <com.google.android.material.button.MaterialButton
@@ -257,6 +297,7 @@
                         style="@style/Widget.DHarness.Button.Outlined"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
                         android:text="Clear agent memory" />
 
                     <com.google.android.material.button.MaterialButton
@@ -264,6 +305,7 @@
                         style="@style/Widget.DHarness.Button.Outlined"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
                         android:text="Clear native FS" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -273,9 +315,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:fontFamily="monospace"
+                android:lineSpacingExtra="2dp"
                 android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:paddingBottom="8dp" />
+                android:textColor="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
@@ -284,6 +326,7 @@
         style="@style/Widget.DHarness.Button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="16dp"
         android:text="Done" />
 </LinearLayout>

@@ -1,57 +1,74 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Material 3 dark — compact surface tones, no extra fonts -->
     <style name="Theme.DHarness" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="colorPrimary">#4D6BFE</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorPrimaryContainer">#1A2744</item>
-        <item name="colorOnPrimaryContainer">#D6E0FF</item>
-        <item name="colorSecondary">#8AB4FF</item>
-        <item name="colorOnSecondary">#001B3D</item>
-        <item name="colorSurface">#0B0F14</item>
+        <item name="colorPrimary">@color/md_primary</item>
+        <item name="colorOnPrimary">@color/md_on_primary</item>
+        <item name="colorPrimaryContainer">@color/md_primary_container</item>
+        <item name="colorOnPrimaryContainer">#D6E3FF</item>
+        <item name="colorSecondary">@color/md_secondary</item>
+        <item name="colorOnSecondary">#1A1548</item>
+        <item name="colorSecondaryContainer">#3A3568</item>
+        <item name="colorTertiary">@color/md_tertiary</item>
+        <item name="colorOnTertiary">@color/md_on_tertiary</item>
+        <item name="colorTertiaryContainer">#6B3B00</item>
+        <item name="colorSurface">@color/md_surface</item>
         <item name="colorOnSurface">#E8EAED</item>
-        <item name="colorOnSurfaceVariant">#9AA3AF</item>
-        <item name="colorSurfaceVariant">#1A2028</item>
-        <item name="colorOutline">#3D4654</item>
+        <item name="colorOnSurfaceVariant">#A8B0C0</item>
+        <item name="colorSurfaceVariant">@color/md_surface_container</item>
+        <item name="colorSurfaceContainer">@color/md_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/md_surface_container_high</item>
+        <item name="colorOutline">@color/md_outline</item>
+        <item name="colorError">#FFB4AB</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">#0B0F14</item>
-        <item name="android:windowBackground">#0B0F14</item>
+        <item name="android:navigationBarColor">@color/md_surface</item>
+        <item name="android:windowBackground">@color/md_surface</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
         <item name="materialButtonStyle">@style/Widget.DHarness.Button</item>
-        <item name="switchStyle">@style/Widget.DHarness.Switch</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.DHarness.Dialog</item>
+    </style>
+
+    <style name="ThemeOverlay.DHarness.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorPrimary">@color/md_primary</item>
+        <item name="colorSurface">@color/md_surface_container_high</item>
+        <item name="shapeAppearanceOverlay">@style/Shape.DHarness.Dialog</item>
+    </style>
+
+    <style name="Shape.DHarness.Dialog" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
     </style>
 
     <style name="Widget.DHarness.Button" parent="Widget.Material3.Button">
-        <item name="android:minHeight">44dp</item>
+        <item name="android:minHeight">48dp</item>
         <item name="android:insetTop">0dp</item>
         <item name="android:insetBottom">0dp</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="cornerRadius">14dp</item>
     </style>
 
     <style name="Widget.DHarness.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
-        <item name="android:minHeight">44dp</item>
+        <item name="android:minHeight">48dp</item>
         <item name="android:insetTop">0dp</item>
         <item name="android:insetBottom">0dp</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="cornerRadius">14dp</item>
     </style>
 
     <style name="Widget.DHarness.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
-        <item name="android:minHeight">44dp</item>
+        <item name="android:minHeight">48dp</item>
         <item name="android:insetTop">0dp</item>
         <item name="android:insetBottom">0dp</item>
-        <item name="cornerRadius">12dp</item>
-    </style>
-
-    <style name="Widget.DHarness.Switch" parent="Widget.Material3.CompoundButton.MaterialSwitch">
-        <item name="android:minHeight">48dp</item>
-        <item name="android:paddingTop">4dp</item>
-        <item name="android:paddingBottom">4dp</item>
+        <item name="cornerRadius">14dp</item>
     </style>
 
     <style name="Widget.DHarness.Card" parent="Widget.Material3.CardView.Filled">
-        <item name="cardBackgroundColor">#141A22</item>
+        <item name="cardBackgroundColor">@color/md_surface_container</item>
         <item name="cardElevation">0dp</item>
-        <item name="strokeWidth">0dp</item>
-        <item name="cardCornerRadius">16dp</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="strokeColor">@color/md_outline</item>
+        <item name="cardCornerRadius">20dp</item>
+    </style>
+
+    <style name="TextAppearance.DHarness.Section" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textColor">@color/md_tertiary</item>
+        <item name="android:letterSpacing">0.04</item>
     </style>
 </resources>

@@ -10,7 +10,7 @@ window.__dHarnessCb = function (id, payloadStr) {
   } catch (e) { p.reject(e); }
 };
 function _cbId() { return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-function _asyncNative(fn) {
+function _asyncNative(fn, timeoutMs) {
   return new Promise(function (resolve, reject) {
     var id = _cbId();
     var timer = setTimeout(function () {
@@ -18,7 +18,7 @@ function _asyncNative(fn) {
         delete window.__dHarnessFetchPending[id];
         reject(new Error('timeout'));
       }
-    }, 30000);
+    }, timeoutMs || 30000);
     window.__dHarnessFetchPending[id] = {
       resolve: function (d) { clearTimeout(timer); resolve(d); },
       reject: function (e) { clearTimeout(timer); reject(e); }
@@ -59,6 +59,15 @@ window.__DHarnessNative = {
     rm: function (path) { return _j(function () { return DHarness.workspaceRm(path); }); },
     stat: function (path) { return _j(function () { return DHarness.workspaceStat(path); }); },
     tree: function (path, depth) { return _j(function () { return DHarness.workspaceTree(path || null, depth || 2); }); }
+  },
+  paste_box: function (opts) {
+    opts = opts || {};
+    var path = opts.path || opts.filename || opts.file || 'paste.txt';
+    var title = opts.title || 'Paste content';
+    var hint = opts.hint || '';
+    return _asyncNative(function (id) {
+      DHarness.pasteBox(String(path), title != null ? String(title) : null, hint != null ? String(hint) : null, id);
+    }, 600000);
   },
   list_tools: function () { return _j(function () { return DHarness.listTools(); }); },
   describe: function (name) { return _j(function () { return DHarness.describeTool(String(name)); }); },
