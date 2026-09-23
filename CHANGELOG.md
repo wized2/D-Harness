@@ -1,3 +1,8 @@
+## 1.5.8
+- Settings: Material 3 UI (cards, MaterialSwitch, outlined fields, toolbar)
+- Theme.Material3.Dark; compact buttons to limit layout weight
+- Material library + existing minify/shrink to limit APK growth
+
 ## 1.5.7
 - Claude theme: latest **Claude.js v3.1** from dsh
 - New DeepSeek-style logo asset (SVG)

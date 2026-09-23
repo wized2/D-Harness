@@ -1,119 +1,289 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0B0F14">
+    android:background="?attr/colorSurface"
+    android:fitsSystemWindows="true">
 
-    <LinearLayout
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorSurface"
+        app:title="Settings"
+        app:titleTextColor="?attr/colorOnSurface"
+        app:navigationIcon="@drawable/ic_close_m3"
+        app:navigationIconTint="?attr/colorOnSurface" />
+
+    <TextView
+        android:id="@+id/versionText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
-        android:gravity="center_vertical"
-        android:background="#12161C">
-        <TextView
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:text="D-Harness"
-            android:textColor="#FFFFFF"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-        <TextView
-            android:id="@+id/versionText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="#668899"
-            android:textSize="12sp" />
-    </LinearLayout>
+        android:paddingHorizontal="20dp"
+        android:paddingBottom="8dp"
+        android:textAppearance="?attr/textAppearanceLabelMedium"
+        android:textColor="?attr/colorOnSurfaceVariant" />
 
-    <ScrollView
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:padding="16dp">
+        android:clipToPadding="false"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="16dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="GitHub PAT" android:textColor="#4D6BFE" android:textStyle="bold"
-                android:paddingBottom="6dp" />
-            <EditText android:id="@+id/patInput" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:hint="ghp_…"
-                android:inputType="textPassword" android:textColor="#FFFFFF"
-                android:textColorHint="#556677" android:backgroundTint="#4D6BFE" />
-            <Button android:id="@+id/btnSavePat" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:text="Save PAT as key github" />
-
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Other keys" android:textColor="#4D6BFE" android:textStyle="bold"
-                android:paddingTop="16dp" android:paddingBottom="6dp" />
-            <EditText android:id="@+id/keyName" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:hint="name" android:inputType="text"
-                android:textColor="#FFFFFF" android:textColorHint="#556677" />
-            <EditText android:id="@+id/keyValue" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:hint="value" android:inputType="textPassword"
-                android:textColor="#FFFFFF" android:textColorHint="#556677" />
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                <Button android:id="@+id/btnSaveKey" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="Save" />
-                <Button android:id="@+id/btnDeleteKey" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="Delete" />
-            </LinearLayout>
-            <TextView android:id="@+id/keysList" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:textColor="#8899AA" android:textSize="12sp"
-                android:fontFamily="monospace" android:paddingTop="4dp" />
-
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Options" android:textColor="#4D6BFE" android:textStyle="bold"
-                android:paddingTop="16dp" android:paddingBottom="6dp" />
-            <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchDesktop"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Desktop site" android:textColor="#DDE3EA" />
-            <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchInject"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Auto-inject tools" android:checked="true" android:textColor="#DDE3EA" />
-            <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchDedupe"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Dedupe tool calls" android:checked="true" android:textColor="#DDE3EA" />
-            <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchTheme"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Claude theme (auto-inject)" android:checked="false" android:textColor="#DDE3EA" />
-
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Agent" android:textColor="#4D6BFE" android:textStyle="bold"
-                android:paddingTop="16dp" android:paddingBottom="6dp" />
-            <Button android:id="@+id/btnSendInstructions" android:layout_width="match_parent"
+            <!-- Keys -->
+            <TextView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Send tool instructions to chat"
-                android:backgroundTint="#4D6BFE" />
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"
+                android:text="Keys"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/colorPrimary" />
 
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Maintenance" android:textColor="#4D6BFE" android:textStyle="bold"
-                android:paddingTop="16dp" android:paddingBottom="6dp" />
-            <Button android:id="@+id/btnReload" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:text="Reload chat" />
-            <Button android:id="@+id/btnReinject" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:text="Re-inject shim" />
-            <Button android:id="@+id/btnClearCache" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:text="Clear WebView cache" />
-            <Button android:id="@+id/btnClearMemory" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:text="Clear agent memory" />
-            <Button android:id="@+id/btnClearFs" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:text="Clear native FS" />
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.DHarness.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp">
 
-            <TextView android:id="@+id/toolsList" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:textColor="#778899" android:textSize="11sp"
-                android:fontFamily="monospace" android:paddingTop="16dp" android:paddingBottom="24dp" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="GitHub PAT"
+                        app:boxBackgroundMode="outline"
+                        app:endIconMode="password_toggle">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/patInput"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textPassword"
+                            android:imeOptions="actionDone" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSavePat"
+                        style="@style/Widget.DHarness.Button"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Save as key github" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:hint="Key name"
+                        app:boxBackgroundMode="outline">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/keyName"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:imeOptions="actionNext" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:hint="Key value"
+                        app:boxBackgroundMode="outline"
+                        app:endIconMode="password_toggle">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/keyValue"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textPassword"
+                            android:imeOptions="actionDone" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSaveKey"
+                            style="@style/Widget.DHarness.Button.Tonal"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="6dp"
+                            android:layout_weight="1"
+                            android:text="Save key" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnDeleteKey"
+                            style="@style/Widget.DHarness.Button.Outlined"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:layout_weight="1"
+                            android:text="Delete key" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/keysList"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Options -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Options"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/colorPrimary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.DHarness.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="6dp">
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchDesktop"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Desktop site" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchInject"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Auto-inject tools" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchDedupe"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Dedupe tool calls" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchTheme"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Claude theme" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Agent -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Agent"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/colorPrimary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSendInstructions"
+                style="@style/Widget.DHarness.Button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="Send tool instructions to chat" />
+
+            <!-- Maintenance -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Maintenance"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/colorPrimary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.DHarness.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="10dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnReload"
+                        style="@style/Widget.DHarness.Button.Tonal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Reload chat" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnReinject"
+                        style="@style/Widget.DHarness.Button.Tonal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Re-inject shim" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearCache"
+                        style="@style/Widget.DHarness.Button.Outlined"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Clear WebView cache" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearMemory"
+                        style="@style/Widget.DHarness.Button.Outlined"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Clear agent memory" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearFs"
+                        style="@style/Widget.DHarness.Button.Outlined"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Clear native FS" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:id="@+id/toolsList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:paddingBottom="8dp" />
         </LinearLayout>
-    </ScrollView>
+    </androidx.core.widget.NestedScrollView>
 
-    <Button android:id="@+id/btnClose" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:text="Done"
-        android:layout_margin="12dp" />
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnClose"
+        style="@style/Widget.DHarness.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:text="Done" />
 </LinearLayout>

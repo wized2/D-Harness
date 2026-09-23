@@ -5,6 +5,9 @@ The model can call real on-device tools (files, HTTP, GitHub, device, clipboard)
 
 ## Features
 
+- **Material 3 settings** (dark, compact cards/switches)
+
+
 - Full-screen WebView chat (cookies, uploads, geolocation)
 - **Shim** (upstream dsh.js): last-message scan, stable IDs, settle-before-run, TOOL_RESULT send
 - **Native bridge**: workspace FS, HTTP (no CORS), GitHub, memory/keys, device, calc/text/time
