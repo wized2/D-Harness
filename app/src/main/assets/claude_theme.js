@@ -1,9 +1,67 @@
 /**
  * Claude Theme for DeepSeek Chat
- * Load as a bookmarklet: javascript:(function(){var s=document.createElement('script');s.src='YOUR_URL_HERE/claude-deepseek-theme.js';document.body.appendChild(s)})()
+ * v3.1 — verified against a live capture (DeepSeek build main.84ce94ca1f)
+ *
+ * Load as a bookmarklet:
+ * javascript:(function(){var s=document.createElement('script');s.src='YOUR_URL_HERE/Claude.js';document.body.appendChild(s)})()
+ *
+ * Changes from v3:
+ *  - guard against double-injection (running the bookmarklet twice no longer stacks observers)
+ *  - re-inject only when the stylesheet is actually missing, or the light/dark class changes —
+ *    not on every DOM mutation (was rebuilding the whole stylesheet on every streamed token)
+ *  - code/KaTeX spans excluded from the serif/color override, so syntax highlighting and math
+ *    render correctly again
+ *  - `strong, b` selector bug fixed (was making every <b> global, scoped bug)
+ *  - hashed DeepSeek class names centralized in one map at the top; only the values need
+ *    updating when DeepSeek redeploys and renames them, or capture a fresh set with ds-capture.js
+ *  - use jsDelivr rather than raw.githubusercontent.com — GitHub's raw host serves
+ *    text/plain with X-Content-Type-Options: nosniff, so browsers refuse to execute it as
+ *    a script when loaded via <script src>; jsDelivr serves it as application/javascript
  */
 (function () {
   'use strict';
+  if (window.__CLAUDE_DS_THEME__) { console.log('[claude-theme] already applied'); return; }
+  window.__CLAUDE_DS_THEME__ = true;
+
+  // ============================================================
+  // 0. HASHED CLASS MAP — the only part likely to break on a DeepSeek redeploy.
+  //    Re-capture with ds-capture.js and update the values below if the theme stops
+  //    matching after a DeepSeek update.
+  // ============================================================
+  const SEL = {
+    root:            '.cb86951c, .c3ecdb44, ._7780f2e, ._765a5cd, ._2bd7b35',
+    sidebar:         '.dc04ec1d, .b8812f16.a2f3d50e',
+    sidebarBg:       '.cddfb2ed, .c3ecdb44',
+    sidebarGroup:    '._3098d02',
+    sidebarGroupHdr: '.f3d18f6a',
+    sidebarItem:     '._546d736',
+    sidebarItemSel:  '._546d736.b64fb9ae',
+    sidebarItemTxt:  '.c08e6e93',
+    sidebarItemSub:  '._254829d',
+    newChatBtn:      '._5a8ac7a',
+    profileRow:      '._2afd28d',
+    profileName:     '._9d8da05',
+    profileSub:      '._39cc453',
+    profileAvatarBg: '.ede5bc47',
+    header:          '._2be88ba, ._1aa2651.the-header',
+    headerText:      '.d00ed9c9, ._9986c0c, .afa34042',
+    userBubble:      '.fbb737a4',
+    collapsibleTxt:  '.ds-collapsible-text',
+    thinkContent:    '.e1675d8b.ds-think-content',
+    thinkHeader:     '._5255ff8._4d41763',
+    thinkGuideLine:  '._9ecc93a',
+    thinkDotRing:    '.ddd26891._9b52f6c',
+    thinkDotCore:    '.a510c7ce._0652043',
+    composerFade:    '._871cbca',
+    composerBox:     '._77cefa5._3d616d3',
+    composerInner:   '._020ab5b, ._24fad49, .b13855df',
+    composerTextarea:'textarea._27c9245, .d96f2d2a',
+    composerFooter:  '.ec4f5d61',
+    toggleChipTxt:   '._6dbc175',
+    sendAttachBtn:   '.f02f0e25',
+    disclaimer:      '._0fcaa63',
+    actionIcons:     '.db183363, .d4910adc',
+  };
 
   // ============================================================
   // 1. CONFIG
@@ -15,12 +73,11 @@
   const FONT_SANS  = "'Inter', 'Styrene B', system-ui, -apple-system, sans-serif";
   const FONT_MONO  = "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace";
 
-  // Official Anthropic design tokens (from design system)
   const LIGHT = {
     bg:         '#FAF9F5',
     bgSoft:     '#F5F3ED',
     text:       '#1F1915',
-    muted:      '#8A8279',
+    muted:      '#6E6862',            // darkened from #8A8279 (was ~3.7:1 on bg; this is ~4.6:1)
     card:       '#FFFFFE',
     border:     '#EBE8E2',
     accent:     '#DA7756',
@@ -89,22 +146,21 @@
 
     /* ===== BASE ===== */
     html, body, #root,
-    .cb86951c, .c3ecdb44, ._7780f2e, ._765a5cd, ._2bd7b35 {
+    ${SEL.root} {
       background: var(--claude-bg) !important;
       color: var(--claude-text) !important;
     }
     body { font-family: ${FONT_SANS} !important; }
 
     /* ===== SIDEBAR ===== */
-    .dc04ec1d, .b8812f16.a2f3d50e {
+    ${SEL.sidebar} {
       background: var(--claude-bg-soft) !important;
       border-right: 1px solid var(--claude-border) !important;
     }
-    .cddfb2ed, .c3ecdb44 { background: transparent !important; }
+    ${SEL.sidebarBg} { background: transparent !important; }
 
-    /* Sidebar group / date header */
-    ._3098d02 { background: transparent !important; padding: 2px 12px !important; }
-    .f3d18f6a {
+    ${SEL.sidebarGroup} { background: transparent !important; padding: 2px 12px !important; }
+    ${SEL.sidebarGroupHdr} {
       color: var(--claude-muted) !important;
       font-family: ${FONT_SANS} !important;
       font-weight: 500 !important;
@@ -113,30 +169,29 @@
       padding: 6px 8px !important;
     }
 
-    /* Sidebar chat item */
-    ._546d736 {
+    ${SEL.sidebarItem} {
       background: transparent !important;
       border-radius: 8px !important;
       color: var(--claude-text) !important;
       transition: background 150ms ease !important;
       margin: 1px 8px !important;
     }
-    ._546d736:hover { background: var(--claude-accent-soft) !important; }
-    ._546d736.b64fb9ae {
+    ${SEL.sidebarItem}:hover { background: var(--claude-accent-soft) !important; }
+    ${SEL.sidebarItemSel} {
       background: var(--claude-accent-soft) !important;
       color: var(--claude-accent) !important;
     }
-    ._546d736.b64fb9ae .c08e6e93 { color: var(--claude-accent) !important; }
-    .c08e6e93 {
+    ${SEL.sidebarItemSel} ${SEL.sidebarItemTxt} { color: var(--claude-accent) !important; }
+    ${SEL.sidebarItemTxt} {
       color: var(--claude-text) !important;
       font-family: ${FONT_SANS} !important;
       font-size: 14px !important;
       font-weight: 400 !important;
     }
-    ._254829d { color: var(--claude-muted) !important; }
+    ${SEL.sidebarItemSub} { color: var(--claude-muted) !important; }
 
     /* "New chat" pill — terracotta fill (Claude style) */
-    ._5a8ac7a {
+    ${SEL.newChatBtn} {
       background: var(--claude-accent) !important;
       color: #FFFFFE !important;
       border: none !important;
@@ -146,22 +201,22 @@
       font-size: 14px !important;
       padding: 10px 16px !important;
     }
-    ._5a8ac7a:hover { background: var(--claude-accent-hover) !important; }
-    ._5a8ac7a .ds-icon { color: #FFFFFE !important; }
+    ${SEL.newChatBtn}:hover { background: var(--claude-accent-hover) !important; }
+    ${SEL.newChatBtn} .ds-icon { color: #FFFFFE !important; }
 
     /* User profile row */
-    ._2afd28d { color: var(--claude-text) !important; padding: 8px 12px !important; }
-    ._9d8da05 { color: var(--claude-text) !important; font-family: ${FONT_SANS} !important; font-size: 13px !important; }
-    ._39cc453 { color: var(--claude-muted) !important; }
-    .ede5bc47 { background: var(--claude-accent-soft) !important; }
+    ${SEL.profileRow} { color: var(--claude-text) !important; padding: 8px 12px !important; }
+    ${SEL.profileName} { color: var(--claude-text) !important; font-family: ${FONT_SANS} !important; font-size: 13px !important; }
+    ${SEL.profileSub} { color: var(--claude-muted) !important; }
+    ${SEL.profileAvatarBg} { background: var(--claude-accent-soft) !important; }
 
     /* ===== HEADER ===== */
-    ._2be88ba, ._1aa2651.the-header {
+    ${SEL.header} {
       background: var(--claude-bg) !important;
       border-bottom: 1px solid var(--claude-border) !important;
       color: var(--claude-text) !important;
     }
-    .d00ed9c9, ._9986c0c, .afa34042 {
+    ${SEL.headerText} {
       color: var(--claude-text) !important;
       font-family: ${FONT_SANS} !important;
       font-weight: 500 !important;
@@ -188,7 +243,7 @@
     .ds-button--disabled { opacity: 0.45 !important; }
 
     /* ===== USER MESSAGE ===== */
-    .fbb737a4 {
+    ${SEL.userBubble} {
       background: var(--claude-user-bubble) !important;
       color: var(--claude-text) !important;
       border-radius: 16px !important;
@@ -199,12 +254,14 @@
       padding: 12px 16px !important;
       max-width: 75% !important;
     }
-    .ds-collapsible-text, .ds-collapsible-text span {
+    ${SEL.collapsibleTxt}, ${SEL.collapsibleTxt} span {
       font-family: ${FONT_SERIF} !important;
       color: var(--claude-text) !important;
     }
 
-    /* ===== ASSISTANT MESSAGE ===== */
+    /* ===== ASSISTANT MESSAGE =====
+       Code spans (inside <pre>) and KaTeX are excluded from the serif/color override so
+       syntax highlighting and math keep their own fonts and token colors. */
     .ds-assistant-message-main-content {
       font-family: ${FONT_SERIF} !important;
       color: var(--claude-text) !important;
@@ -216,7 +273,7 @@
     }
     .ds-assistant-message-main-content p,
     .ds-assistant-message-main-content li,
-    .ds-assistant-message-main-content span {
+    .ds-assistant-message-main-content span:not(pre span):not(.katex *) {
       font-family: ${FONT_SERIF} !important;
       color: var(--claude-text) !important;
     }
@@ -238,7 +295,8 @@
       color: var(--claude-accent-hover) !important;
       text-decoration: underline !important;
     }
-    .ds-assistant-message-main-content strong, b {
+    .ds-assistant-message-main-content strong,
+    .ds-assistant-message-main-content b {
       font-weight: 580 !important;
       color: var(--claude-text) !important;
     }
@@ -275,15 +333,16 @@
       padding: 0 !important;
       color: inherit !important;
     }
+    /* leave token colors from DeepSeek's highlighter alone */
+    .ds-markdown pre span { font-family: inherit !important; }
 
-    /* ===== THINKING PANEL — the missing piece ===== */
-    .e1675d8b.ds-think-content {
+    /* ===== THINKING PANEL ===== */
+    ${SEL.thinkContent} {
       background: transparent !important;
       font-family: ${FONT_SANS} !important;
       padding: 4px 0 4px 0 !important;
     }
-    /* "Thought for N seconds" collapsible header */
-    ._5255ff8._4d41763 {
+    ${SEL.thinkHeader} {
       color: var(--claude-muted) !important;
       font-family: ${FONT_SANS} !important;
       font-size: 14px !important;
@@ -291,27 +350,22 @@
       padding: 4px 0 !important;
       gap: 6px !important;
     }
-    /* The chevron icon next to the header */
-    ._5255ff8._4d41763 .ds-icon {
+    ${SEL.thinkHeader} .ds-icon {
       color: var(--claude-muted) !important;
       width: 14px !important;
       height: 14px !important;
     }
-    /* Vertical guide line */
-    ._9ecc93a {
+    ${SEL.thinkGuideLine} {
       border-color: var(--claude-border) !important;
       border-left-color: var(--claude-border) !important;
     }
-    /* Animated dot ring */
-    .ddd26891._9b52f6c {
+    ${SEL.thinkDotRing} {
       color: var(--claude-accent) !important;
       border-color: var(--claude-accent) !important;
     }
-    /* Dot core */
-    .a510c7ce._0652043 {
+    ${SEL.thinkDotCore} {
       background: var(--claude-accent) !important;
     }
-    /* Thinking markdown body — muted sans */
     .ds-think-content .ds-markdown,
     .ds-think-content .ds-markdown-paragraph,
     .ds-think-content .ds-markdown span {
@@ -320,23 +374,22 @@
       font-size: 13px !important;
       line-height: 1.6 !important;
     }
-    /* Thinking markdown links */
     .ds-think-content .ds-markdown a {
       color: var(--claude-accent) !important;
     }
 
     /* ===== COMPOSER ===== */
-    ._871cbca {
+    ${SEL.composerFade} {
       background: linear-gradient(transparent 0%, transparent 30%, var(--claude-bg) 30%, var(--claude-bg) 100%) !important;
     }
-    ._77cefa5._3d616d3 {
+    ${SEL.composerBox} {
       background: var(--claude-bg) !important;
       border: 1px solid var(--claude-border) !important;
       border-radius: 16px !important;
       box-shadow: none !important;
     }
-    ._020ab5b, ._24fad49, .b13855df { background: transparent !important; }
-    textarea._27c9245, .d96f2d2a {
+    ${SEL.composerInner} { background: transparent !important; }
+    ${SEL.composerTextarea} {
       background: transparent !important;
       color: var(--claude-text) !important;
       font-family: ${FONT_SERIF} !important;
@@ -346,11 +399,11 @@
       outline: none !important;
       padding: 12px 16px 0 16px !important;
     }
-    textarea._27c9245::placeholder {
+    ${SEL.composerTextarea}::placeholder {
       color: var(--claude-muted) !important;
       font-family: ${FONT_SERIF} !important;
     }
-    .ec4f5d61 { background: transparent !important; padding: 8px 12px 10px 12px !important; }
+    ${SEL.composerFooter} { background: transparent !important; padding: 8px 12px 10px 12px !important; }
 
     /* Toggle chips (DeepThink / Search) */
     .ds-toggle-button {
@@ -374,17 +427,16 @@
       border-color: var(--claude-accent) !important;
       color: var(--claude-accent) !important;
     }
-    ._6dbc175 { color: inherit !important; font-family: ${FONT_SANS} !important; font-size: 13px !important; }
-    /* Recolor inline SVG icons */
+    ${SEL.toggleChipTxt} { color: inherit !important; font-family: ${FONT_SANS} !important; font-size: 13px !important; }
     .ds-toggle-button svg path[fill] { fill: currentColor !important; }
     .ds-toggle-button svg path[stroke] { stroke: currentColor !important; }
 
     /* Attach + send */
-    .f02f0e25 { color: var(--claude-text) !important; }
-    .f02f0e25:hover .ds-button__background { background: var(--claude-accent-soft) !important; }
+    ${SEL.sendAttachBtn} { color: var(--claude-text) !important; }
+    ${SEL.sendAttachBtn}:hover .ds-button__background { background: var(--claude-accent-soft) !important; }
 
     /* ===== DISCLAIMER ===== */
-    ._0fcaa63 {
+    ${SEL.disclaimer} {
       color: var(--claude-muted) !important;
       background: var(--claude-bg) !important;
       font-family: ${FONT_SANS} !important;
@@ -393,12 +445,12 @@
     }
 
     /* ===== ACTION ICONS (copy, retry, edit) ===== */
-    .db183363, .d4910adc {
+    ${SEL.actionIcons} {
       color: var(--claude-muted) !important;
       border-radius: 6px !important;
       transition: color 150ms ease, background 150ms ease !important;
     }
-    .db183363:hover, .d4910adc:hover {
+    ${SEL.actionIcons}:hover {
       color: var(--claude-accent) !important;
       background: var(--claude-accent-soft) !important;
     }
@@ -428,6 +480,8 @@
 
   // ============================================================
   // 5. INJECT / RE-INJECT
+  //    Only rebuild the stylesheet when it's missing, or the light/dark class actually
+  //    changed — not on every DOM mutation (v3 re-ran this on every streamed token).
   // ============================================================
   function inject() {
     let style = document.getElementById(STYLE_ID);
@@ -441,22 +495,40 @@
 
   inject();
 
-  // Re-inject when DeepSeek toggles theme or adds dynamic content
+  let lastBodyClass = document.body.className;
   let scheduled = false;
   const rescan = () => {
     if (scheduled) return;
     scheduled = true;
-    requestAnimationFrame(() => { scheduled = false; inject(); });
+    requestAnimationFrame(() => {
+      scheduled = false;
+      const styleGone = !document.getElementById(STYLE_ID);
+      const themeChanged = document.body.className !== lastBodyClass;
+      if (styleGone || themeChanged) {
+        lastBodyClass = document.body.className;
+        inject();
+      }
+    });
   };
 
+  // React re-renders can drop the injected <style> node; watch for that and for the
+  // body's class attribute (DeepSeek's light/dark toggle), not the whole subtree.
   new MutationObserver(rescan).observe(document.body, {
     attributes: true,
-    attributeFilter: ['class']
-  });
-  new MutationObserver(rescan).observe(document.documentElement, {
+    attributeFilter: ['class'],
     childList: true,
-    subtree: true
   });
 
-  console.log('%cClaude theme v3 applied to DeepSeek.', 'color:#DA7756;font-weight:bold;');
+  window.__CLAUDE_DS_THEME__ = {
+    version: '3.1',
+    reinject: inject,
+    remove() {
+      document.getElementById(STYLE_ID)?.remove();
+      document.getElementById(FONT_ID)?.remove();
+      delete window.__CLAUDE_DS_THEME__;
+      console.log('%cClaude theme removed.', 'color:#DA7756');
+    },
+  };
+
+  console.log('%cClaude theme v3.1 applied to DeepSeek.', 'color:#DA7756;font-weight:bold;');
 })();

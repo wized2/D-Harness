@@ -1,37 +1,52 @@
 # D-Harness
 
-Native Android shell for [DeepSeek Chat](https://chat.deepseek.com/) with **DeepSeek Tool Shim v7.5.0-native** (upstream [`dsh.js`](https://github.com/wized2/dsh) + native bridge).
+Android shell for [DeepSeek Chat](https://chat.deepseek.com/) with a **tool shim** + **native bridge**.  
+The model can call real on-device tools (files, HTTP, GitHub, device, clipboard) without guessing APIs.
 
 ## Features
 
 - Full-screen WebView chat (cookies, uploads, geolocation)
-- **Shim from dsh.js**: last-message scan, stable message IDs, settle-before-run, unsent retry, clean UI (no emoji chrome)
-- **Native bridge** (no CORS): memory, files, HTTP, device, GitHub, workspace, clipboard, share
-- Auto-inject with retries; desktop UA; clear cache; force re-inject from menu
+- **Shim** (upstream dsh.js): last-message scan, stable IDs, settle-before-run, TOOL_RESULT send
+- **Native bridge**: workspace FS, HTTP (no CORS), GitHub, memory/keys, device, calc/text/time
+- **Claude theme** (optional): latest Claude.js styling for DeepSeek UI
+- Auto-inject with retries · desktop UA · clear cache · force re-inject
+- Agent instructions built into the app (copy from menu / first-run paste)
 
-## Agent prompt (paste once per chat)
+## How tools work
 
-```
-You have tools. Reply with ONLY a JSON object (no markdown fences required):
+1. Model replies with **one** JSON tool call, e.g.
 
+```json
 {"tool":"run_js","args":{"code":"return await list_tools()"}}
-
-After TOOL_RESULT:, use that data. Never invent results. One tool call per reply.
 ```
 
-### Examples
+2. Shim runs the tool and posts a user message starting with `TOOL_RESULT:`.
+3. Model continues using that result. **One tool per reply.**
+
+### Discover
 
 ```json
-{"tool":"run_js","args":{"code":"return await device.info()"}}
-{"tool":"run_js","args":{"code":"return await memory.set('k','v')"}}
-{"tool":"run_js","args":{"code":"return await workspace.pwd()"}}
+{"tool":"run_js","args":{"code":"return await list_tools()"}}
+{"tool":"run_js","args":{"code":"return await describe('github')"}}
 ```
 
-Direct tool form (also supported):
+### Common tools (inside `run_js`)
 
-```json
-{"tool":"list_tools","args":{}}
-```
+| Area | Examples |
+|------|----------|
+| Memory | `memory.get/set/list` |
+| Secrets | `keys.set('github', pat)` · `keys.list()` |
+| Files | `workspace.pwd/ls/read/write/mkdir/tree` |
+| HTTP | `http_request({url, method, headers, body})` |
+| GitHub | `github.me/repos/pr/contents/request/…` (needs PAT) |
+| Device | `device.info/battery/network/storage/memory` |
+| Text/calc | `calc.eval` · `text.regex` · `time.now` · `uuid.v4` |
+
+Full catalog and paste-ready examples come from **`list_tools()`**.
+
+## GitHub PAT
+
+Settings → store key name **`github`** with a fine-scoped PAT. Never ask the model to echo the token.
 
 ## Build
 
@@ -41,4 +56,4 @@ Direct tool form (also supported):
 
 ## License
 
-MIT — shim from dsh.js (DeepSeek Tool Shim); native bridge is D-Harness-specific.
+MIT — shim adapted from DeepSeek Tool Shim / dsh.js; Claude theme from Claude.js; logo paths brand-aligned.

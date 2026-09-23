@@ -77,17 +77,23 @@ jobs:
           body: |
             ## D-Harness ${{ steps.ver.outputs.name }} (signed)
 
-            DeepSeek Chat WebView shell with **Tool Shim v7.6.0-stable** + native bridge.
+            DeepSeek Chat WebView + **tool shim** + **native bridge**.
 
-            ### Highlights
-            - Auto-inject with multi-retry (stable session / no infinite TOOL_RESULT loops)
-            - Native tools: memory, files, HTTP (no CORS), device, clipboard, share
-            - Durable tool dedupe across reloads
+            ### Agent
+            - Paste-ready system instructions in-app
+            - `list_tools()` / `describe()` with examples — no guessing tool APIs
+            - One JSON tool call per reply → `TOOL_RESULT:` → continue
+
+            ### Stack
+            - Shim: upstream dsh.js + native tools
+            - Theme: Claude.js v3.1 (optional)
+            - Logo: updated brand SVG
 
             ### Install
             Download **D-Harness-${{ steps.ver.outputs.name }}.apk** below.
 
-            MIT · offline-friendly private storage
+            MIT
+
           files: dist/D-Harness-${{ steps.ver.outputs.name }}.apk
           fail_on_unmatched_files: true
           generate_release_notes: true
