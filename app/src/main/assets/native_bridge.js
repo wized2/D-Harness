@@ -40,6 +40,15 @@ function _j(fn) {
 
 window.__DHarnessNative = {
   available: typeof DHarness !== 'undefined',
+  agentBegin: function (tool, description) {
+    try { if (typeof DHarness !== 'undefined') DHarness.agentBegin(String(tool || ''), String(description || '')); } catch (e) {}
+  },
+  agentEnd: function () {
+    try { if (typeof DHarness !== 'undefined') DHarness.agentEnd(); } catch (e) {}
+  },
+  agentStop: function () {
+    try { if (typeof DHarness !== 'undefined') DHarness.agentStop(); } catch (e) {}
+  },
 
 
   device_uptime: function () { return _j(function () { return DHarness.deviceUptime(); }); },

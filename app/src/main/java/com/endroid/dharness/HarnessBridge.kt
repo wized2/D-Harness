@@ -2083,4 +2083,26 @@ class HarnessBridge(
         }
     }
 
+
+    @JavascriptInterface
+    fun agentBegin(tool: String?, description: String?) {
+        try {
+            AgentService.status(context, tool.orEmpty(), description.orEmpty())
+        } catch (_: Exception) { }
+    }
+
+    @JavascriptInterface
+    fun agentEnd() {
+        try {
+            AgentService.idle(context)
+        } catch (_: Exception) { }
+    }
+
+    @JavascriptInterface
+    fun agentStop() {
+        try {
+            AgentService.stop(context)
+        } catch (_: Exception) { }
+    }
+
 }

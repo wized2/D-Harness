@@ -422,7 +422,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        webView.onPause()
+        // Keep WebView JS alive while agent tool-chain runs in background
+        if (!AgentService.running) {
+            webView.onPause()
+        }
         CookieManager.getInstance().flush()
     }
 
@@ -442,13 +445,23 @@ class MainActivity : AppCompatActivity() {
 # D-Harness agent
 
 You run inside **D-Harness** on Android: DeepSeek Chat WebView + native tool bridge.
+
+Background: tool chains keep running if the user leaves the app (foreground agent service). Prefer short steps and keep calling tools until the task is done.
+
+### Tool call JSON
+Emit a single JSON object (answer must end with it):
+{"tool":"run_js","description":"List workspace files","args":{"code":"return await workspace.ls()"}}
+
+- **description** (optional, recommended): short human label for the tagline + notification (also accepts misspelling **discription**).
+- **tool**: name (usually run_js)
+- **args**: tool arguments
 Tools run on-device. Prefer tools over guessing. Never invent TOOL_RESULT data.
 
 ## How to call tools (exact)
 
 Reply with **one** JSON object only (optional markdown fence). Preferred form:
 
-{"tool":"run_js","args":{"code":"return await list_tools()"}}
+{"tool":"run_js","description":"List available tools","args":{"code":"return await list_tools()"}}
 
 Direct form also works for registered tools:
 
@@ -463,7 +476,7 @@ Rules:
 
 ## Discover tools
 
-{"tool":"run_js","args":{"code":"return await list_tools()"}}
+{"tool":"run_js","description":"List available tools","args":{"code":"return await list_tools()"}}
 {"tool":"run_js","args":{"code":"return await describe('github')"}}
 
 `list_tools()` returns every native tool, notes, and copy-paste examples.
@@ -486,7 +499,7 @@ Opens a dialog. User pastes, taps Done → file saved under workspace; result ha
 
 ### Workspace files (app sandbox)
 {"tool":"run_js","args":{"code":"return await workspace.pwd()"}}
-{"tool":"run_js","args":{"code":"return await workspace.ls()"}}
+{"tool":"run_js","description":"List workspace","args":{"code":"return await workspace.ls()"}}
 {"tool":"run_js","args":{"code":"return await workspace.read('notes.txt')"}}
 {"tool":"run_js","args":{"code":"return await workspace.write('notes.txt','hello')"}}
 {"tool":"run_js","args":{"code":"return await workspace.mkdir('src')"}}

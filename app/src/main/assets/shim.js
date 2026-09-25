@@ -1,8 +1,11 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.5.0-native (upstream dsh.js + D-Harness native bridge tools)
+ * @version 7.6.0-native-agent (upstream dsh.js + D-Harness native bridge tools)
  * @description run_js tool bridge + draggable status dot + management panel
  *
+ * 7.6.0:
+ *  - background agent: scan continues when document.hidden; native FGS + wake lock
+ *  - optional tool JSON field "description" (alias "discription") for tagline + notification
  * 7.5.0:
  *  - full re-audit for stray symbols: removed the checkmark from the console load banner
  *    and the decorative arrow character from the result chip (now a plain "- "). Nothing
@@ -1205,6 +1208,8 @@
     const txt = document.createElement('span');
     txt.className = 'ds-shim-txt';
     txt.textContent = running ? 'Running tool…' : 'Tool used';
+    el._dsRunLabel = 'Running tool…';
+    el._dsDoneLabel = 'Tool used';
     inner.appendChild(txt);
 
     if (preview) {
@@ -1225,7 +1230,9 @@
 
   function updateTagline(tagline, preview, isError, running) {
     tagline.toggleAttribute('data-ds-shim-running', !!running);
-    tagline.querySelector('.ds-shim-txt').textContent = running ? 'Running tool…' : 'Tool used';
+    tagline.querySelector('.ds-shim-txt').textContent = running
+      ? (tagline._dsRunLabel || 'Running tool…')
+      : (tagline._dsDoneLabel || 'Tool used');
     let chip = tagline.querySelector('.ds-shim-chip');
     if (preview !== undefined) {
       if (!chip && preview) {
@@ -1252,7 +1259,7 @@
     }
   }
 
-  function collapseToolMessage(dsMessage, preview, isError, running) {
+  function collapseToolMessage(dsMessage, preview, isError, running, runLabel, doneLabel) {
     const wrapper = findWrapper(dsMessage);
     if (!wrapper) { log('no wrapper'); return null; }
     wrapper.setAttribute('data-ds-shim-wrapper', '1');
@@ -1270,9 +1277,10 @@
         }
         tagline.setAttribute('data-ds-shim-expanded', expanded ? '0' : '1');
       };
-    } else {
-      updateTagline(tagline, preview, isError, running);
     }
+    if (runLabel) tagline._dsRunLabel = runLabel;
+    if (doneLabel) tagline._dsDoneLabel = doneLabel;
+    updateTagline(tagline, preview, isError, running);
 
     applyHiding(wrapper, tagline);
     return tagline;
@@ -1288,9 +1296,16 @@
 
   async function processToolCall(dsMessage, tool, mk, sig) {
     const tname = tool.obj.tool;
-    log('tool call:', tname, tool.obj.args, '| msg:', mk);
-    collapseToolMessage(dsMessage, '', false, true);
+    const desc = String(tool.obj.description || tool.obj.discription || '').trim();
+    const runLabel = desc ? desc : ('Running ' + tname + '…');
+    const doneLabel = desc ? desc : 'Tool used';
+    log('tool call:', tname, desc || '(no description)', '| msg:', mk);
+    collapseToolMessage(dsMessage, desc || tname, false, true, runLabel, doneLabel);
     setStatus('running');
+    try {
+      const n = typeof N === 'function' ? N() : null;
+      if (n && typeof n.agentBegin === 'function') n.agentBegin(tname, desc || tname);
+    } catch (e) { log('agentBegin', e); }
 
     let res;
     if (tname === 'paste_box') {
@@ -1326,8 +1341,12 @@
     collapsedByMsg.set(mk, { preview, err: !res.ok });
     saveDone(); refreshCounts();
 
-    collapseToolMessage(dsMessage, preview, !res.ok, false);
+    collapseToolMessage(dsMessage, preview, !res.ok, false, runLabel, doneLabel);
     setStatus(res.ok ? 'idle' : 'error');
+    try {
+      const n = typeof N === 'function' ? N() : null;
+      if (n && typeof n.agentEnd === 'function') n.agentEnd();
+    } catch (e) { log('agentEnd', e); }
 
     const sent = await sendMessage(payload);
     if (sent && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); }
@@ -1436,6 +1455,11 @@
       .finally(() => { busy = false; });
   }
 
+  // Keep polling when tab/app is backgrounded (agent loop)
+  document.addEventListener('visibilitychange', () => {
+    try { scheduleTick(true); } catch {}
+  });
+
   // ---------- Throttled scheduler ----------
   let lastTickAt = 0;
   let tickScheduled = false;
@@ -1443,7 +1467,7 @@
   function runTick() {
     tickScheduled = false;
     lastTickAt = performance.now();
-    if (document.hidden) return;
+    // Continue while backgrounded so multi-step tool chains keep running
     try {
       const msgs = document.querySelectorAll('div.ds-message');
       hideUserToolResults(msgs);

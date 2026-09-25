@@ -1,3 +1,8 @@
+## 1.5.16
+
+- Background agent FGS: tool chains continue when app is backgrounded
+- Optional description on tool JSON for tagline + notification
+
 ## 1.5.15
 - paste_box: **no timeout** on direct tool + any run_js that mentions paste_box
 - Explore workspace: DocumentsUI **browse** mode only (FilesActivity) — never OPEN_DOCUMENT_TREE
