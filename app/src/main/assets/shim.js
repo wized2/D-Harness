@@ -1455,11 +1455,6 @@
       .finally(() => { busy = false; });
   }
 
-  // Keep polling when tab/app is backgrounded (agent loop)
-  document.addEventListener('visibilitychange', () => {
-    try { scheduleTick(true); } catch {}
-  });
-
   // ---------- Throttled scheduler ----------
   let lastTickAt = 0;
   let tickScheduled = false;
