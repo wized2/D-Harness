@@ -1500,7 +1500,8 @@
   const fallbackTimer = setInterval(() => scheduleTick(false), CONFIG.fallbackScanMs);
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) scheduleTick(true);
+    // Keep agent loop alive in background
+    scheduleTick(true);
   });
 
   // Initial
