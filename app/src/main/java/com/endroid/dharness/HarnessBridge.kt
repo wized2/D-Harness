@@ -12,6 +12,13 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.hardware.camera2.CameraManager
+import android.media.AudioManager
+import android.os.PowerManager
 import android.os.Build
 import android.os.Environment
 import android.os.VibrationEffect
@@ -131,6 +138,17 @@ class HarnessBridge(
             tools.put(o)
         }
         tool("list_tools", "List tools + schemas", JSONObject())
+        tool("selftest", "Probe which tools are actually bound", JSONObject())
+        tool("sensors.list", "List hardware sensors", JSONObject())
+        tool("sensors.read", "One-shot sensor reading by type", JSONObject().put("type", "string"))
+        tool("torch.set", "Flashlight on/off", JSONObject().put("on", "boolean"))
+        tool("audio.volume", "Get/set stream volume", JSONObject().put("stream", "string?").put("level", "number?"))
+        tool("audio.ringer", "Ringer mode get/set", JSONObject().put("mode", "string?"))
+        tool("wakelock.acquire", "Partial wake lock (ms)", JSONObject().put("ms", "number?"))
+        tool("wakelock.release", "Release wake lock", JSONObject())
+        tool("diff.lines", "Line-level text diff", JSONObject().put("a", "string").put("b", "string"))
+        tool("toybox.list", "List toybox applets", JSONObject())
+        tool("toybox.run", "Run toybox applet", JSONObject().put("applet", "string").put("args", "array?"))
         tool("describe", "Describe tool or group", JSONObject().put("name", "string"))
         tool("http_request", "HTTP with headers (native)", JSONObject().put("url", "string").put("method", "string?").put("headers", "object?").put("body", "string?"))
         tool("fetch_url", "Alias of http_request", JSONObject().put("url", "string").put("headers", "object?"))
@@ -263,6 +281,7 @@ class HarnessBridge(
             .put("version", try {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
             } catch (_: Exception) { "?" })
+            .put("envelope", "{ok, data|error, meta:{ms}} — prefer this shape")
             .put("conventions", JSONObject()
                 .put("run_js", "{\"tool\":\"run_js\",\"description\":\"…\",\"args\":{\"code\":\"return await TOOL()\"}}")
                 .put("flat", "{\"tool\":\"name\",\"args\":{…}}")
@@ -2165,4 +2184,326 @@ class HarnessBridge(
         } catch (_: Exception) { }
     }
 
+
+
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun envelope(ok: Boolean, data: Any? = null, error: String? = null, ms: Long = 0): String {
+        val o = JSONObject().put("ok", ok)
+        if (data != null) {
+            when (data) {
+                is JSONObject -> o.put("data", data)
+                is JSONArray -> o.put("data", data)
+                is String -> o.put("data", data)
+                is Number -> o.put("data", data)
+                is Boolean -> o.put("data", data)
+                else -> o.put("data", data.toString())
+            }
+        }
+        if (error != null) o.put("error", JSONObject().put("message", error))
+        o.put("meta", JSONObject().put("ms", ms))
+        return o.toString()
+    }
+
+    @JavascriptInterface
+    fun sensorsList(): String {
+        return try {
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            val arr = JSONArray()
+            for (s in sm.getSensorList(Sensor.TYPE_ALL)) {
+                arr.put(
+                    JSONObject()
+                        .put("name", s.name)
+                        .put("type", s.stringType ?: s.type.toString())
+                        .put("vendor", s.vendor)
+                        .put("maxRange", s.maximumRange.toDouble())
+                )
+            }
+            envelope(true, JSONObject().put("sensors", arr).put("count", arr.length()))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun sensorsRead(type: String): String {
+        return try {
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            val sensor = resolveSensor(sm, type)
+                ?: return envelope(false, error = "sensor not found: $type")
+            val box = arrayOfNulls<FloatArray>(1)
+            val lock = Object()
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    synchronized(lock) {
+                        box[0] = event.values.clone()
+                        lock.notifyAll()
+                    }
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_FASTEST)
+            val t0 = System.currentTimeMillis()
+            synchronized(lock) {
+                if (box[0] == null) lock.wait(1500)
+            }
+            sm.unregisterListener(listener)
+            val vals = box[0] ?: return envelope(false, error = "no reading", ms = System.currentTimeMillis() - t0)
+            val arr = JSONArray()
+            vals.forEach { arr.put(it.toDouble()) }
+            envelope(
+                true,
+                JSONObject()
+                    .put("type", sensor.stringType ?: type)
+                    .put("name", sensor.name)
+                    .put("values", arr),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    private fun resolveSensor(sm: SensorManager, type: String): Sensor? {
+        val t = type.lowercase()
+        val byName = sm.getSensorList(Sensor.TYPE_ALL).firstOrNull {
+            (it.stringType ?: "").contains(t, true) || it.name.contains(t, true)
+        }
+        if (byName != null) return byName
+        val typeInt = when {
+            t.contains("accel") -> Sensor.TYPE_ACCELEROMETER
+            t.contains("gyro") -> Sensor.TYPE_GYROSCOPE
+            t.contains("light") -> Sensor.TYPE_LIGHT
+            t.contains("proxim") -> Sensor.TYPE_PROXIMITY
+            t.contains("step") -> Sensor.TYPE_STEP_COUNTER
+            t.contains("magnet") -> Sensor.TYPE_MAGNETIC_FIELD
+            t.contains("gravity") -> Sensor.TYPE_GRAVITY
+            t.contains("rotat") -> Sensor.TYPE_ROTATION_VECTOR
+            else -> return null
+        }
+        return sm.getDefaultSensor(typeInt)
+    }
+
+    @JavascriptInterface
+    fun torchSet(on: Boolean): String {
+        return try {
+            val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val id = cm.cameraIdList.firstOrNull { cid ->
+                try {
+                    val chars = cm.getCameraCharacteristics(cid)
+                    val flash = chars.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE)
+                    flash == true
+                } catch (_: Exception) { false }
+            } ?: return envelope(false, error = "no flash camera")
+            cm.setTorchMode(id, on)
+            envelope(true, JSONObject().put("on", on).put("cameraId", id))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun audioVolume(stream: String?, level: Int): String {
+        return try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val st = when (stream?.lowercase()) {
+                "ring", "ringer" -> AudioManager.STREAM_RING
+                "alarm" -> AudioManager.STREAM_ALARM
+                "voice", "call" -> AudioManager.STREAM_VOICE_CALL
+                else -> AudioManager.STREAM_MUSIC
+            }
+            val max = am.getStreamMaxVolume(st)
+            if (level >= 0) {
+                am.setStreamVolume(st, level.coerceIn(0, max), 0)
+            }
+            envelope(
+                true,
+                JSONObject()
+                    .put("stream", stream ?: "music")
+                    .put("level", am.getStreamVolume(st))
+                    .put("max", max)
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun audioRinger(mode: String?): String {
+        return try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (!mode.isNullOrBlank()) {
+                val m = when (mode.lowercase()) {
+                    "silent" -> AudioManager.RINGER_MODE_SILENT
+                    "vibrate" -> AudioManager.RINGER_MODE_VIBRATE
+                    else -> AudioManager.RINGER_MODE_NORMAL
+                }
+                am.ringerMode = m
+            }
+            val name = when (am.ringerMode) {
+                AudioManager.RINGER_MODE_SILENT -> "silent"
+                AudioManager.RINGER_MODE_VIBRATE -> "vibrate"
+                else -> "normal"
+            }
+            envelope(true, JSONObject().put("mode", name))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun wakelockAcquire(ms: Int): String {
+        return try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (wakeLock?.isHeld != true) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dharness:tool").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            val hold = ms.coerceIn(1000, 600_000).toLong()
+            wakeLock?.acquire(hold)
+            envelope(true, JSONObject().put("held", true).put("ms", hold))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun wakelockRelease(): String {
+        return try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+            envelope(true, JSONObject().put("held", false))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun diffLines(a: String, b: String): String {
+        return try {
+            val la = a.split('\n')
+            val lb = b.split('\n')
+            val max = maxOf(la.size, lb.size)
+            val changes = JSONArray()
+            var i = 0
+            while (i < max) {
+                val sa = la.getOrNull(i)
+                val sb = lb.getOrNull(i)
+                if (sa != sb) {
+                    changes.put(
+                        JSONObject()
+                            .put("line", i + 1)
+                            .put("a", sa ?: JSONObject.NULL)
+                            .put("b", sb ?: JSONObject.NULL)
+                    )
+                }
+                i++
+                if (changes.length() >= 500) break
+            }
+            envelope(
+                true,
+                JSONObject()
+                    .put("linesA", la.size)
+                    .put("linesB", lb.size)
+                    .put("changed", changes.length())
+                    .put("changes", changes)
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun toyboxList(): String {
+        return try {
+            val pb = ProcessBuilder("/system/bin/toybox", "--help")
+            val p = pb.start()
+            val out = p.inputStream.bufferedReader().readText()
+            p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+            // toybox --list is more reliable
+            val pb2 = ProcessBuilder("/system/bin/toybox", "--list")
+            val p2 = pb2.start()
+            val list = p2.inputStream.bufferedReader().readText()
+            p2.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+            val applets = list.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            if (applets.isEmpty()) {
+                // parse help fallback
+                val fromHelp = out.split(Regex("\\s+")).map { it.trim() }.filter { it.matches(Regex("[a-z0-9_-]+")) }
+                envelope(true, JSONObject().put("applets", JSONArray(fromHelp)).put("count", fromHelp.size))
+            } else {
+                envelope(true, JSONObject().put("applets", JSONArray(applets)).put("count", applets.size))
+            }
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun toyboxRun(applet: String, argsJson: String?): String {
+        return try {
+            val args = JSONArray().put("/system/bin/toybox").put(applet)
+            if (!argsJson.isNullOrBlank()) {
+                val extra = JSONArray(argsJson)
+                for (i in 0 until extra.length()) args.put(extra.getString(i))
+            }
+            // drop the path prefix for allowlist — use toybox as bin
+            val argv = JSONArray().put("toybox").put(applet)
+            if (!argsJson.isNullOrBlank()) {
+                val extra = JSONArray(argsJson)
+                for (i in 0 until extra.length()) argv.put(extra.getString(i))
+            }
+            exec(argv.toString(), 30_000, null)
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun execWithStdin(argvJson: String, stdin: String?, timeoutMs: Int, cwdRel: String?): String {
+        return try {
+            val arr = JSONArray(argvJson)
+            if (arr.length() == 0) return envelope(false, error = "empty argv")
+            var argv = MutableList(arr.length()) { arr.getString(it) }
+            val bin = argv[0].substringAfterLast('/')
+            if (bin == "sh" || bin == "mksh" || bin == "bash") {
+                val shellPath = listOf("/system/bin/sh", "/system/bin/mksh")
+                    .firstOrNull { File(it).canExecute() }
+                    ?: return envelope(false, error = "no shell")
+                argv = (listOf(shellPath) + argv.drop(1)).toMutableList()
+            } else if (bin !in execAllow) {
+                return envelope(false, error = "not allowlisted: $bin")
+            }
+            val cwd = workspaceRoot
+            val t0 = System.currentTimeMillis()
+            val pb = ProcessBuilder(argv).directory(cwd).redirectErrorStream(false)
+            val proc = pb.start()
+            if (!stdin.isNullOrEmpty()) {
+                proc.outputStream.use { it.write(stdin.toByteArray(Charsets.UTF_8)); it.flush() }
+            } else {
+                proc.outputStream.close()
+            }
+            val stdoutBox = arrayOfNulls<String>(1)
+            val stderrBox = arrayOfNulls<String>(1)
+            val outT = Thread { stdoutBox[0] = proc.inputStream.bufferedReader().readText().take(80_000) }.also { it.start() }
+            val errT = Thread { stderrBox[0] = proc.errorStream.bufferedReader().readText().take(40_000) }.also { it.start() }
+            val finished = proc.waitFor(timeoutMs.coerceIn(500, 120_000).toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            if (!finished) {
+                proc.destroy()
+                outT.join(300); errT.join(300)
+                return envelope(false, error = "timeout", ms = System.currentTimeMillis() - t0)
+            }
+            outT.join(2000); errT.join(2000)
+            val code = proc.exitValue()
+            envelope(
+                code == 0,
+                JSONObject()
+                    .put("exitCode", code)
+                    .put("stdout", stdoutBox[0] ?: "")
+                    .put("stderr", stderrBox[0] ?: ""),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
 }

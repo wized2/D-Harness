@@ -38,6 +38,10 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:theme="@style/Theme.DHarness" />
+        <activity
+            android:name=".WorkspaceBrowserActivity"
+            android:exported="false"
+            android:theme="@style/Theme.DHarness" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

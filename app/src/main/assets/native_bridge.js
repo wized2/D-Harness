@@ -325,6 +325,37 @@ window.__DHarnessNative = {
   vibrate: function (ms) { DHarness.vibrate(ms || 40); return Promise.resolve({ ok: true }); },
   notify: function (title, body) { return _j(function () { return DHarness.notify(String(title), String(body || '')); }); },
   share: function (t) { DHarness.shareText(String(t)); return Promise.resolve({ ok: true }); },
+  sensors: {
+    list: function () { return _j(function () { return DHarness.sensorsList(); }); },
+    read: function (type) { return _j(function () { return DHarness.sensorsRead(String(type || 'accelerometer')); }); }
+  },
+  torch: {
+    set: function (on) { return _j(function () { return DHarness.torchSet(!!on); }); }
+  },
+  audio: {
+    volume: function (stream, level) {
+      return _j(function () { return DHarness.audioVolume(stream || null, level == null ? -1 : level); });
+    },
+    ringer: function (mode) { return _j(function () { return DHarness.audioRinger(mode || null); }); }
+  },
+  wakelock: {
+    acquire: function (ms) { return _j(function () { return DHarness.wakelockAcquire(ms || 60000); }); },
+    release: function () { return _j(function () { return DHarness.wakelockRelease(); }); }
+  },
+  diff_lines: function (a, b) { return _j(function () { return DHarness.diffLines(String(a||''), String(b||'')); }); },
+  toybox: {
+    list: function () { return _j(function () { return DHarness.toyboxList(); }); },
+    run: function (applet, args) {
+      return _j(function () {
+        return DHarness.toyboxRun(String(applet), args ? JSON.stringify(args) : null);
+      });
+    }
+  },
+  exec_stdin: function (argv, stdin, timeoutMs, cwd) {
+    return _j(function () {
+      return DHarness.execWithStdin(JSON.stringify(argv || []), stdin != null ? String(stdin) : null, timeoutMs || 15000, cwd || null);
+    });
+  },
   appInfo: function () { return _j(function () { return DHarness.appInfo(); }); },
   geo: {
     get: function () {

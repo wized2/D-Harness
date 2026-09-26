@@ -961,6 +961,53 @@
     async time_now() {
       return { epochMs: Date.now(), iso: new Date().toISOString() };
     },
+    async sensors(args) {
+      const nat = N();
+      if (!nat || !nat.sensors) throw new Error('sensors requires native');
+      const op = (args && (args.op || args.action)) || 'list';
+      if (op === 'list') return await nat.sensors.list();
+      if (op === 'read') return await nat.sensors.read(args.type || args.name || 'accelerometer');
+      throw new Error('unknown sensors op');
+    },
+    async torch(args) {
+      const nat = N();
+      if (!nat || !nat.torch) throw new Error('torch requires native');
+      return await nat.torch.set(!!(args && (args.on ?? args.enabled ?? args.value)));
+    },
+    async audio(args) {
+      const nat = N();
+      if (!nat || !nat.audio) throw new Error('audio requires native');
+      const op = args && (args.op || args.action);
+      if (op === 'ringer') return await nat.audio.ringer(args.mode);
+      return await nat.audio.volume(args.stream, args.level);
+    },
+    async wakelock(args) {
+      const nat = N();
+      if (!nat || !nat.wakelock) throw new Error('wakelock requires native');
+      const op = (args && (args.op || args.action)) || 'acquire';
+      if (op === 'release') return await nat.wakelock.release();
+      return await nat.wakelock.acquire(args.ms || 60000);
+    },
+    async diff(args) {
+      const nat = N();
+      if (nat && nat.diff_lines) return await nat.diff_lines(args.a || '', args.b || '');
+      // JS fallback
+      const la = String(args.a || '').split('\n');
+      const lb = String(args.b || '').split('\n');
+      const changes = [];
+      for (let i = 0; i < Math.max(la.length, lb.length); i++) {
+        if (la[i] !== lb[i]) changes.push({ line: i + 1, a: la[i] ?? null, b: lb[i] ?? null });
+        if (changes.length >= 500) break;
+      }
+      return { ok: true, data: { linesA: la.length, linesB: lb.length, changed: changes.length, changes } };
+    },
+    async toybox(args) {
+      const nat = N();
+      if (!nat || !nat.toybox) throw new Error('toybox requires native');
+      const op = (args && (args.op || args.action)) || 'list';
+      if (op === 'run') return await nat.toybox.run(args.applet, args.args || []);
+      return await nat.toybox.list();
+    },
     async selftest() {
       const nat = N();
       const checks = {};
@@ -1380,8 +1427,14 @@
       }
     }
     const preview = doneLabel || (res.ok ? tname : 'error');
-    let payloadObj = { ok: res.ok, result: resultPayload };
-    if (res.error != null) payloadObj.error = res.error;
+    const t1 = Date.now();
+    let payloadObj = {
+      ok: res.ok,
+      data: resultPayload,
+      result: resultPayload, // back-compat
+      meta: { ms: 0, tool: tname }
+    };
+    if (res.error != null) payloadObj.error = { message: String(res.error) };
     let payload = 'TOOL_RESULT: ' + JSON.stringify(payloadObj);
     if (payload.length > CONFIG.maxResultChars + 20) {
       payload = 'TOOL_RESULT: ' + JSON.stringify({

@@ -1,3 +1,11 @@
+## 1.6.2
+
+- **In-app Workspace browser** — open, view, share, rename, delete, new file, copy path
+- Result envelope `{ok, data, error, meta}` in TOOL_RESULT
+- **sensors.list / sensors.read**, **torch.set**, **audio.volume/ringer**, **wakelock**
+- **diff.lines**, **toybox.list/run**, **exec stdin**
+- Catalog: selftest, conventions, honest tooling
+
 ## 1.6.1
 
 - **Fix TOOL_RESULT serialization** — objects no longer become `[object Object]`
