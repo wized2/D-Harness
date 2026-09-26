@@ -112,9 +112,18 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         findViewById<MaterialButton>(R.id.btnSendInstructions).setOnClickListener {
-            prefs.edit().putBoolean("pending_instructions", true).apply()
+            prefs.edit().putBoolean("pending_send_instructions", true).apply()
+            Toast.makeText(this, "Sending tool instructions…", Toast.LENGTH_SHORT).show()
             finish()
         }
+        // Long-press Explore already opens Files; add stop agent via clear-cache row reuse if needed
+        try {
+            findViewById<MaterialButton>(R.id.btnClearMemory).setOnLongClickListener {
+                AgentService.stop(this)
+                Toast.makeText(this, "Background agent stopped", Toast.LENGTH_SHORT).show()
+                true
+            }
+        } catch (_: Exception) { }
         findViewById<MaterialButton>(R.id.btnReload).setOnClickListener {
             prefs.edit().putBoolean("pending_reload", true).apply()
             finish()
@@ -175,91 +184,62 @@ class SettingsActivity : AppCompatActivity() {
      * Never uses ACTION_OPEN_DOCUMENT_TREE (that is "select folder" mode).
      */
     private fun openWorkspaceExplorer(dir: File) {
-        dir.mkdirs()
-        val rel = "Android/data/$packageName/files/workspace"
-        val authority = "com.android.externalstorage.documents"
-        val docId = "primary:$rel"
-        val docUri = DocumentsContract.buildDocumentUri(authority, docId)
-        // Encoded form used by many OEM Files apps
-        val encodedUri = android.net.Uri.parse(
-            "content://$authority/document/" + android.net.Uri.encode(docId)
+        if (!dir.exists()) dir.mkdirs()
+
+        // Prefer stock DocumentsUI browse (not folder-picker / OPEN_DOCUMENT_TREE).
+        val docId = "primary:Android/data/$packageName/files/workspace"
+        val docUri = DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents",
+            docId
+        )
+        val encodedUri = Uri.parse(
+            "content://com.android.externalstorage.documents/document/" +
+                Uri.encode(docId)
         )
 
-        val targets = listOf(
-            // Class names for Files browser (not the SAF picker)
-            Triple("com.android.documentsui", "com.android.documentsui.files.FilesActivity", docUri),
-            Triple("com.google.android.documentsui", "com.android.documentsui.files.FilesActivity", docUri),
-            Triple("com.android.documentsui", "com.android.documentsui.FilesActivity", docUri),
-            Triple("com.google.android.documentsui", "com.android.documentsui.FilesActivity", docUri),
-            Triple("com.android.documentsui", "com.android.documentsui.files.FilesActivity", encodedUri),
-            Triple("com.google.android.documentsui", "com.android.documentsui.files.FilesActivity", encodedUri),
-        )
-
-        val mimes = listOf(
-            "vnd.android.document/directory",
-            "vnd.android.document/root",
-            DocumentsContract.Document.MIME_TYPE_DIR
-        )
-
-        for ((pkg, cls, uri) in targets) {
-            for (mime in mimes) {
-                try {
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setClassName(pkg, cls)
-                        setDataAndType(uri, mime)
-                        addCategory(Intent.CATEGORY_DEFAULT)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    startActivity(intent)
-                    Toast.makeText(this, "Workspace:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
-                    return
-                } catch (_: Exception) {
-                }
-            }
-        }
-
-        // Package-only VIEW (still browse, not tree picker)
-        for (pkg in listOf("com.android.documentsui", "com.google.android.documentsui")) {
-            for (uri in listOf(docUri, encodedUri)) {
-                for (mime in mimes) {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                            setPackage(pkg)
-                            setDataAndType(uri, mime)
-                            addCategory(Intent.CATEGORY_DEFAULT)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(intent)
-                        Toast.makeText(this, "Workspace:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
-                        return
-                    } catch (_: Exception) {
-                    }
-                }
-            }
-        }
-
-        // Generic VIEW without package
+        val candidates = mutableListOf<Intent>()
         for (uri in listOf(docUri, encodedUri)) {
-            try {
-                startActivity(
-                    Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "vnd.android.document/directory")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                )
-                Toast.makeText(this, "Workspace:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
-                return
-            } catch (_: Exception) {
+            candidates += Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+                addCategory(Intent.CATEGORY_DEFAULT)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            for (pkg in listOf("com.google.android.documentsui", "com.android.documentsui")) {
+                candidates += Intent(Intent.ACTION_VIEW).apply {
+                    setPackage(pkg)
+                    setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
             }
         }
+        // FileProvider fallback — some OEMs browse file:// via Files app
+        try {
+            val uri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                dir
+            )
+            candidates += Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "resource/folder")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        } catch (_: Exception) { }
 
-        // Do NOT use ACTION_OPEN_DOCUMENT_TREE — that is select-folder mode.
+        for (intent in candidates) {
+            try {
+                startActivity(intent)
+                Toast.makeText(this, dir.absolutePath, Toast.LENGTH_SHORT).show()
+                return
+            } catch (_: Exception) { }
+        }
+
         Toast.makeText(
             this,
-            "Open system Files → Internal storage → Android/data/…/workspace\n${dir.absolutePath}",
+            "Open Files → Android/data/$packageName/files/workspace",
             Toast.LENGTH_LONG
         ).show()
     }

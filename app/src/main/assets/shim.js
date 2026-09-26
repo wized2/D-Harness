@@ -1,8 +1,10 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.6.0-native-agent (upstream dsh.js + D-Harness native bridge tools)
+ * @version 7.6.1-native-agent (upstream dsh.js + D-Harness native bridge tools)
  * @description run_js tool bridge + draggable status dot + management panel
  *
+ * 7.6.1:
+ *  - tagline shows only description (no result JSON chip)
  * 7.6.0:
  *  - background agent: scan continues when document.hidden; native FGS + wake lock
  *  - optional tool JSON field "description" (alias "discription") for tagline + notification
@@ -162,7 +164,8 @@
       animation: dsshim-pulse-ico 1.2s ease-in-out infinite;
     }
     @keyframes dsshim-pulse-ico { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-    [data-ds-shim-tagline="1"] .ds-shim-txt { font-weight: 400; font-size: 14px; white-space: nowrap; }
+    [data-ds-shim-tagline="1"] .ds-shim-txt { font-weight: 400; font-size: 14px; white-space: nowrap; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; }
+    [data-ds-shim-tagline="1"][data-ds-shim-err="1"] .ds-shim-txt { color: #f88; }
     [data-ds-shim-tagline="1"] .ds-shim-chip {
       font-family: ui-monospace,SFMono-Regular,Menlo,monospace;
       font-size: 12px;
@@ -1196,6 +1199,7 @@
     const el = document.createElement('div');
     el.setAttribute('data-ds-shim-tagline', '1');
     if (running) el.setAttribute('data-ds-shim-running', '1');
+    if (isError) el.setAttribute('data-ds-shim-err', '1');
 
     const inner = document.createElement('div');
     inner.className = 'ds-shim-inner';
@@ -1207,17 +1211,11 @@
 
     const txt = document.createElement('span');
     txt.className = 'ds-shim-txt';
+    // Tagline text = human description only (never raw TOOL_RESULT JSON)
     txt.textContent = running ? 'Running tool…' : 'Tool used';
     el._dsRunLabel = 'Running tool…';
     el._dsDoneLabel = 'Tool used';
     inner.appendChild(txt);
-
-    if (preview) {
-      const chip = document.createElement('span');
-      chip.className = 'ds-shim-chip' + (isError ? ' err' : '');
-      chip.textContent = preview;
-      inner.appendChild(chip);
-    }
 
     const chev = document.createElement('span');
     chev.className = 'ds-shim-chev';
@@ -1230,21 +1228,13 @@
 
   function updateTagline(tagline, preview, isError, running) {
     tagline.toggleAttribute('data-ds-shim-running', !!running);
+    tagline.toggleAttribute('data-ds-shim-err', !!isError);
+    // Only description labels — never show result JSON chips
     tagline.querySelector('.ds-shim-txt').textContent = running
       ? (tagline._dsRunLabel || 'Running tool…')
       : (tagline._dsDoneLabel || 'Tool used');
-    let chip = tagline.querySelector('.ds-shim-chip');
-    if (preview !== undefined) {
-      if (!chip && preview) {
-        chip = document.createElement('span');
-        chip.className = 'ds-shim-chip';
-        tagline.querySelector('.ds-shim-chev').before(chip);
-      }
-      if (chip) {
-        chip.textContent = preview || '';
-        chip.classList.toggle('err', !!isError);
-      }
-    }
+    // Remove legacy result chips if present
+    tagline.querySelectorAll('.ds-shim-chip').forEach(function (c) { c.remove(); });
   }
 
   // ============================================================
@@ -1334,11 +1324,11 @@
     }
     log('result:', res);
 
-    const preview = res.ok ? String(res.result).slice(0, 40) : 'error';
+    // Tagline keeps human description; result JSON is only in TOOL_RESULT payload
+    const preview = doneLabel || (res.ok ? tname : 'error');
     const payload = 'TOOL_RESULT: ' + JSON.stringify({ ok: res.ok, result: clip(res.result), error: clip(res.error) });
-    // marked unsent until the send actually succeeds, so a failed send can be retried
-    DONE[sig] = { ok: res.ok, preview, mk, sent: false, payload, t: Date.now() };
-    collapsedByMsg.set(mk, { preview, err: !res.ok });
+    DONE[sig] = { ok: res.ok, preview, mk, sent: false, payload, t: Date.now(), desc: doneLabel };
+    collapsedByMsg.set(mk, { preview, err: !res.ok, desc: doneLabel });
     saveDone(); refreshCounts();
 
     collapseToolMessage(dsMessage, preview, !res.ok, false, runLabel, doneLabel);

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -293,23 +294,52 @@ class MainActivity : AppCompatActivity() {
     private fun sendToolInstructions() {
         val msg = AGENT_INSTRUCTIONS
         val quoted = org.json.JSONObject.quote(msg)
+        // Prefer async shim.send; also force-click send so the message is actually submitted.
         val js = """
-            (function(){
+            (async function(){
               var t = $quoted;
-              if (window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.send) {
-                window.__DS_TOOL_SHIM__.send(t);
-                return 'sent';
-              }
-              var input = document.querySelector('textarea[placeholder="Message DeepSeek"]') || document.querySelector('textarea');
-              if (!input) return 'no input';
-              var d = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-              if (d && d.set) d.set.call(input, t); else input.value = t;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
+              try {
+                if (window.__DS_TOOL_SHIM__ && typeof window.__DS_TOOL_SHIM__.send === 'function') {
+                  var ok = await window.__DS_TOOL_SHIM__.send(t);
+                  return ok ? 'sent-shim' : 'shim-fail';
+                }
+              } catch (e) { /* fall through */ }
+              var input = document.querySelector('textarea') ||
+                document.querySelector('[contenteditable="true"]');
+              if (!input) return 'no-input';
               input.focus();
-              return 'filled';
+              var proto = input.tagName === 'TEXTAREA'
+                ? HTMLTextAreaElement.prototype
+                : HTMLInputElement.prototype;
+              var d = Object.getOwnPropertyDescriptor(proto, 'value');
+              if (d && d.set) d.set.call(input, t); else if ('value' in input) input.value = t;
+              else input.textContent = t;
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+              await new Promise(function(r){ setTimeout(r, 80); });
+              var btn = document.querySelector('div[role="button"][aria-disabled="false"]') ||
+                Array.prototype.find.call(document.querySelectorAll('button,[role="button"]'), function(b){
+                  var al = (b.getAttribute('aria-label')||'') + ' ' + (b.textContent||'');
+                  return /send|submit/i.test(al) && b.getAttribute('aria-disabled') !== 'true';
+                });
+              if (btn) { btn.click(); return 'sent-click'; }
+              input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+              return 'sent-enter';
             })();
         """.trimIndent()
-        webView.evaluateJavascript(js, null)
+        webView.postDelayed({
+            webView.evaluateJavascript(js) { result ->
+                android.util.Log.i("DHarness", "sendToolInstructions -> $result")
+                val ok = result != null && (
+                    result.contains("sent") || result.contains("filled")
+                )
+                if (!ok) {
+                    Toast.makeText(this, "Could not send instructions — open chat first", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Tool instructions sent", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }, 400)
     }
 
     private fun injectShim(force: Boolean = false) {

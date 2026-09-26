@@ -2,6 +2,12 @@
 
 Android shell for [DeepSeek Chat](https://chat.deepseek.com/) with a **tool shim** and **native bridge**.
 
+## 1.5.17 highlights
+
+- Background agent tool loop
+- Tool call  drives tagline (no JSON chip)
+- Send instructions + explore workspace fixes
+
 ## Features
 
 - Full-screen WebView chat + native tool bridge

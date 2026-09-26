@@ -1,3 +1,9 @@
+## 1.5.17
+
+- Tagline shows only tool description (no result JSON chip)
+- Fixed Send system instructions
+- Explore workspace browse mode
+
 ## 1.5.16
 
 - Background agent FGS: tool chains continue when app is backgrounded
