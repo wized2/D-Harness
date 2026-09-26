@@ -1,3 +1,13 @@
+## 1.6.3
+
+- **Primary API documented**: `DHarness.*` + four conventions in list_tools / agent instructions
+- **DHarness.selftest()** — live method list + probes
+- **DHarness.help(name)** / **capabilities()**
+- **describe()** adds `bound` + `dharnessMethod`
+- **Native geoGet** via LocationManager (not WebView)
+- **toyboxList** returns real applet names
+- **torchBlink**, **sensorsWatch**, **execPipeline**
+
 ## 1.6.2
 
 - **In-app Workspace browser** — open, view, share, rename, delete, new file, copy path

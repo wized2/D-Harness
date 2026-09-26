@@ -357,8 +357,26 @@ window.__DHarnessNative = {
     });
   },
   appInfo: function () { return _j(function () { return DHarness.appInfo(); }); },
+  selftest: function () { return _j(function () { return DHarness.selftest(); }); },
+  help: function (name) { return _j(function () { return DHarness.help(name || ''); }); },
+  capabilities: function () { return _j(function () { return DHarness.capabilities(); }); },
+  geoGet: function (timeoutMs) { return _j(function () { return DHarness.geoGet(timeoutMs || 8000); }); },
+  torchBlink: function (pattern, cycles) {
+    return _j(function () {
+      return DHarness.torchBlink(pattern ? JSON.stringify(pattern) : null, cycles || 1);
+    });
+  },
+  sensorsWatch: function (type, ms) {
+    return _j(function () { return DHarness.sensorsWatch(String(type || 'accelerometer'), ms || 1000); });
+  },
+  execPipeline: function (cmds, timeoutMs) {
+    return _j(function () { return DHarness.execPipeline(JSON.stringify(cmds || []), timeoutMs || 30000); });
+  },
   geo: {
-    get: function () {
+    get: function (timeoutMs) {
+      if (typeof DHarness !== 'undefined' && DHarness.geoGet) {
+        return _j(function () { return DHarness.geoGet(timeoutMs || 8000); });
+      }
       return new Promise(function (resolve, reject) {
         if (!navigator.geolocation) return reject(new Error('geolocation unsupported'));
         navigator.geolocation.getCurrentPosition(

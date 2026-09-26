@@ -19,7 +19,12 @@ import android.hardware.SensorManager
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.os.PowerManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Build
+import android.os.Looper
+import java.util.concurrent.CountDownLatch
 import android.os.Environment
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -314,6 +319,7 @@ class HarnessBridge(
     @JavascriptInterface
     fun describeTool(name: String): String {
         val raw = name.trim()
+        val bound = boundNativeMethods()
         val arr = JSONObject(listTools()).getJSONArray("tools")
         val matches = JSONArray()
         for (i in 0 until arr.length()) {
@@ -331,14 +337,73 @@ class HarnessBridge(
                 (raw == "archive" && n.startsWith("archive.")) ||
                 (raw == "net" && n.startsWith("net.")) ||
                 (raw == "process" && n.startsWith("process.")) ||
-                (raw == "sqlite" && n.startsWith("sqlite."))
-            ) matches.put(t)
+                (raw == "sqlite" && n.startsWith("sqlite.")) ||
+                (raw == "sensors" && n.startsWith("sensors.")) ||
+                (raw == "workspace" && n.startsWith("workspace."))
+            ) {
+                // Map catalog name → likely DHarness method
+                val methodGuess = catalogToMethod(n)
+                t.put("bound", methodGuess != null && bound.contains(methodGuess))
+                t.put("dharnessMethod", methodGuess ?: JSONObject.NULL)
+                t.put("convention", "DHarness." + (methodGuess ?: n))
+                matches.put(t)
+            }
+        }
+        // Also: if raw is a DHarness method name
+        if (matches.length() == 0 && bound.contains(raw)) {
+            return JSONObject()
+                .put("name", raw)
+                .put("bound", true)
+                .put("dharnessMethod", raw)
+                .put("convention", "DHarness.$raw(...)")
+                .put("via", "JavascriptInterface")
+                .toString()
         }
         if (matches.length() == 1) return matches.getJSONObject(0).toString()
         if (matches.length() > 1) {
-            return JSONObject().put("name", raw).put("variants", matches).toString()
+            return JSONObject().put("name", raw).put("variants", matches).put("count", matches.length()).toString()
         }
-        return JSONObject().put("error", "unknown tool: $raw").toString()
+        return JSONObject().put("ok", false).put("error", "unknown tool: $raw")
+            .put("hint", "Call DHarness.selftest() or list_tools(); primary API is DHarness.*").toString()
+    }
+
+    private fun boundNativeMethods(): Set<String> {
+        return this::class.java.methods
+            .filter { m -> m.getAnnotation(JavascriptInterface::class.java) != null }
+            .map { it.name }
+            .toSet()
+    }
+
+    private fun catalogToMethod(catalogName: String): String? {
+        // Heuristic mapping catalog labels → JavascriptInterface method names
+        val map = mapOf(
+            "list_tools" to "listTools",
+            "describe" to "describeTool",
+            "http_request" to "httpRequest",
+            "fetch_url" to "httpRequest",
+            "clipboard.read" to "clipboardRead",
+            "clipboard.write" to "clipboardWrite",
+            "clipboard.copy" to "clipboardWrite",
+            "workspace.pwd" to "workspacePwd",
+            "workspace.ls" to "workspaceLs",
+            "workspace.read" to "workspaceRead",
+            "workspace.write" to "workspaceWrite",
+            "exec" to "exec",
+            "sensors.list" to "sensorsList",
+            "sensors.read" to "sensorsRead",
+            "torch.set" to "torchSet",
+            "selftest" to "selftest",
+        )
+        map[catalogName]?.let { return it }
+        // camelCase last segment: github.me → not direct; workspace.mkdir → workspaceMkdir
+        if (catalogName.contains('.')) {
+            val parts = catalogName.split('.', limit = 2)
+            val camel = parts[0] + parts[1].replaceFirstChar { it.uppercase() }
+            if (boundNativeMethods().contains(camel)) return camel
+            // githubRequest style
+            val joined = parts[0] + parts[1].split('_', '.').joinToString("") { s -> s.replaceFirstChar { c -> c.uppercase() } }
+        }
+        return null
     }
 
     // ─── file.commit / read_b64 ────────────────────────────────
@@ -2401,23 +2466,38 @@ class HarnessBridge(
     @JavascriptInterface
     fun toyboxList(): String {
         return try {
-            val pb = ProcessBuilder("/system/bin/toybox", "--help")
-            val p = pb.start()
-            val out = p.inputStream.bufferedReader().readText()
-            p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
-            // toybox --list is more reliable
-            val pb2 = ProcessBuilder("/system/bin/toybox", "--list")
-            val p2 = pb2.start()
-            val list = p2.inputStream.bufferedReader().readText()
-            p2.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
-            val applets = list.lines().map { it.trim() }.filter { it.isNotEmpty() }
-            if (applets.isEmpty()) {
-                // parse help fallback
-                val fromHelp = out.split(Regex("\\s+")).map { it.trim() }.filter { it.matches(Regex("[a-z0-9_-]+")) }
-                envelope(true, JSONObject().put("applets", JSONArray(fromHelp)).put("count", fromHelp.size))
-            } else {
-                envelope(true, JSONObject().put("applets", JSONArray(applets)).put("count", applets.size))
+            var applets = listOf<String>()
+            val attempts = listOf(
+                listOf("/system/bin/toybox", "--list"),
+                listOf("/system/bin/toybox", "--help"),
+                listOf("toybox", "--list")
+            )
+            for (cmd in attempts) {
+                try {
+                    val proc = ProcessBuilder(cmd).redirectErrorStream(true).start()
+                    val text = proc.inputStream.bufferedReader().readText()
+                    proc.waitFor(4, java.util.concurrent.TimeUnit.SECONDS)
+                    val clean = text.lines().map { it.trim() }.filter { line ->
+                        line.matches(Regex("^[a-z][a-z0-9_-]*$")) && line.length < 32
+                    }
+                    if (clean.size >= 10) {
+                        applets = clean.distinct().sorted()
+                        break
+                    }
+                    val toks = text.split(Regex("[\\s,]+")).map { it.trim() }
+                        .filter { it.matches(Regex("^[a-z][a-z0-9_-]*$")) && it.length in 2..20 }
+                        .filter { it !in setOf("toybox", "usage", "help", "command", "applets", "see") }
+                    if (toks.size >= 15) {
+                        applets = toks.distinct().sorted()
+                        break
+                    }
+                } catch (_: Exception) { }
             }
+            envelope(
+                applets.isNotEmpty(),
+                JSONObject().put("applets", JSONArray(applets)).put("count", applets.size),
+                error = if (applets.isEmpty()) "could not list toybox applets" else null
+            )
         } catch (e: Exception) {
             envelope(false, error = e.message)
         }
@@ -2485,6 +2565,362 @@ class HarnessBridge(
                     .put("exitCode", code)
                     .put("stdout", stdoutBox[0] ?: "")
                     .put("stderr", stderrBox[0] ?: ""),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+
+    @JavascriptInterface
+    fun selftest(): String {
+        val t0 = System.currentTimeMillis()
+        return try {
+            val methods = boundNativeMethods().sorted()
+            val probes = JSONObject()
+            fun probe(name: String, block: () -> Unit) {
+                try {
+                    block()
+                    probes.put(name, JSONObject().put("ok", true))
+                } catch (e: Exception) {
+                    probes.put(name, JSONObject().put("ok", false).put("error", e.message))
+                }
+            }
+            probe("listTools") { listTools() }
+            probe("describeTool") { describeTool("workspace") }
+            probe("clipboardWrite") { clipboardWrite("dharness-selftest") }
+            probe("clipboardRead") { clipboardRead() }
+            probe("workspacePwd") { workspacePwd() }
+            probe("deviceInfo") { deviceInfo() }
+            probe("sensorsList") { sensorsList() }
+            probe("execAllow") { exec(JSONArray().put("echo").put("ok").toString(), 5000, null) }
+            val ver = try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            } catch (_: Exception) { "?" }
+            envelope(
+                true,
+                JSONObject()
+                    .put("version", ver)
+                    .put("methodCount", methods.size)
+                    .put("methods", JSONArray(methods))
+                    .put("probes", probes)
+                    .put("primaryApi", "DHarness")
+                    .put("hint", "Prefer DHarness.methodName(...). Object.keys not available on interface; use selftest().methods"),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message, ms = System.currentTimeMillis() - t0)
+        }
+    }
+
+    @JavascriptInterface
+    fun help(name: String?): String {
+        val n = name?.trim().orEmpty()
+        if (n.isEmpty()) {
+            return envelope(
+                true,
+                JSONObject()
+                    .put("primaryApi", "DHarness")
+                    .put("usage", "DHarness.help('workspaceRead') or DHarness.help('exec')")
+                    .put("discover", JSONArray()
+                        .put("DHarness.selftest()")
+                        .put("DHarness.listTools()")
+                        .put("DHarness.capabilities()")
+                    )
+                    .put("conventions", JSONArray()
+                        .put("DHarness.method(args) — primary")
+                        .put("run_js globals: workspace.ls()")
+                        .put("flat: {tool,args}")
+                        .put("group: {tool:workspace,args:{op:ls}}")
+                    )
+            )
+        }
+        val desc = describeTool(n)
+        val o = try { JSONObject(desc) } catch (_: Exception) { JSONObject().put("raw", desc) }
+        o.put("ok", !o.has("error") || o.optBoolean("bound", false))
+        // examples
+        val examples = JSONArray()
+        when {
+            n.contains("workspace", true) || n.contains("ls", true) ->
+                examples.put("DHarness.workspaceLs(null)").put("return await workspace.ls()")
+            n.contains("exec", true) ->
+                examples.put("DHarness.exec(JSON.stringify(['ls','-la']), 15000, null)")
+                    .put("return await exec({argv:['toybox','ls']})")
+            n.contains("http", true) || n.contains("fetch", true) ->
+                examples.put("return await http_request({url:'https://httpbin.org/get'})")
+            n.contains("sensor", true) ->
+                examples.put("DHarness.sensorsRead('light')").put("return await sensors.read('accelerometer')")
+            n.contains("geo", true) || n.contains("location", true) ->
+                examples.put("DHarness.geoGet(8000)")
+            n.contains("clipboard", true) ->
+                examples.put("DHarness.clipboardWrite('hi')").put("DHarness.clipboardRead()")
+            else -> examples.put("DHarness.help('')")
+        }
+        o.put("examples", examples)
+        return o.toString()
+    }
+
+    @JavascriptInterface
+    fun capabilities(): String {
+        return try {
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            val sensors = sm.getSensorList(Sensor.TYPE_ALL).map { it.stringType ?: it.name }
+            var torch = false
+            try {
+                val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                torch = cm.cameraIdList.any { id ->
+                    try {
+                        cm.getCameraCharacteristics(id)
+                            .get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                    } catch (_: Exception) { false }
+                }
+            } catch (_: Exception) { }
+            val stat = android.os.StatFs(workspaceRoot.absolutePath)
+            val free = stat.availableBlocksLong * stat.blockSizeLong
+            val total = stat.blockCountLong * stat.blockSizeLong
+            val net = try { JSONObject(network()) } catch (_: Exception) { JSONObject() }
+            envelope(
+                true,
+                JSONObject()
+                    .put("sensors", JSONArray(sensors.take(40)))
+                    .put("sensorCount", sensors.size)
+                    .put("torch", torch)
+                    .put("execAllow", JSONArray(execAllow.toList().sorted()))
+                    .put("storage", JSONObject()
+                        .put("workspace", workspaceRoot.absolutePath)
+                        .put("freeBytes", free)
+                        .put("totalBytes", total)
+                    )
+                    .put("network", net)
+                    .put("methodCount", boundNativeMethods().size)
+                    .put("geoPermission",
+                        ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                        ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                    )
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    /** Native location via LocationManager (not WebView geolocation). */
+    @JavascriptInterface
+    fun geoGet(timeoutMs: Int): String {
+        val t0 = System.currentTimeMillis()
+        return try {
+            val fine = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION)
+            val coarse = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+            if (fine != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                coarse != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                return envelope(false, error = "location permission not granted", ms = System.currentTimeMillis() - t0)
+            }
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val providers = listOf(
+                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER,
+                LocationManager.PASSIVE_PROVIDER
+            )
+            var best: Location? = null
+            for (p in providers) {
+                try {
+                    if (!lm.isProviderEnabled(p)) continue
+                    val loc = lm.getLastKnownLocation(p) ?: continue
+                    if (best == null || loc.accuracy < best!!.accuracy) best = loc
+                } catch (_: SecurityException) { }
+            }
+            if (best != null && (System.currentTimeMillis() - best!!.time) < 120_000) {
+                return envelope(
+                    true,
+                    JSONObject()
+                        .put("lat", best!!.latitude)
+                        .put("lng", best!!.longitude)
+                        .put("accuracy", best!!.accuracy.toDouble())
+                        .put("provider", best!!.provider ?: "")
+                        .put("time", best!!.time)
+                        .put("source", "lastKnown"),
+                    ms = System.currentTimeMillis() - t0
+                )
+            }
+            // Live fix with timeout
+            val latch = CountDownLatch(1)
+            val box = arrayOfNulls<Location>(1)
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    box[0] = location
+                    latch.countDown()
+                }
+                @Deprecated("Deprecated in API")
+                override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+            }
+            try {
+                val use = when {
+                    lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                    lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                    else -> null
+                }
+                if (use == null) {
+                    if (best != null) {
+                        return envelope(
+                            true,
+                            JSONObject()
+                                .put("lat", best!!.latitude)
+                                .put("lng", best!!.longitude)
+                                .put("accuracy", best!!.accuracy.toDouble())
+                                .put("provider", best!!.provider ?: "")
+                                .put("time", best!!.time)
+                                .put("source", "lastKnown_stale"),
+                            ms = System.currentTimeMillis() - t0
+                        )
+                    }
+                    return envelope(false, error = "no location provider enabled", ms = System.currentTimeMillis() - t0)
+                }
+                lm.requestLocationUpdates(use, 0L, 0f, listener, Looper.getMainLooper())
+                val wait = timeoutMs.coerceIn(2000, 30_000).toLong()
+                latch.await(wait, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } finally {
+                try { lm.removeUpdates(listener) } catch (_: Exception) { }
+            }
+            val loc = box[0] ?: best
+            if (loc == null) {
+                return envelope(false, error = "location unavailable", ms = System.currentTimeMillis() - t0)
+            }
+            envelope(
+                true,
+                JSONObject()
+                    .put("lat", loc.latitude)
+                    .put("lng", loc.longitude)
+                    .put("accuracy", loc.accuracy.toDouble())
+                    .put("provider", loc.provider ?: "")
+                    .put("time", loc.time)
+                    .put("source", if (box[0] != null) "live" else "lastKnown"),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message, ms = System.currentTimeMillis() - t0)
+        }
+    }
+
+    /** Blink torch with pattern of on/off durations (ms). Each state clamped ≥200ms. */
+    @JavascriptInterface
+    fun torchBlink(patternJson: String?, cycles: Int): String {
+        return try {
+            val arr = if (patternJson.isNullOrBlank()) JSONArray().put(200).put(200)
+            else JSONArray(patternJson)
+            if (arr.length() == 0) return envelope(false, error = "empty pattern")
+            val times = MutableList(arr.length()) { i ->
+                arr.getLong(i).coerceAtLeast(200L).coerceAtMost(5000L)
+            }
+            val n = cycles.coerceIn(1, 20)
+            Thread {
+                try {
+                    repeat(n) {
+                        var on = true
+                        for (ms in times) {
+                            torchSet(on)
+                            Thread.sleep(ms)
+                            on = !on
+                        }
+                    }
+                    torchSet(false)
+                } catch (_: Exception) {
+                    try { torchSet(false) } catch (_: Exception) { }
+                }
+            }.start()
+            envelope(true, JSONObject().put("started", true).put("cycles", n).put("pattern", JSONArray(times)))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    /** Collect sensor samples for durationMs (max 5000). */
+    @JavascriptInterface
+    fun sensorsWatch(type: String, durationMs: Int): String {
+        val t0 = System.currentTimeMillis()
+        return try {
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            val sensor = resolveSensor(sm, type)
+                ?: return envelope(false, error = "sensor not found: $type")
+            val samples = JSONArray()
+            val lock = Object()
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    synchronized(lock) {
+                        if (samples.length() >= 100) return
+                        val vals = JSONArray()
+                        event.values.forEach { vals.put(it.toDouble()) }
+                        samples.put(JSONObject().put("t", System.currentTimeMillis() - t0).put("values", vals))
+                    }
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
+            Thread.sleep(durationMs.coerceIn(100, 5000).toLong())
+            sm.unregisterListener(listener)
+            envelope(
+                true,
+                JSONObject()
+                    .put("type", sensor.stringType ?: type)
+                    .put("samples", samples)
+                    .put("count", samples.length()),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message, ms = System.currentTimeMillis() - t0)
+        }
+    }
+
+    @JavascriptInterface
+    fun execPipeline(cmdsJson: String, timeoutMs: Int): String {
+        // cmds: [["cmd","arg"],["cmd2","arg"]] — stdout of each fed as stdin-less; intermediate files in workspace
+        return try {
+            val cmds = JSONArray(cmdsJson)
+            if (cmds.length() == 0) return envelope(false, error = "empty pipeline")
+            var inputFile: File? = null
+            var lastOut = ""
+            val steps = JSONArray()
+            val t0 = System.currentTimeMillis()
+            for (i in 0 until cmds.length()) {
+                val step = cmds.getJSONArray(i)
+                val argv = JSONArray()
+                for (j in 0 until step.length()) argv.put(step.getString(j))
+                val outFile = File(workspaceRoot, ".pipe_$i.out")
+                // If previous output file, use shell redirect via sh -c
+                val result: String
+                if (inputFile != null) {
+                    val cmd = buildString {
+                        append(argv.getString(0))
+                        for (j in 1 until argv.length()) {
+                            append(' ')
+                            append("'")
+                            append(argv.getString(j).replace("'", "'\\''"))
+                            append("'")
+                        }
+                        append(" < '")
+                        append(inputFile!!.absolutePath.replace("'", "'\\''"))
+                        append("'")
+                    }
+                    result = exec(JSONArray().put("sh").put("-c").put(cmd).toString(), timeoutMs, null)
+                } else {
+                    result = exec(argv.toString(), timeoutMs, null)
+                }
+                val jo = JSONObject(result)
+                val stdout = jo.optString("stdout", jo.optJSONObject("data")?.optString("stdout") ?: "")
+                outFile.writeText(stdout)
+                inputFile = outFile
+                lastOut = stdout
+                steps.put(JSONObject().put("step", i).put("ok", jo.optBoolean("ok", jo.optInt("exitCode", 1) == 0)).put("exitCode", jo.optInt("exitCode", jo.optInt("code", -1))))
+            }
+            // cleanup pipe files
+            workspaceRoot.listFiles()?.filter { it.name.startsWith(".pipe_") }?.forEach { it.delete() }
+            envelope(
+                true,
+                JSONObject().put("stdout", lastOut.take(80_000)).put("steps", steps),
                 ms = System.currentTimeMillis() - t0
             )
         } catch (e: Exception) {
