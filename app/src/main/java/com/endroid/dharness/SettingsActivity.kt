@@ -50,6 +50,35 @@ class SettingsActivity : AppCompatActivity() {
                 ""
             }
 
+        findViewById<MaterialButton>(R.id.btnCheckUpdate).setOnClickListener {
+            // MainActivity will check when we set flag and finish, or run inline
+            Toast.makeText(this, "Checking…", Toast.LENGTH_SHORT).show()
+            Thread {
+                val installed = try {
+                    packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
+                } catch (_: Exception) { "0" }
+                val info = UpdateChecker.fetchLatest()
+                runOnUiThread {
+                    if (info == null) {
+                        Toast.makeText(this, "Update check failed", Toast.LENGTH_SHORT).show()
+                        return@runOnUiThread
+                    }
+                    if (!UpdateChecker.isNewer(info.tag, installed)) {
+                        Toast.makeText(this, "Up to date (v$installed)", Toast.LENGTH_SHORT).show()
+                        return@runOnUiThread
+                    }
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("Update v${info.tag}")
+                        .setMessage(info.body.take(600).ifBlank { info.name })
+                        .setPositiveButton("Open") { _, _ ->
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl)))
+                        }
+                        .setNegativeButton("Later", null)
+                        .show()
+                }
+            }.start()
+        }
+
         updatePatHelper()
 
         findViewById<MaterialButton>(R.id.btnSavePat).setOnClickListener {
@@ -244,3 +273,9 @@ class SettingsActivity : AppCompatActivity() {
         ).show()
     }
 }
+
+        val larger = findViewById<MaterialSwitch>(R.id.switchLargerText)
+        larger.isChecked = prefs.getInt("text_zoom", 100) >= 110
+        larger.setOnCheckedChangeListener { _, on ->
+            prefs.edit().putInt("text_zoom", if (on) 110 else 100).apply()
+        }

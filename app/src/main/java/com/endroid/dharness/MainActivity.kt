@@ -6,6 +6,12 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.appcompat.app.AlertDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import java.util.concurrent.Executors
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -35,6 +41,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var fab: View
     private lateinit var fabDot: View
+    private lateinit var rootLayout: FrameLayout
+    private var popupWebView: WebView? = null
+    private var popupContainer: FrameLayout? = null
     private lateinit var prefs: android.content.SharedPreferences
     private var desktopMode = false
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
@@ -97,6 +106,7 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
         desktopMode = prefs.getBoolean("desktop", false)
 
+        rootLayout = findViewById(R.id.root)
         webView = findViewById(R.id.webView)
         progress = findViewById(R.id.progress)
         fab = findViewById(R.id.fab)
@@ -110,43 +120,46 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
+        // Keyboard: pad root so composer stays above IME (better-deepseek style)
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { v, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            val sys = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val bottom = maxOf(ime.bottom, if (ime.bottom > 0) 0 else sys.bottom)
+            // Only lift for keyboard; status bar stays immersive
+            v.setPadding(0, 0, 0, ime.bottom)
+            insets
+        }
+
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-        with(webView.settings) {
+                with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             cacheMode = WebSettings.LOAD_DEFAULT
-            useWideViewPort = true
-            loadWithOverviewMode = true
-            builtInZoomControls = false
+            javaScriptCanOpenWindowsAutomatically = true
+            setSupportMultipleWindows(true)
+            setSupportZoom(true)
+            builtInZoomControls = true
             displayZoomControls = false
-            setSupportZoom(false)
-            allowFileAccess = true
-            allowContentAccess = true
-            javaScriptCanOpenWindowsAutomatically = false
+            textZoom = prefs.getInt("text_zoom", 100).coerceIn(80, 150)
             userAgentString = buildUa()
         }
+
 
         webView.addJavascriptInterface(HarnessBridge(this, webView), "DHarness")
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val url = request?.url?.toString() ?: return false
-                if (url.startsWith("https://chat.deepseek.com") ||
-                    url.startsWith("https://www.deepseek.com") ||
-                    url.startsWith("https://deepseek.com")
-                ) return false
-                return try {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    true
-                } catch (_: Exception) {
-                    true
+                val uri = request?.url ?: return false
+                if (LinkRouting.shouldOpenExternally(uri)) {
+                    return openExternalUrl(uri)
                 }
+                return false
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -155,6 +168,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
+                // Quiet update check once per process
+                if (!prefs.getBoolean("update_checked_session", false)) {
+                    prefs.edit().putBoolean("update_checked_session", true).apply()
+                    checkForUpdates(false)
+                }
                 progress.visibility = View.GONE
                 setFabStatus("#4DB")
                 if (prefs.getBoolean("auto_inject", true)) {
@@ -184,6 +202,45 @@ class MainActivity : AppCompatActivity() {
                 request?.grant(request.resources)
             }
 
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
+            ): Boolean {
+                if (resultMsg == null) return false
+                val popup = WebView(this@MainActivity).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.userAgentString = buildUa()
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            v: WebView?,
+                            request: WebResourceRequest?
+                        ): Boolean {
+                            val uri = request?.url ?: return false
+                            if (LinkRouting.shouldCapturePopupInApp(uri)) return false
+                            if (LinkRouting.shouldOpenExternally(uri)) {
+                                openExternalUrl(uri)
+                                closePopup()
+                                return true
+                            }
+                            return false
+                        }
+                    }
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onCloseWindow(window: WebView?) {
+                            closePopup()
+                        }
+                    }
+                }
+                attachPopup(popup)
+                val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
+                transport.webView = popup
+                resultMsg.sendToTarget()
+                return true
+            }
+
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -210,6 +267,10 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (popupWebView != null) {
+                    closePopup()
+                    return
+                }
                 if (webView.canGoBack()) webView.goBack() else finish()
             }
         })
@@ -220,14 +281,55 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildUa(): String {
         val base = WebSettings.getDefaultUserAgent(this)
-        return if (desktopMode) {
-            base.replace("; wv", "").replace("Mobile", "").replace("Android", "X11; Linux x86_64")
-        } else "$base DHarness/1.1"
+        return if (desktopMode) UserAgentHelper.desktopLike(base)
+        else UserAgentHelper.chromeLikeMobile(base)
+    }
+
+    private fun openExternalUrl(uri: android.net.Uri): Boolean {
+        return try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun closePopup() {
+        val popup = popupWebView ?: return
+        popupWebView = null
+        popupContainer?.let { c ->
+            c.removeView(popup)
+            rootLayout.removeView(c)
+        }
+        popupContainer = null
+        try { popup.destroy() } catch (_: Exception) { }
+    }
+
+    private fun attachPopup(popup: WebView) {
+        closePopup()
+        val container = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(0xFF000000.toInt())
+            addView(
+                popup,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+        }
+        popupContainer = container
+        popupWebView = popup
+        rootLayout.addView(container)
     }
 
     private fun applySettingsFromPrefs() {
         desktopMode = prefs.getBoolean("desktop", false)
         webView.settings.userAgentString = buildUa()
+        webView.settings.textZoom = prefs.getInt("text_zoom", 100).coerceIn(80, 150)
     }
 
     private fun setFabStatus(colorHex: String) {
@@ -462,12 +564,42 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         webView.onResume()
+        CookieManager.getInstance().flush()
         WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.statusBars())
     }
 
     override fun onDestroy() {
+        closePopup()
+        CookieManager.getInstance().flush()
         webView.destroy()
         super.onDestroy()
+    }
+
+    fun checkForUpdates(interactive: Boolean) {
+        val installed = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
+        } catch (_: Exception) { "0" }
+        Executors.newSingleThreadExecutor().execute {
+            val info = UpdateChecker.fetchLatest()
+            runOnUiThread {
+                if (info == null) {
+                    if (interactive) Toast.makeText(this, "Update check failed", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                if (!UpdateChecker.isNewer(info.tag, installed)) {
+                    if (interactive) Toast.makeText(this, "Up to date (v$installed)", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Update available: v${info.tag}")
+                    .setMessage(info.body.take(800).ifBlank { info.name })
+                    .setPositiveButton("Open release") { _, _ ->
+                        openExternalUrl(android.net.Uri.parse(info.htmlUrl))
+                    }
+                    .setNegativeButton("Later", null)
+                    .show()
+            }
+        }
     }
 
     companion object {

@@ -21,9 +21,17 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingHorizontal="20dp"
-        android:paddingBottom="8dp"
+        android:paddingBottom="4dp"
         android:textAppearance="?attr/textAppearanceLabelMedium"
         android:textColor="?attr/colorOnSurfaceVariant" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCheckUpdate"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="Check for updates" />
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
@@ -203,6 +211,15 @@
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"
                         android:text="Desktop site" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchLargerText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="Larger text (110%)" />
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchInject"

@@ -1,3 +1,16 @@
+## 1.6.0
+
+Ideas from [better-deepseek](https://github.com/EdgeTypE/better-deepseek) Android host:
+
+- Chrome-like mobile UA (strip `; wv`) + improved desktop UA
+- Keyboard/IME padding so the chat composer stays visible
+- Smart link routing (DeepSeek / Google auth / hCaptcha in-app; other links external)
+- Popup WebView for sign-in / OAuth (`target=_blank`)
+- Back closes popup first, then history
+- Cookie flush on pause / resume / destroy
+- Built-in zoom controls (pinch) + optional larger text (110%)
+- Check for updates (GitHub Releases)
+
 ## 1.5.17
 
 - Tagline shows only tool description (no result JSON chip)
