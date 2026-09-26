@@ -70,7 +70,7 @@ class HarnessBridge(
         "toybox", "busybox", "dirname", "basename", "cut", "sort", "uniq", "tr",
         "cmp", "stat", "df", "du", "sleep", "printf", "test", "[", "rm", "mkdir",
         "touch", "cp", "mv", "ln", "chmod"
-    )
+    , "sh", "mksh", "bash", "toybox", "busybox")
 
     private fun deliver(callbackId: String, json: String) {
         val idQ = JSONObject.quote(callbackId)
@@ -260,7 +260,14 @@ class HarnessBridge(
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
-            .put("version", "1.5.9")
+            .put("version", try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+            } catch (_: Exception) { "?" })
+            .put("conventions", JSONObject()
+                .put("run_js", "{\"tool\":\"run_js\",\"description\":\"…\",\"args\":{\"code\":\"return await TOOL()\"}}")
+                .put("flat", "{\"tool\":\"name\",\"args\":{…}}")
+                .put("group", "{\"tool\":\"group\",\"args\":{\"op\":\"…\"}}")
+            )
             .put("call", "{\"tool\":\"run_js\",\"args\":{\"code\":\"return await TOOL()\"}}")
             .put("notes", JSONObject()
                 .put("format", "One JSON tool call per reply; wait for TOOL_RESULT:")
@@ -271,7 +278,7 @@ class HarnessBridge(
                 .put("github", "Needs keys.github PAT; github.me/repos/pr/contents/request/…")
                 .put("http", "http_request({url,method,headers,body}) — no CORS")
                 .put("file.commit", "Byte-exact base64 writes with optional sha256 verify")
-                .put("exec", "Allowlisted binaries only; cwd jailed to harness_fs")
+                .put("exec", "Allowlisted binaries + optional sh -c (Settings exec_shell). Returns {exitCode,stdout,stderr,timedOut}. cwd=workspace.")
             )
             .put("examples", JSONArray()
                 .put("return await list_tools()")
@@ -363,39 +370,92 @@ class HarnessBridge(
         return try {
             val arr = JSONArray(argvJson)
             if (arr.length() == 0) return JSONObject().put("ok", false).put("error", "empty argv").toString()
-            val argv = MutableList(arr.length()) { arr.getString(it) }
-            val bin = argv[0].substringAfterLast('/')
-            if (bin !in execAllow) {
+            var argv = MutableList(arr.length()) { arr.getString(it) }
+            var bin = argv[0].substringAfterLast('/')
+
+            // Resolve shell: prefer /system/bin/sh when agent asks for sh -c
+            if (bin == "sh" || bin == "mksh" || bin == "bash") {
+                val shellPath = listOf("/system/bin/sh", "/system/bin/mksh", "/vendor/bin/sh")
+                    .firstOrNull { File(it).exists() && File(it).canExecute() }
+                    ?: return JSONObject().put("ok", false)
+                        .put("error", "no shell binary on device").put("allow", JSONArray(execAllow.toList())).toString()
+                argv = (listOf(shellPath) + argv.drop(1)).toMutableList()
+                bin = "sh"
+            } else if (bin !in execAllow) {
                 return JSONObject().put("ok", false).put("error", "binary not allowlisted: $bin")
-                    .put("allow", JSONArray(execAllow.toList())).toString()
+                    .put("allow", JSONArray(execAllow.toList().sorted())).toString()
+            } else {
+                // Prefer absolute path under /system/bin when present
+                val candidate = File("/system/bin", bin)
+                if (candidate.exists() && candidate.canExecute()) {
+                    argv[0] = candidate.absolutePath
+                }
             }
-            val cwd = if (cwdRel.isNullOrBlank()) fsRoot else safeFile(cwdRel).also {
-                if (!it.isDirectory) it.mkdirs()
+
+            val shellEnabled = settings.getBoolean("exec_shell", true)
+            if (bin == "sh" && !shellEnabled) {
+                return JSONObject().put("ok", false)
+                    .put("error", "shell exec disabled in Settings (exec_shell)").toString()
             }
+
+            val cwd = when {
+                !cwdRel.isNullOrBlank() -> {
+                    val f = File(workspaceRoot, cwdRel.trimStart('/'))
+                    if (!f.canonicalPath.startsWith(workspaceRoot.canonicalPath)) {
+                        return JSONObject().put("ok", false).put("error", "cwd escapes workspace").toString()
+                    }
+                    f.also { if (!it.isDirectory) it.mkdirs() }
+                }
+                else -> workspaceRoot
+            }
+
             val t0 = System.currentTimeMillis()
             val pb = ProcessBuilder(argv).directory(cwd).redirectErrorStream(false)
+            pb.environment()["HOME"] = workspaceRoot.absolutePath
+            pb.environment()["TMPDIR"] = context.cacheDir.absolutePath
             val proc = pb.start()
             val pid = try {
-                // java.lang.Process#pid() is API 26+ / JDK 9+
                 val m = proc.javaClass.getMethod("pid")
                 (m.invoke(proc) as Long).toInt()
             } catch (_: Exception) {
                 (100000 + (Math.random() * 900000).toInt())
             }
             childProcs[pid] = proc
-            val finished = proc.waitFor(timeoutMs.coerceIn(500, 60_000).toLong(), TimeUnit.MILLISECONDS)
+
+            // Drain streams on background threads to avoid pipe deadlock
+            val stdoutBox = arrayOfNulls<String>(1)
+            val stderrBox = arrayOfNulls<String>(1)
+            val outT = Thread {
+                stdoutBox[0] = proc.inputStream.bufferedReader().use { it.readText() }.take(80_000)
+            }.also { it.start() }
+            val errT = Thread {
+                stderrBox[0] = proc.errorStream.bufferedReader().use { it.readText() }.take(40_000)
+            }.also { it.start() }
+
+            val finished = proc.waitFor(timeoutMs.coerceIn(500, 120_000).toLong(), TimeUnit.MILLISECONDS)
             if (!finished) {
                 try { proc.javaClass.getMethod("destroyForcibly").invoke(proc) } catch (_: Exception) { proc.destroy() }
                 childProcs.remove(pid)
-                return JSONObject().put("ok", false).put("error", "timeout").put("pid", pid)
+                outT.join(500); errT.join(500)
+                return JSONObject().put("ok", false).put("error", "timeout")
+                    .put("exitCode", -1).put("timedOut", true).put("pid", pid)
+                    .put("stdout", stdoutBox[0] ?: "").put("stderr", stderrBox[0] ?: "")
                     .put("durationMs", System.currentTimeMillis() - t0).toString()
             }
-            val stdout = proc.inputStream.bufferedReader().use(BufferedReader::readText).take(80_000)
-            val stderr = proc.errorStream.bufferedReader().use(BufferedReader::readText).take(40_000)
+            outT.join(2000); errT.join(2000)
             val code = proc.exitValue()
             childProcs.remove(pid)
-            JSONObject().put("ok", true).put("code", code).put("stdout", stdout).put("stderr", stderr)
-                .put("durationMs", System.currentTimeMillis() - t0).put("pid", pid).toString()
+            JSONObject()
+                .put("ok", code == 0)
+                .put("exitCode", code)
+                .put("code", code)
+                .put("stdout", stdoutBox[0] ?: "")
+                .put("stderr", stderrBox[0] ?: "")
+                .put("timedOut", false)
+                .put("durationMs", System.currentTimeMillis() - t0)
+                .put("pid", pid)
+                .put("cwd", cwd.absolutePath)
+                .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }

@@ -1,3 +1,12 @@
+## 1.6.1
+
+- **Fix TOOL_RESULT serialization** — objects no longer become `[object Object]`
+- Native **clipboard** read/write (ClipboardManager)
+- **exec**: `sh -c` shell, exitCode/stdout/stderr, allowlist published, stream drain
+- **list_tools** version matches app; documents calling conventions
+- **Explore workspace** in-app file list + copy path + Files app attempt
+- selftest / uuid / time helpers in shim
+
 ## 1.6.0
 
 Ideas from [better-deepseek](https://github.com/EdgeTypE/better-deepseek) Android host:

@@ -1,6 +1,6 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.6.1-native-agent (upstream dsh.js + D-Harness native bridge tools)
+ * @version 7.7.0-native-agent (upstream dsh.js + D-Harness native bridge tools)
  * @description run_js tool bridge + draggable status dot + management panel
  *
  * 7.6.1:
@@ -122,8 +122,16 @@
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const clip = (s) => {
     if (s == null) return s;
-    s = String(s);
-    return s.length > CONFIG.maxResultChars ? s.slice(0, CONFIG.maxResultChars) + `…[truncated ${s.length - CONFIG.maxResultChars} chars]` : s;
+    // CRITICAL: never String(object) → "[object Object]"; always JSON for objects
+    let str;
+    if (typeof s === 'string') str = s;
+    else {
+      try { str = JSON.stringify(s); }
+      catch (_) { str = Object.prototype.toString.call(s); }
+    }
+    return str.length > CONFIG.maxResultChars
+      ? str.slice(0, CONFIG.maxResultChars) + `…[truncated ${str.length - CONFIG.maxResultChars} chars]`
+      : str;
   };
 
   // ---------- Styles ----------
@@ -712,6 +720,10 @@
       return { ok: true, filename, bytes: String(content).length };
     },
     async clipboard_copy({ text }) {
+      const nat = N();
+      if (nat && nat.clipboard && nat.clipboard.write) {
+        return await nat.clipboard.write(String(text ?? ''));
+      }
       try { await navigator.clipboard.writeText(text); return { ok: true }; }
       catch {
         const ta = document.createElement('textarea');
@@ -719,10 +731,14 @@
         document.body.appendChild(ta); ta.select();
         const ok = document.execCommand('copy'); ta.remove();
         if (!ok) throw new Error('clipboard write failed');
-        return { ok: true, fallback: true };
+        return { ok: true };
       }
     },
     async clipboard_read() {
+      const nat = N();
+      if (nat && nat.clipboard && nat.clipboard.read) {
+        return await nat.clipboard.read();
+      }
       if (!navigator.clipboard?.readText) throw new Error('clipboard read unsupported');
       await confirmUser('read your clipboard');
       return { text: await navigator.clipboard.readText() };
@@ -825,7 +841,16 @@
     async exec(args) {
       const nat = N();
       if (!nat || !nat.exec) throw new Error('exec requires native bridge');
-      return await nat.exec(args.argv || args.cmd || args);
+      // argv array, or shell string via {shell:true,cmd:"..."} / {sh:"..."}
+      if (args && args.shell && (args.cmd || args.command || args.sh)) {
+        const cmd = args.cmd || args.command || args.sh;
+        return await nat.exec(['sh', '-c', String(cmd)], args.timeout_ms || args.timeoutMs, args.cwd);
+      }
+      if (typeof args === 'string') {
+        return await nat.exec(['sh', '-c', args], undefined, undefined);
+      }
+      const argv = args.argv || args.cmd || args;
+      return await nat.exec(argv, args.timeout_ms || args.timeoutMs, args.cwd);
     },
     async device(args) {
       const nat = N();
@@ -925,6 +950,29 @@
       const nat = N();
       if (nat && nat.appInfo) return await nat.appInfo();
       return { shim: VERSION };
+    },
+    async uuid() {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return { uuid: crypto.randomUUID() };
+      return { uuid: 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      }) };
+    },
+    async time_now() {
+      return { epochMs: Date.now(), iso: new Date().toISOString() };
+    },
+    async selftest() {
+      const nat = N();
+      const checks = {};
+      const tryCall = async (name, fn) => {
+        try { const r = await fn(); checks[name] = { ok: true, sample: typeof r === 'object' ? Object.keys(r || {}).slice(0, 6) : typeof r }; }
+        catch (e) { checks[name] = { ok: false, error: String(e && e.message || e) }; }
+      };
+      await tryCall('list_tools', () => (nat && nat.list_tools ? nat.list_tools() : Promise.reject('no native')));
+      await tryCall('workspace.pwd', () => (nat && nat.workspace ? nat.workspace.pwd() : Promise.reject('no workspace')));
+      await tryCall('clipboard', () => (nat && nat.clipboard ? nat.clipboard.write('dharness-selftest') : Promise.reject('no clipboard')));
+      await tryCall('device.info', () => (nat && nat.device ? nat.device.info() : Promise.reject('no device')));
+      return { ok: true, shim: VERSION, native: !!(nat && nat.available), checks };
     },
   });
 
@@ -1324,9 +1372,25 @@
     }
     log('result:', res);
 
-    // Tagline keeps human description; result JSON is only in TOOL_RESULT payload
+    let resultPayload = res.result;
+    if (typeof resultPayload === 'string') {
+      const s = resultPayload.trim();
+      if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) {
+        try { resultPayload = JSON.parse(s); } catch (_) {}
+      }
+    }
     const preview = doneLabel || (res.ok ? tname : 'error');
-    const payload = 'TOOL_RESULT: ' + JSON.stringify({ ok: res.ok, result: clip(res.result), error: clip(res.error) });
+    let payloadObj = { ok: res.ok, result: resultPayload };
+    if (res.error != null) payloadObj.error = res.error;
+    let payload = 'TOOL_RESULT: ' + JSON.stringify(payloadObj);
+    if (payload.length > CONFIG.maxResultChars + 20) {
+      payload = 'TOOL_RESULT: ' + JSON.stringify({
+        ok: res.ok,
+        result: clip(resultPayload),
+        error: res.error != null ? clip(res.error) : undefined,
+        truncated: true
+      });
+    }
     DONE[sig] = { ok: res.ok, preview, mk, sent: false, payload, t: Date.now(), desc: doneLabel };
     collapsedByMsg.set(mk, { preview, err: !res.ok, desc: doneLabel });
     saveDone(); refreshCounts();

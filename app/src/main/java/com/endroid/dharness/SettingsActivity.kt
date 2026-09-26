@@ -218,64 +218,76 @@ class SettingsActivity : AppCompatActivity() {
      * Open stock DocumentsUI / Files in **browse** mode on the workspace folder.
      * Never uses ACTION_OPEN_DOCUMENT_TREE (that is "select folder" mode).
      */
+
     private fun openWorkspaceExplorer(dir: File) {
         if (!dir.exists()) dir.mkdirs()
 
-        // Prefer stock DocumentsUI browse (not folder-picker / OPEN_DOCUMENT_TREE).
-        val docId = "primary:Android/data/$packageName/files/workspace"
-        val docUri = DocumentsContract.buildDocumentUri(
-            "com.android.externalstorage.documents",
-            docId
-        )
-        val encodedUri = Uri.parse(
-            "content://com.android.externalstorage.documents/document/" +
-                Uri.encode(docId)
-        )
-
-        val candidates = mutableListOf<Intent>()
-        for (uri in listOf(docUri, encodedUri)) {
-            candidates += Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-                addCategory(Intent.CATEGORY_DEFAULT)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            for (pkg in listOf("com.google.android.documentsui", "com.android.documentsui")) {
-                candidates += Intent(Intent.ACTION_VIEW).apply {
-                    setPackage(pkg)
-                    setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-                    addCategory(Intent.CATEGORY_DEFAULT)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-            }
-        }
-        // FileProvider fallback — some OEMs browse file:// via Files app
+        // Always copy path for the user
         try {
-            val uri = FileProvider.getUriForFile(
-                this,
-                "$packageName.fileprovider",
-                dir
-            )
-            candidates += Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "resource/folder")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
+            val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("workspace", dir.absolutePath))
         } catch (_: Exception) { }
 
-        for (intent in candidates) {
-            try {
-                startActivity(intent)
-                Toast.makeText(this, dir.absolutePath, Toast.LENGTH_SHORT).show()
-                return
-            } catch (_: Exception) { }
+        // In-app browser — works even when Android/data is not visible to Files app
+        val files = try {
+            dir.walkTopDown().maxDepth(3).filter { it.isFile }.take(80).map {
+                it.relativeTo(dir).path + " (" + it.length() + " B)"
+            }.toList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val summary = buildString {
+            append(dir.absolutePath)
+            append("\n\n")
+            if (files.isEmpty()) append("(empty workspace)")
+            else append(files.joinToString("\n"))
         }
 
-        Toast.makeText(
-            this,
-            "Open Files → Android/data/$packageName/files/workspace",
-            Toast.LENGTH_LONG
-        ).show()
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Workspace")
+            .setMessage(summary.take(3500))
+            .setPositiveButton("Open Files app") { _, _ ->
+                tryOpenSystemFiles(dir)
+            }
+            .setNeutralButton("Copy path") { _, _ ->
+                Toast.makeText(this, "Path copied", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun tryOpenSystemFiles(dir: File) {
+        val docId = "primary:Android/data/$packageName/files/workspace"
+        val uris = listOf(
+            DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", docId),
+            Uri.parse("content://com.android.externalstorage.documents/document/" + Uri.encode(docId)),
+            Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
+        )
+        for (uri in uris) {
+            for (pkg in listOf(null, "com.google.android.documentsui", "com.android.documentsui")) {
+                try {
+                    val i = Intent(Intent.ACTION_VIEW).apply {
+                        if (pkg != null) setPackage(pkg)
+                        setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+                        addCategory(Intent.CATEGORY_DEFAULT)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(i)
+                    return
+                } catch (_: Exception) { }
+            }
+        }
+        // Last resort: app details (user can clear storage / see path tips)
+        try {
+            startActivity(
+                Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            )
+            Toast.makeText(this, "Files app cannot open Android/data on this ROM. Path is on clipboard.", Toast.LENGTH_LONG).show()
+        } catch (_: Exception) {
+            Toast.makeText(this, "Path on clipboard:\n${dir.absolutePath}", Toast.LENGTH_LONG).show()
+        }
     }
 }
