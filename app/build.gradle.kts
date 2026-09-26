@@ -11,8 +11,8 @@ android {
         applicationId = "com.endroid.dharness"
         minSdk = 26
         targetSdk = 35
-        versionCode = 36
-        versionName = "1.6.3"
+        versionCode = 37
+        versionName = "1.6.4"
         resourceConfigurations += listOf("en")
     }
 
@@ -80,4 +80,5 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

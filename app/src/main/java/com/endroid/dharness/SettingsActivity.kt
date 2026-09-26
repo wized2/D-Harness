@@ -21,11 +21,12 @@ class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
+        SecureStore.migrateKeysIfNeeded(this)
 
         findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener { finish() }
 
         val prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
-        val keys = getSharedPreferences("dharness_keys", MODE_PRIVATE)
+        val keys = SecureStore.keys(this)
         val mem = getSharedPreferences("dharness_mem", MODE_PRIVATE)
         val keysList = findViewById<TextView>(R.id.keysList)
         val patLayout = findViewById<TextInputLayout>(R.id.patLayout)

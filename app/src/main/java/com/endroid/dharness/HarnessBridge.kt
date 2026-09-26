@@ -64,7 +64,7 @@ class HarnessBridge(
 ) {
     private val io = Executors.newFixedThreadPool(6)
     private val mem = context.getSharedPreferences("dharness_mem", Context.MODE_PRIVATE)
-    private val keys = context.getSharedPreferences("dharness_keys", Context.MODE_PRIVATE)
+    private val keys = SecureStore.keys(context)
     private val settings = context.getSharedPreferences("dharness_settings", Context.MODE_PRIVATE)
     private val fsRoot = File(context.filesDir, "harness_fs").also { it.mkdirs() }
     /** Agent working directory (Termux-style). Prefer external app files so file managers can see it. */
@@ -909,8 +909,9 @@ class HarnessBridge(
     }
 
     private fun githubToken(): String? =
-        keys.getString("github", null) ?: keys.getString("github_pat", null)
-            ?: keys.getString("GITHUB_TOKEN", null) ?: settings.getString("github_pat", null)
+        keys.getString("github", null)
+            ?: keys.getString("github_pat", null)
+            ?: keys.getString("GITHUB_TOKEN", null)
 
     @JavascriptInterface
     fun githubRequest(method: String, path: String, body: String?, callbackId: String) {

@@ -84,6 +84,7 @@ class MainActivity : AppCompatActivity() {
             it.hide(WindowInsetsCompat.Type.statusBars())
             it.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
+        SecureStore.migrateKeysIfNeeded(this)
         setContentView(R.layout.activity_main)
 
         // Location optional for geo.get — request once (user can deny)

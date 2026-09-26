@@ -1,3 +1,9 @@
+## 1.6.4
+
+- **Secrets encrypted at rest** — GitHub PAT and custom keys use EncryptedSharedPreferences + Android Keystore
+- One-time migration from plaintext `dharness_keys`; old file wiped
+- Removed plaintext `settings.github_pat` fallback
+
 ## 1.6.3
 
 - **Primary API documented**: `DHarness.*` + four conventions in list_tools / agent instructions

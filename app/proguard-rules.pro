@@ -20,3 +20,9 @@
     public static *** d(...);
     public static *** v(...);
 }
+
+
+# EncryptedSharedPreferences / Tink
+-keep class androidx.security.crypto.** { *; }
+-keep class com.google.crypto.tink.** { *; }
+-dontwarn com.google.crypto.tink.**
