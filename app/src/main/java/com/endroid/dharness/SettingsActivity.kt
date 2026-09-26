@@ -116,6 +116,12 @@ class SettingsActivity : AppCompatActivity() {
             prefs.edit().putBoolean("pending_inject", true).apply()
         }
 
+        val larger = findViewById<MaterialSwitch>(R.id.switchLargerText)
+        larger.isChecked = prefs.getInt("text_zoom", 100) >= 110
+        larger.setOnCheckedChangeListener { _, on ->
+            prefs.edit().putInt("text_zoom", if (on) 110 else 100).apply()
+        }
+
         val keyName = findViewById<TextInputEditText>(R.id.keyName)
         val keyValue = findViewById<TextInputEditText>(R.id.keyValue)
         refreshKeys()
@@ -273,9 +279,3 @@ class SettingsActivity : AppCompatActivity() {
         ).show()
     }
 }
-
-        val larger = findViewById<MaterialSwitch>(R.id.switchLargerText)
-        larger.isChecked = prefs.getInt("text_zoom", 100) >= 110
-        larger.setOnCheckedChangeListener { _, on ->
-            prefs.edit().putInt("text_zoom", if (on) 110 else 100).apply()
-        }
