@@ -1423,21 +1423,6 @@ class HarnessBridge(
         }
     }
 
-    @JavascriptInterface
-    fun diffLines(a: String, b: String): String {
-        val la = a.split('\n')
-        val lb = b.split('\n')
-        val max = maxOf(la.size, lb.size).coerceAtMost(500)
-        val changes = JSONArray()
-        for (i in 0 until max) {
-            val sa = la.getOrNull(i)
-            val sb = lb.getOrNull(i)
-            if (sa != sb) {
-                changes.put(JSONObject().put("line", i + 1).put("a", sa ?: JSONObject.NULL).put("b", sb ?: JSONObject.NULL))
-            }
-        }
-        return JSONObject().put("ok", true).put("changes", changes).put("count", changes.length()).toString()
-    }
 
     @JavascriptInterface
     fun fileVerifyRoundtrip(): String {
