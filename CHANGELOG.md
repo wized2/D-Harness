@@ -1,3 +1,16 @@
+## 1.8.0
+
+### Artifacts (Claude / Gemini style)
+- Embed **HTML / simulation / interactive** fences as sandboxed iframes
+- Fullscreen, reload, copy HTML; `dh.toast` / `dh.log` from artifact → host
+
+### Auto system prompt
+- On **new chat**, inject detailed Claude-style harness instructions once
+- Model asked to **acknowledge in one short sentence**, then wait normally
+
+### Agent prompt
+- Stronger operating principles, artifacts, projects, research, tool discipline
+
 ## 1.7.1
 
 ### In-chat UI (Better DeepSeek / Claude inspired)

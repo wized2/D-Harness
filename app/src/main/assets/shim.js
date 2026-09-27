@@ -1,6 +1,6 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.8.0-ui-projects-charts (upstream dsh.js + D-Harness native bridge tools)
+ * @version 7.9.0-artifacts-autosys (upstream dsh.js + D-Harness native bridge tools)
  * @description run_js tool bridge + draggable status dot + management panel
  *
  * 7.6.1:
@@ -61,7 +61,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '7.8.0-ui';
+  const VERSION = '7.9.0-artifacts';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -311,6 +311,32 @@
     .dh-file-tree .f { color: #9cf; } .dh-file-tree .d { color: #6d8; font-weight: 600; }
     .dh-proj-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(100,140,180,0.12); font-size: 12px; }
     .dh-proj-item button { font-size: 11px; padding: 2px 8px; }
+
+    .dh-artifact {
+      margin: 12px 0; border-radius: 14px; overflow: hidden;
+      border: 1px solid rgba(100,160,220,0.35); background: #0a1018;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+    }
+    .dh-artifact-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 12px; background: rgba(30,50,70,0.95); border-bottom: 1px solid rgba(100,160,220,0.2);
+      font-size: 12px; color: #9cf;
+    }
+    .dh-artifact-bar b { color: #6df; }
+    .dh-artifact-bar .acts { display: flex; gap: 6px; }
+    .dh-artifact-bar button {
+      font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+      border: 1px solid rgba(100,160,200,0.35); background: rgba(20,40,55,0.9); color: #8cf;
+    }
+    .dh-artifact iframe {
+      width: 100%; height: 360px; border: 0; background: #fff; display: block;
+    }
+    .dh-artifact.dh-artifact-tall iframe { height: 520px; }
+    .dh-artifact-fs {
+      position: fixed; inset: 0; z-index: 2147483000; background: #000c;
+      display: flex; flex-direction: column; padding: 12px;
+    }
+    .dh-artifact-fs iframe { flex: 1; border-radius: 12px; }
 `;
   document.head.appendChild(style);
 
@@ -1716,6 +1742,8 @@ async selftest() {
     logs: () => LOGS.slice(),
     projects: () => window.__DH_PROJECTS__,
     enhanceUI: () => enhanceAllMessages(),
+    maybeInjectSystemPrompt: (f) => maybeInjectSystemPrompt(!!f),
+    artifacts: true,
     inspect() {
       const out = [];
       document.querySelectorAll('div.ds-message').forEach((el, i) => {
@@ -1869,15 +1897,79 @@ async selftest() {
     return null;
   }
 
+  function openArtifactFullscreen(iframeSrcDoc, title) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dh-artifact-fs';
+    overlay.innerHTML = `<div class="dh-artifact-bar"><b>${esc(title || 'Artifact')}</b>
+      <button type="button" data-close>Close</button></div>`;
+    const ifr = document.createElement('iframe');
+    ifr.sandbox = 'allow-scripts allow-forms allow-modals allow-same-origin';
+    ifr.srcdoc = iframeSrcDoc;
+    overlay.appendChild(ifr);
+    overlay.querySelector('[data-close]').onclick = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+
+  function wrapArtifactHtml(html) {
+    // Ensure document shell for srcdoc
+    const body = html.trim();
+    if (/^<!DOCTYPE/i.test(body) || /<html[\s>]/i.test(body)) return body;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>html,body{margin:0;padding:12px;font-family:system-ui,sans-serif;}</style></head><body>${body}
+<script>
+window.dh = {
+  toast: (t) => parent.postMessage({type:'dh-artifact',action:'toast',text:String(t)},'*'),
+  log: (t) => parent.postMessage({type:'dh-artifact',action:'log',text:String(t)},'*')
+};
+</script></body></html>`;
+  }
+
+  function renderArtifactCard(pre, html, kind) {
+    if (pre.closest('.dh-artifact')) return;
+    const srcdoc = wrapArtifactHtml(html);
+    const title = kind === 'simulation' ? 'Simulation' : (kind === 'interactive' ? 'Interactive' : 'HTML artifact');
+    const card = document.createElement('div');
+    card.className = 'dh-artifact' + (kind === 'simulation' ? ' dh-artifact-tall' : '');
+    card.innerHTML = `<div class="dh-artifact-bar"><span><b>${title}</b> · sandboxed</span>
+      <span class="acts">
+        <button type="button" data-act="reload">Reload</button>
+        <button type="button" data-act="fs">Fullscreen</button>
+        <button type="button" data-act="copy">Copy HTML</button>
+      </span></div>`;
+    const ifr = document.createElement('iframe');
+    ifr.sandbox = 'allow-scripts allow-forms allow-modals';
+    ifr.srcdoc = srcdoc;
+    card.appendChild(ifr);
+    card.querySelector('[data-act="reload"]').onclick = () => { ifr.srcdoc = srcdoc; };
+    card.querySelector('[data-act="fs"]').onclick = () => openArtifactFullscreen(srcdoc, title);
+    card.querySelector('[data-act="copy"]').onclick = async () => {
+      try {
+        const nat = window.__DHarnessNative;
+        if (nat?.clipboard?.write) await nat.clipboard.write(html);
+        else await navigator.clipboard.writeText(html);
+        showToast('HTML copied');
+      } catch { showToast('Copy failed'); }
+    };
+    pre.replaceWith(card);
+  }
+
   function enhanceCodeBlocks(root) {
     if (!CONFIG.uiEnhance) return;
     root.querySelectorAll('pre').forEach(pre => {
       if (pre.closest('.dh-code-wrap')) return;
+      if (pre.closest('.dh-artifact')) return;
       if (pre.closest('#__ds_shim_panel')) return;
       const text = pre.textContent || '';
       // Chart fence content detection
       const parent = pre.parentElement;
       const lang = (parent?.querySelector('code')?.className || '') + ' ' + (pre.className || '');
+      // HTML / simulation artifacts
+      if (/html-artifact|language-html|\bhtml\b|artifact|simulation|interactive/i.test(lang) ||
+          (/^\s*<(!DOCTYPE|html|div|section|canvas|svg)/i.test(text) && text.length > 80 && /<\/[a-z]+>/i.test(text))) {
+        const kind = /simulation/i.test(lang) ? 'simulation' : (/interactive/i.test(lang) ? 'interactive' : 'html');
+        try { renderArtifactCard(pre, text, kind); return; } catch (e) { console.warn('artifact', e); }
+      }
       if (/chart|dh-chart/i.test(lang) || text.trim().startsWith('{') && /"values"\s*:/.test(text)) {
         const html = parseChartBlock(text.trim());
         if (html) {
@@ -1951,6 +2043,74 @@ async selftest() {
   });
   try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
   renderProjectList();
+
+
+
+  // Artifact host bridge (simulations → toast/log)
+  window.addEventListener('message', (ev) => {
+    const d = ev && ev.data;
+    if (!d || d.type !== 'dh-artifact') return;
+    if (d.action === 'toast') showToast(String(d.text || ''), 2000);
+    if (d.action === 'log') log('[artifact]', d.text);
+  });
+
+  // ---- Auto system prompt on new chat ----
+  const SYS_INJECT_MAP = '__dh_sys_injected_v2';
+  function loadSysMap() {
+    try { return JSON.parse(localStorage.getItem(SYS_INJECT_MAP) || '{}'); } catch { return {}; }
+  }
+  function saveSysMap(m) {
+    try { localStorage.setItem(SYS_INJECT_MAP, JSON.stringify(m)); } catch {}
+  }
+  let sysInjectBusy = false;
+  async function maybeInjectSystemPrompt(force) {
+    if (sysInjectBusy) return false;
+    if (!force && window.__DH_AUTO_SYS_PROMPT === false) return false;
+    const prompt = window.__DH_SYSTEM_PROMPT__;
+    if (!prompt || typeof prompt !== 'string' || prompt.length < 40) return false;
+    const conv = getConvId();
+    const map = loadSysMap();
+    if (!force && map[conv]) return false;
+    // Skip if conversation already has substantial user/assistant content
+    const msgs = document.querySelectorAll('div.ds-message');
+    if (!force && msgs.length > 3) {
+      map[conv] = true;
+      saveSysMap(map);
+      return false;
+    }
+    if (isGenerating()) return false;
+    sysInjectBusy = true;
+    try {
+      // Prefix so model treats as system-style context
+      const body = '[D-HARNESS SYSTEM — read once]\\n\\n' + prompt +
+        '\\n\\n[End system context. Acknowledge in one short normal sentence, then wait.]';
+      log('auto system prompt inject', conv);
+      const ok = await sendMessage(body);
+      if (ok) {
+        map[conv] = true;
+        saveSysMap(map);
+        setStatus('idle');
+        showToast('System context sent');
+      }
+      return !!ok;
+    } catch (e) {
+      log('sys inject fail', e);
+      return false;
+    } finally {
+      sysInjectBusy = false;
+    }
+  }
+  // Retry on navigation / empty new chat
+  let lastConv = getConvId();
+  setInterval(() => {
+    const c = getConvId();
+    if (c !== lastConv) {
+      lastConv = c;
+      setTimeout(() => maybeInjectSystemPrompt(false), 1200);
+    }
+  }, 1500);
+  setTimeout(() => maybeInjectSystemPrompt(false), 2000);
+  setTimeout(() => maybeInjectSystemPrompt(false), 5000);
 
 
   refreshCounts();

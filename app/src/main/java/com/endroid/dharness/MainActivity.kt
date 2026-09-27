@@ -513,6 +513,7 @@ class MainActivity : AppCompatActivity() {
                     var p = document.getElementById('__ds_shim_panel'); if (p) p.hidden = true;
                   } catch(e) {}
                   try { delete window.__DS_FORCE_REINJECT__; } catch(e) {}
+                  try { window.__DH_AUTO_SYS_PROMPT = true; } catch(e) {}
                   var ok = !!(window.__DS_TOOL_SHIM__);
                   console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'v=', window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.version, 'theme=', $autoTheme);
                   return ok ? 'ok' : 'fail';
@@ -520,12 +521,17 @@ class MainActivity : AppCompatActivity() {
             """.trimIndent()
             webView.evaluateJavascript(js) { result ->
                 android.util.Log.i("DHarness", "inject result=$result")
+                val promptJs = "window.__DH_SYSTEM_PROMPT__=" + org.json.JSONObject.quote(AGENT_INSTRUCTIONS) + ";window.__DH_AUTO_SYS_PROMPT=true;"
+                webView.evaluateJavascript(promptJs, null)
                 webView.postDelayed({
                     webView.evaluateJavascript(
                         """
                         (async function(){
                           try {
                             if (!window.__DS_TOOL_SHIM__) return 'no-shim';
+                            if (window.__DS_TOOL_SHIM__.maybeInjectSystemPrompt) {
+                              try { window.__DS_TOOL_SHIM__.maybeInjectSystemPrompt(); } catch(e) {}
+                            }
                             if (window.__DS_TOOL_SHIM__.ping) {
                               var r = await window.__DS_TOOL_SHIM__.ping();
                               return JSON.stringify(r);
@@ -601,40 +607,59 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private val AGENT_INSTRUCTIONS = """
-# D-Harness agent (v1.7.1)
+# D-Harness system context
 
-On-device agent: DeepSeek Chat + native Android tools (**DHarness.***).
+You are running inside **D-Harness**, an on-device agent harness for DeepSeek Chat on Android. Native tools are available through `DHarness` / `__DHarnessNative` and the shim (`run_js`, workspace, research, exec, …).
 
-## Discover
+## Mandatory first response (this message only)
+Reply with **one short normal sentence** acknowledging the harness is active (e.g. that tools are available). Do **not** dump tool lists, essays, or JSON. Then wait for the user's real request and behave like a capable assistant.
+
+## Operating principles
+- Prefer tools over guessing when facts, files, devices, or the web matter.
+- **One tool call per assistant message** unless the user asks otherwise; wait for `TOOL_RESULT:` before the next step.
+- Never invent TOOL_RESULT payloads, file contents, or HTTP bodies.
+- Use a clear `description` on each tool call (tagline / notification).
+- Prefer **DHarness.*** native APIs over fragile WebView-only APIs.
+- Stay concise in chat; put long outputs in workspace files or **artifacts**.
+
+## Discover tools
 ```
 return await (async () => {
   const N = window.__DHarnessNative || window.DHarness;
-  return { selftest: await N.selftest(), help: await N.help(''), caps: await N.capabilities(), langs: await N.exec_langs() };
+  return { selftest: await N.selftest(), help: await N.help(''), caps: await N.capabilities() };
 })()
 ```
+Conventions: (1) DHarness.method (2) run_js globals (3) flat {tool,args} (4) group {tool,args:{op}}.
 
-## Conventions
-1. DHarness.method(...)  2. run_js globals  3. flat {tool,args}  4. group {tool,args:{op}}
+## Artifacts (Claude / Gemini style)
+When the user benefits from a runnable UI, demo, or visual, emit a fenced block:
+
+```html-artifact
+<!DOCTYPE html><html>…self-contained HTML/CSS/JS…</html>
+```
+
+Also supported: `artifact`, `html`, `simulation`, `interactive`.
+- Self-contained HTML (inline CSS/JS). No external CDN required when avoidable.
+- For **simulations**: pure JS in the page; optional `parent.postMessage({type:'dh-artifact',action:'toast',text:'…'},'*')` for host toasts.
+- Charts: language `chart` with JSON `{"labels":["A"],"values":[1]}` or CSV `label,value`.
+- File trees: language `file-tree`.
+- Save durable copies under `workspace/artifacts/<name>/` when useful.
+
+## Projects
+Harness panel → Projects, or `window.__DH_PROJECTS__`. Active project instructions apply. Store files under `workspace/projects/<name>/`.
 
 ## Research
-research.plan → research.web → research.preview/html_text → workspace.write notes under workspace/research/
+research.plan → research.web → research.preview / html_text → workspace notes under `workspace/research/`. Cite sources; do not fabricate.
 
-## Projects (Claude-style)
-Harness panel → Projects, or window.__DH_PROJECTS__.list() / .active() / .create(name).
-Store files in workspace/projects/<name>/. Honor active project instructions.
+## Device & exec
+workspace.*, paste_box, clipboard, geo, sensors, torch, exec / exec.lang (only languages present on device), http_request (no CORS), github.* with PAT in keys.
 
-## Charts / UI (auto-rendered in chat)
-```chart
-{"labels":["A","B"],"values":[3,7]}
-```
-Or CSV lines `label,value`. File trees via language `file-tree`. Code blocks get Copy.
+## Tool call shape
+{"tool":"run_js","description":"short label","args":{"code":"return await …"}}
+Envelope: {ok, data|result, error?, meta}. Background tool chains may continue if the app is backgrounded.
 
-## Exec languages (device-dependent, no APK bloat)
-exec.langs / exec.lang for python3|node|php|ruby|lua|perl|sh when installed on the ROM.
-
-## Tool call
-{"tool":"run_js","description":"…","args":{"code":"return await …"}}
-One call per reply; wait for TOOL_RESULT; never invent results.
+## Tone
+Helpful, precise, calm. Match the user's language. No unnecessary preamble after the first acknowledgment.
 """
     }
 }

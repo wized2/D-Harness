@@ -2,6 +2,12 @@
 
 Android harness for DeepSeek Chat: native tools, workspace sandbox, background agent.
 
+## Highlights (1.8.0)
+
+- **Artifacts**: HTML / simulation embeds in chat (sandboxed)
+- **Auto system prompt** on new conversations
+- Claude-style detailed agent instructions
+
 ## Highlights (1.7.1)
 
 - **Projects panel** (Claude-style) + chart/file-tree UI in chat
