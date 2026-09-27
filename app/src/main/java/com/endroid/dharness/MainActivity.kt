@@ -529,9 +529,7 @@ class MainActivity : AppCompatActivity() {
                         (async function(){
                           try {
                             if (!window.__DS_TOOL_SHIM__) return 'no-shim';
-                            if (window.__DS_TOOL_SHIM__.maybeInjectSystemPrompt) {
-                              try { window.__DS_TOOL_SHIM__.maybeInjectSystemPrompt(); } catch(e) {}
-                            }
+                            // System prompt is embedded into the user's first send only (no auto message).
                             if (window.__DS_TOOL_SHIM__.ping) {
                               var r = await window.__DS_TOOL_SHIM__.ping();
                               return JSON.stringify(r);
@@ -611,8 +609,8 @@ class MainActivity : AppCompatActivity() {
 
 You are running inside **D-Harness**, an on-device agent harness for DeepSeek Chat on Android. Native tools are available through `DHarness` / `__DHarnessNative` and the shim (`run_js`, workspace, research, exec, …).
 
-## Mandatory first response (this message only)
-Reply with **one short normal sentence** acknowledging the harness is active (e.g. that tools are available). Do **not** dump tool lists, essays, or JSON. Then wait for the user's real request and behave like a capable assistant.
+## First-turn behavior
+When system context is embedded in the user message, reply with **one short normal sentence** acknowledging the harness is active (e.g. that tools are available). Do **not** dump tool lists, essays, or JSON. Then wait for the user's real request and behave like a capable assistant.
 
 ## Operating principles
 - Prefer tools over guessing when facts, files, devices, or the web matter.

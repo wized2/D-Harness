@@ -1,3 +1,18 @@
+## 1.8.1
+
+### Fixes
+- System instructions **embed once** into the user’s first send (no multi-fire visible messages)
+- HTML artifacts: blob/srcdoc load, theme-aware chrome, non-white-empty boxes
+- Charts: per-block processing + faster rAF enhance (multiple charts per message)
+- Artifact/chart UI follows DeepSeek / Claude theme tokens
+
+### UI (Better DeepSeek inspired)
+- Richer **Projects** (files map, active instructions)
+- **Prompt queue** while generating
+- **Token estimate** badge
+- **Bookmarks** on messages
+- **Export chat** + **Persona** field
+
 ## 1.8.0
 
 ### Artifacts (Claude / Gemini style)

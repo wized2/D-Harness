@@ -1,6 +1,6 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.9.0-artifacts-autosys (upstream dsh.js + D-Harness native bridge tools)
+ * @version 8.0.0-theme-projects-queue (upstream dsh.js + D-Harness native bridge tools)
  * @description run_js tool bridge + draggable status dot + management panel
  *
  * 7.6.1:
@@ -61,7 +61,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '7.9.0-artifacts';
+  const VERSION = '8.0.0-ui';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -283,60 +283,91 @@
     }
     #__ds_shim_toast.show { opacity: 1; }
   
-    /* —— Chat UI enhancements (zero deps) —— */
+
+    /* —— Chat UI (theme-aware: DeepSeek / Claude) —— */
+    :root {
+      --dh-card-bg: rgba(255,255,255,0.92);
+      --dh-card-fg: #1a1a1a;
+      --dh-card-border: rgba(0,0,0,0.12);
+      --dh-accent: #4d6bfe;
+      --dh-muted: #666;
+      --dh-code-bg: #f6f8fa;
+      --dh-bar: #4d6bfe;
+    }
+    html.dark, body.dark, [data-theme="dark"], .dark {
+      --dh-card-bg: rgba(30,32,40,0.95);
+      --dh-card-fg: #e8eaed;
+      --dh-card-border: rgba(255,255,255,0.12);
+      --dh-accent: #8ab4ff;
+      --dh-muted: #9aa0a6;
+      --dh-code-bg: #1e1e24;
+      --dh-bar: #8ab4ff;
+    }
+    /* Claude theme present */
+    #claude-ds-theme-v3 ~ * , body:has(#claude-ds-theme-v3) {
+      --dh-accent: #da7756;
+      --dh-bar: #da7756;
+    }
     .dh-ui-card {
       margin: 10px 0; padding: 12px 14px; border-radius: 12px;
-      background: rgba(20,28,40,0.92); border: 1px solid rgba(80,160,200,0.25);
-      font-family: ui-sans-serif, system-ui, sans-serif; color: #d8e6f0;
+      background: var(--dh-card-bg); border: 1px solid var(--dh-card-border);
+      color: var(--dh-card-fg); font-family: inherit;
     }
-    .dh-ui-card h4 { margin: 0 0 8px; font-size: 13px; color: #6dd; font-weight: 600; }
+    .dh-ui-card h4 { margin: 0 0 8px; font-size: 13px; color: var(--dh-accent); font-weight: 600; }
     .dh-chart svg { width: 100%; max-width: 420px; height: auto; display: block; }
-    .dh-chart .bar { fill: #3ab; }
-    .dh-chart .bar:hover { fill: #5cf; }
-    .dh-chart .axis { stroke: #456; stroke-width: 1; }
-    .dh-chart text { fill: #9ab; font-size: 10px; }
-    .dh-code-wrap { position: relative; margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(100,140,180,0.2); }
-    .dh-code-wrap pre { margin: 0; padding: 12px 14px; overflow-x: auto; background: #0d1218; font-size: 12px; }
+    .dh-chart .bar { fill: var(--dh-bar); }
+    .dh-chart .axis { stroke: var(--dh-muted); stroke-width: 1; opacity: 0.5; }
+    .dh-chart text { fill: var(--dh-muted); font-size: 10px; }
+    .dh-code-wrap { position: relative; margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--dh-card-border); }
+    .dh-code-wrap pre { margin: 0; padding: 12px 14px; overflow-x: auto; background: var(--dh-code-bg); font-size: 12px; }
     .dh-code-copy {
       position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 3px 8px;
-      border-radius: 6px; border: 1px solid rgba(100,160,200,0.35); background: rgba(20,40,55,0.9);
-      color: #8cf; cursor: pointer;
+      border-radius: 6px; border: 1px solid var(--dh-card-border); background: var(--dh-card-bg);
+      color: var(--dh-accent); cursor: pointer;
     }
-    .dh-code-copy:active { background: #1a3a4a; }
-    .dh-table-wrap { overflow-x: auto; margin: 8px 0; border-radius: 10px; border: 1px solid rgba(100,140,180,0.2); }
-    .dh-table-wrap table { border-collapse: collapse; width: 100%; font-size: 12px; }
-    .dh-table-wrap th, .dh-table-wrap td { border: 1px solid rgba(100,140,180,0.15); padding: 6px 10px; text-align: left; }
-    .dh-table-wrap th { background: rgba(40,60,80,0.5); color: #8cf; }
+    .dh-table-wrap { overflow-x: auto; margin: 8px 0; border-radius: 10px; border: 1px solid var(--dh-card-border); }
+    .dh-table-wrap table { border-collapse: collapse; width: 100%; font-size: 12px; color: var(--dh-card-fg); }
+    .dh-table-wrap th, .dh-table-wrap td { border: 1px solid var(--dh-card-border); padding: 6px 10px; text-align: left; }
+    .dh-table-wrap th { background: var(--dh-code-bg); color: var(--dh-accent); }
     .dh-file-tree { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.45; }
-    .dh-file-tree .f { color: #9cf; } .dh-file-tree .d { color: #6d8; font-weight: 600; }
-    .dh-proj-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(100,140,180,0.12); font-size: 12px; }
+    .dh-file-tree .f { color: var(--dh-accent); } .dh-file-tree .d { color: var(--dh-accent); font-weight: 600; opacity: 0.85; }
+    .dh-proj-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--dh-card-border); font-size: 12px; }
     .dh-proj-item button { font-size: 11px; padding: 2px 8px; }
-
     .dh-artifact {
       margin: 12px 0; border-radius: 14px; overflow: hidden;
-      border: 1px solid rgba(100,160,220,0.35); background: #0a1018;
-      box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg);
+      color: var(--dh-card-fg);
     }
     .dh-artifact-bar {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 8px 12px; background: rgba(30,50,70,0.95); border-bottom: 1px solid rgba(100,160,220,0.2);
-      font-size: 12px; color: #9cf;
+      padding: 8px 12px; background: var(--dh-code-bg); border-bottom: 1px solid var(--dh-card-border);
+      font-size: 12px; color: var(--dh-muted);
     }
-    .dh-artifact-bar b { color: #6df; }
-    .dh-artifact-bar .acts { display: flex; gap: 6px; }
+    .dh-artifact-bar b { color: var(--dh-accent); }
+    .dh-artifact-bar .acts { display: flex; gap: 6px; flex-wrap: wrap; }
     .dh-artifact-bar button {
       font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer;
-      border: 1px solid rgba(100,160,200,0.35); background: rgba(20,40,55,0.9); color: #8cf;
+      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg); color: var(--dh-accent);
     }
     .dh-artifact iframe {
-      width: 100%; height: 360px; border: 0; background: #fff; display: block;
+      width: 100%; height: 380px; border: 0; display: block; background: #fff;
     }
     .dh-artifact.dh-artifact-tall iframe { height: 520px; }
     .dh-artifact-fs {
-      position: fixed; inset: 0; z-index: 2147483000; background: #000c;
+      position: fixed; inset: 0; z-index: 2147483000; background: rgba(0,0,0,0.72);
       display: flex; flex-direction: column; padding: 12px;
     }
-    .dh-artifact-fs iframe { flex: 1; border-radius: 12px; }
+    .dh-artifact-fs iframe { flex: 1; border-radius: 12px; background: #fff; }
+    .dh-queue-badge, .dh-token-badge {
+      position: fixed; z-index: 2147482000; bottom: 72px; right: 12px;
+      background: var(--dh-card-bg); color: var(--dh-card-fg); border: 1px solid var(--dh-card-border);
+      border-radius: 20px; padding: 6px 12px; font-size: 11px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .dh-bookmark-btn {
+      opacity: 0.55; cursor: pointer; margin-left: 6px; font-size: 12px; border: none; background: transparent;
+      color: var(--dh-accent);
+    }
+    .dh-bookmark-btn.on { opacity: 1; }
 `;
   document.head.appendChild(style);
 
@@ -401,6 +432,11 @@
       </div>
       <textarea id="dh-proj-instr" placeholder="Project instructions (sent with system prompt)" rows="3" style="width:100%;margin-top:6px;background:#0d1520;border:1px solid rgba(100,140,180,0.3);color:#def;border-radius:8px;padding:8px;font-size:12px;resize:vertical;"></textarea>
       <button data-act="projSaveInstr" class="wide" style="margin-top:6px;">Save instructions</button>
+      <hr/>
+      <div class="ds-shim-section-title">Persona</div>
+      <textarea id="dh-persona" placeholder="Optional persona / style" rows="2" style="width:100%;background:#0d1520;border:1px solid rgba(100,140,180,0.3);color:#def;border-radius:8px;padding:8px;font-size:12px;"></textarea>
+      <button data-act="savePersona" class="wide" style="margin-top:6px;">Save persona</button>
+      <button data-act="exportChat" class="wide" style="margin-top:6px;">Export chat</button>
       <hr/>
       <label class="ds-shim-toggle"><input type="checkbox" data-opt="uiEnhance" checked /><span>In-chat charts / code / tables</span></label>
     </div>
@@ -1763,12 +1799,37 @@ async selftest() {
   };
 
 
+
   // ============================================================
-  // UI enhancer: charts, code copy, tables, file trees, projects
-  // Zero external libs (SVG only). Inspired by Better DeepSeek + Claude Projects.
+  // UI enhancer v8: theme-aware artifacts/charts, projects, queue,
+  // bookmarks, export, token estimate, persona — BDS-inspired
   // ============================================================
-  const PROJ_KEY = '__dh_projects_v1';
-  const PROJ_ACTIVE = '__dh_project_active_v1';
+  const PROJ_KEY = '__dh_projects_v2';
+  const PROJ_ACTIVE = '__dh_project_active_v2';
+  const PROJ_FILES = '__dh_project_files_v2';
+  const BOOKMARKS_KEY = '__dh_bookmarks_v1';
+  const PERSONA_KEY = '__dh_persona_v1';
+  const SYS_MAP_KEY = '__dh_sys_embedded_v3';
+
+  function isDarkTheme() {
+    try {
+      if (document.getElementById('claude-ds-theme-v3')) {
+        return document.documentElement.classList.contains('dark') ||
+          document.body.classList.contains('dark') ||
+          matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+      const bg = getComputedStyle(document.body).backgroundColor || '';
+      const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (m) {
+        const lum = (0.299 * +m[1] + 0.587 * +m[2] + 0.114 * +m[3]) / 255;
+        return lum < 0.5;
+      }
+      return document.documentElement.classList.contains('dark') ||
+        document.body.classList.contains('dark') ||
+        matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch { return true; }
+  }
+
   function loadProjects() {
     try { return JSON.parse(localStorage.getItem(PROJ_KEY) || '[]'); } catch { return []; }
   }
@@ -1781,18 +1842,30 @@ async selftest() {
   function setActiveProjectId(id) {
     try { localStorage.setItem(PROJ_ACTIVE, id || ''); } catch {}
   }
+  function loadProjectFiles() {
+    try { return JSON.parse(localStorage.getItem(PROJ_FILES) || '{}'); } catch { return {}; }
+  }
+  function saveProjectFiles(map) {
+    try { localStorage.setItem(PROJ_FILES, JSON.stringify(map)); } catch {}
+  }
+
   function renderProjectList() {
     const box = document.getElementById('dh-proj-list');
     if (!box) return;
     const list = loadProjects();
     const active = getActiveProjectId();
-    if (!list.length) { box.innerHTML = '<div style="opacity:.6;font-size:12px;">No projects yet</div>'; return; }
+    const files = loadProjectFiles();
+    if (!list.length) {
+      box.innerHTML = '<div style="opacity:.6;font-size:12px;">No projects — create one below</div>';
+      return;
+    }
     box.innerHTML = list.map(p => {
       const on = p.id === active;
-      return `<div class="dh-proj-item"><span>${on ? '● ' : ''}<b>${esc(p.name)}</b></span>
+      const fc = (files[p.id] || []).length;
+      return `<div class="dh-proj-item"><span>${on ? '● ' : ''}<b>${esc(p.name)}</b> <span style="opacity:.6">(${fc} files)</span></span>
         <span>
-          <button data-proj-act="select" data-id="${p.id}">${on ? 'Active' : 'Select'}</button>
-          <button data-proj-act="del" data-id="${p.id}">Del</button>
+          <button type="button" data-proj-act="select" data-id="${p.id}">${on ? 'Active' : 'Select'}</button>
+          <button type="button" data-proj-act="del" data-id="${p.id}">Del</button>
         </span></div>`;
     }).join('');
     box.querySelectorAll('[data-proj-act]').forEach(btn => {
@@ -1800,149 +1873,184 @@ async selftest() {
         const id = btn.getAttribute('data-id');
         if (btn.getAttribute('data-proj-act') === 'del') {
           saveProjects(loadProjects().filter(x => x.id !== id));
+          const fm = loadProjectFiles();
+          delete fm[id];
+          saveProjectFiles(fm);
           if (getActiveProjectId() === id) setActiveProjectId('');
         } else {
           setActiveProjectId(id);
-          const p = loadProjects().find(x => x.id === id);
+          const pr = loadProjects().find(x => x.id === id);
           const ta = document.getElementById('dh-proj-instr');
-          if (ta && p) ta.value = p.instructions || '';
+          if (ta && pr) ta.value = pr.instructions || '';
           const name = document.getElementById('dh-proj-name');
-          if (name && p) name.value = p.name || '';
+          if (name && pr) name.value = pr.name || '';
         }
         renderProjectList();
+        updateTokenBadge();
       };
     });
   }
+
   function createProject(name) {
     const n = (name || '').trim() || ('Project ' + (loadProjects().length + 1));
     const list = loadProjects();
     const id = 'p_' + Date.now().toString(36);
-    list.push({ id, name: n, instructions: '', files: [], updated: Date.now() });
+    list.push({ id, name: n, instructions: '', description: '', updated: Date.now() });
     saveProjects(list);
     setActiveProjectId(id);
     renderProjectList();
     showToast('Project created');
   }
-  // Wire project buttons (panel clicks)
+
   panel.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.getAttribute('data-act');
-    if (act === 'projCreate') {
-      createProject(document.getElementById('dh-proj-name')?.value);
-    } else if (act === 'projActive') {
+    if (act === 'projCreate') createProject(document.getElementById('dh-proj-name')?.value);
+    else if (act === 'projActive') {
       const name = document.getElementById('dh-proj-name')?.value?.trim();
       const list = loadProjects();
-      let p = list.find(x => x.name === name);
-      if (!p && list.length) p = list.find(x => x.id === getActiveProjectId()) || list[list.length - 1];
-      if (p) { setActiveProjectId(p.id); renderProjectList(); showToast('Active: ' + p.name); }
+      let pr = list.find(x => x.name === name) || list.find(x => x.id === getActiveProjectId());
+      if (pr) { setActiveProjectId(pr.id); renderProjectList(); showToast('Active: ' + pr.name); }
     } else if (act === 'projSaveInstr') {
       const id = getActiveProjectId();
       const list = loadProjects();
-      const p = list.find(x => x.id === id);
-      if (!p) { showToast('Select a project first'); return; }
-      p.instructions = document.getElementById('dh-proj-instr')?.value || '';
-      p.updated = Date.now();
+      const pr = list.find(x => x.id === id);
+      if (!pr) { showToast('Select a project first'); return; }
+      pr.instructions = document.getElementById('dh-proj-instr')?.value || '';
+      pr.updated = Date.now();
       saveProjects(list);
       showToast('Instructions saved');
+    } else if (act === 'exportChat') {
+      exportChatMarkdown();
+    } else if (act === 'savePersona') {
+      try {
+        localStorage.setItem(PERSONA_KEY, document.getElementById('dh-persona')?.value || '');
+        showToast('Persona saved');
+      } catch {}
     }
   });
-  // uiEnhance toggle
+
   panel.querySelector('[data-opt="uiEnhance"]')?.addEventListener('change', (e) => {
     CONFIG.uiEnhance = e.target.checked;
     try { localStorage.setItem('__dh_ui_enhance', CONFIG.uiEnhance ? '1' : '0'); } catch {}
   });
   try {
-    if (localStorage.getItem('__dh_ui_enhance') === '0') {
-      CONFIG.uiEnhance = false;
-      const cb = panel.querySelector('[data-opt="uiEnhance"]');
-      if (cb) cb.checked = false;
-    } else CONFIG.uiEnhance = true;
+    CONFIG.uiEnhance = localStorage.getItem('__dh_ui_enhance') !== '0';
+    const cb = panel.querySelector('[data-opt="uiEnhance"]');
+    if (cb) cb.checked = !!CONFIG.uiEnhance;
   } catch { CONFIG.uiEnhance = true; }
+
+  // Persona field load
+  try {
+    const pe = document.getElementById('dh-persona');
+    if (pe) pe.value = localStorage.getItem(PERSONA_KEY) || '';
+  } catch {}
 
   function svgBarChart(labels, values) {
     const w = 360, h = 160, pad = 28;
-    const max = Math.max(...values, 1);
-    const bw = (w - pad * 2) / values.length;
+    const max = Math.max(...values.map(Number).filter(n => !isNaN(n)), 1);
+    const bw = (w - pad * 2) / Math.max(values.length, 1);
     let bars = '';
     values.forEach((v, i) => {
-      const bh = ((h - pad * 2) * v) / max;
+      const n = Number(v) || 0;
+      const bh = ((h - pad * 2) * n) / max;
       const x = pad + i * bw + 4;
       const y = h - pad - bh;
-      bars += `<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${bh}" rx="3"/>`;
+      bars += `<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${Math.max(0, bh)}" rx="3"/>`;
       bars += `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(labels[i] ?? i).slice(0, 8))}</text>`;
     });
-    return `<div class="dh-ui-card dh-chart"><h4>Chart</h4><svg viewBox="0 0 ${w} ${h}" role="img">
+    return `<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>Chart</h4><svg viewBox="0 0 ${w} ${h}" role="img">
       <line class="axis" x1="${pad}" y1="${h - pad}" x2="${w - 8}" y2="${h - pad}"/>
       <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}"/>
       ${bars}</svg></div>`;
   }
 
   function parseChartBlock(body) {
-    // JSON: {"type":"bar","labels":["a"],"values":[1]}
-    // or CSV lines: label,value
     try {
       const j = JSON.parse(body);
       if (j.labels && j.values) return svgBarChart(j.labels, j.values.map(Number));
-      if (j.data && Array.isArray(j.data)) {
-        return svgBarChart(j.data.map(d => d.label ?? d.x), j.data.map(d => Number(d.value ?? d.y)));
-      }
+      if (Array.isArray(j.data)) return svgBarChart(j.data.map(d => d.label ?? d.x), j.data.map(d => Number(d.value ?? d.y)));
     } catch {}
     const labels = [], values = [];
     body.split(/\n+/).forEach(line => {
-      const m = line.trim().match(/^([^,]+),([0-9.]+)$/);
+      const m = line.trim().match(/^([^,]+),\s*([0-9.]+)\s*$/);
       if (m) { labels.push(m[1].trim()); values.push(Number(m[2])); }
     });
-    if (values.length) return svgBarChart(labels, values);
-    return null;
+    return values.length ? svgBarChart(labels, values) : null;
   }
 
-  function openArtifactFullscreen(iframeSrcDoc, title) {
+  function wrapArtifactHtml(html) {
+    let body = (html || '').trim();
+    // Unescape common markdown artifacts
+    body = body.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    const dark = isDarkTheme();
+    const pageBg = dark ? '#1a1b1e' : '#ffffff';
+    const pageFg = dark ? '#e8eaed' : '#1a1a1a';
+    const bridge = `<script>
+window.dh={toast:function(t){parent.postMessage({type:'dh-artifact',action:'toast',text:String(t)},'*');},
+log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(t)},'*');}};
+</script>`;
+    if (/^<!DOCTYPE/i.test(body) || /<html[\s>]/i.test(body)) {
+      // inject bridge before </body> or at end
+      if (/<\/body>/i.test(body)) return body.replace(/<\/body>/i, bridge + '</body>');
+      return body + bridge;
+    }
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>html,body{margin:0;padding:12px;font-family:system-ui,-apple-system,sans-serif;background:${pageBg};color:${pageFg};}a{color:#4d6bfe;}</style></head>
+<body>${body}${bridge}</body></html>`;
+  }
+
+  function loadIframeContent(ifr, html) {
+    const srcdoc = wrapArtifactHtml(html);
+    // Prefer srcdoc; fallback blob URL for stubborn WebViews
+    try {
+      ifr.removeAttribute('src');
+      ifr.srcdoc = srcdoc;
+    } catch (e) {
+      try {
+        const blob = new Blob([srcdoc], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        ifr.src = url;
+      } catch (e2) {
+        console.warn('iframe load', e2);
+      }
+    }
+    // Force paint
+    ifr.style.background = isDarkTheme() ? '#1a1b1e' : '#fff';
+  }
+
+  function openArtifactFullscreen(html, title) {
     const overlay = document.createElement('div');
     overlay.className = 'dh-artifact-fs';
     overlay.innerHTML = `<div class="dh-artifact-bar"><b>${esc(title || 'Artifact')}</b>
       <button type="button" data-close>Close</button></div>`;
     const ifr = document.createElement('iframe');
-    ifr.sandbox = 'allow-scripts allow-forms allow-modals allow-same-origin';
-    ifr.srcdoc = iframeSrcDoc;
+    ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups allow-same-origin');
+    loadIframeContent(ifr, html);
     overlay.appendChild(ifr);
     overlay.querySelector('[data-close]').onclick = () => overlay.remove();
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
   }
 
-  function wrapArtifactHtml(html) {
-    // Ensure document shell for srcdoc
-    const body = html.trim();
-    if (/^<!DOCTYPE/i.test(body) || /<html[\s>]/i.test(body)) return body;
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<style>html,body{margin:0;padding:12px;font-family:system-ui,sans-serif;}</style></head><body>${body}
-<script>
-window.dh = {
-  toast: (t) => parent.postMessage({type:'dh-artifact',action:'toast',text:String(t)},'*'),
-  log: (t) => parent.postMessage({type:'dh-artifact',action:'log',text:String(t)},'*')
-};
-</script></body></html>`;
-  }
-
   function renderArtifactCard(pre, html, kind) {
-    if (pre.closest('.dh-artifact')) return;
-    const srcdoc = wrapArtifactHtml(html);
+    if (pre.getAttribute('data-dh-done') === 'artifact') return;
     const title = kind === 'simulation' ? 'Simulation' : (kind === 'interactive' ? 'Interactive' : 'HTML artifact');
     const card = document.createElement('div');
-    card.className = 'dh-artifact' + (kind === 'simulation' ? ' dh-artifact-tall' : '');
-    card.innerHTML = `<div class="dh-artifact-bar"><span><b>${title}</b> · sandboxed</span>
+    card.className = 'dh-artifact' + (kind === 'simulation' || kind === 'interactive' ? ' dh-artifact-tall' : '');
+    card.innerHTML = `<div class="dh-artifact-bar"><span><b>${title}</b></span>
       <span class="acts">
         <button type="button" data-act="reload">Reload</button>
         <button type="button" data-act="fs">Fullscreen</button>
-        <button type="button" data-act="copy">Copy HTML</button>
+        <button type="button" data-act="copy">Copy</button>
       </span></div>`;
     const ifr = document.createElement('iframe');
-    ifr.sandbox = 'allow-scripts allow-forms allow-modals';
-    ifr.srcdoc = srcdoc;
+    ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups allow-same-origin');
+    ifr.setAttribute('referrerpolicy', 'no-referrer');
+    loadIframeContent(ifr, html);
     card.appendChild(ifr);
-    card.querySelector('[data-act="reload"]').onclick = () => { ifr.srcdoc = srcdoc; };
-    card.querySelector('[data-act="fs"]').onclick = () => openArtifactFullscreen(srcdoc, title);
+    card.querySelector('[data-act="reload"]').onclick = () => loadIframeContent(ifr, html);
+    card.querySelector('[data-act="fs"]').onclick = () => openArtifactFullscreen(html, title);
     card.querySelector('[data-act="copy"]').onclick = async () => {
       try {
         const nat = window.__DHarnessNative;
@@ -1951,43 +2059,55 @@ window.dh = {
         showToast('HTML copied');
       } catch { showToast('Copy failed'); }
     };
+    pre.setAttribute('data-dh-done', 'artifact');
     pre.replaceWith(card);
   }
 
   function enhanceCodeBlocks(root) {
-    if (!CONFIG.uiEnhance) return;
-    root.querySelectorAll('pre').forEach(pre => {
-      if (pre.closest('.dh-code-wrap')) return;
-      if (pre.closest('.dh-artifact')) return;
-      if (pre.closest('#__ds_shim_panel')) return;
-      const text = pre.textContent || '';
-      // Chart fence content detection
-      const parent = pre.parentElement;
-      const lang = (parent?.querySelector('code')?.className || '') + ' ' + (pre.className || '');
-      // HTML / simulation artifacts
-      if (/html-artifact|language-html|\bhtml\b|artifact|simulation|interactive/i.test(lang) ||
-          (/^\s*<(!DOCTYPE|html|div|section|canvas|svg)/i.test(text) && text.length > 80 && /<\/[a-z]+>/i.test(text))) {
-        const kind = /simulation/i.test(lang) ? 'simulation' : (/interactive/i.test(lang) ? 'interactive' : 'html');
-        try { renderArtifactCard(pre, text, kind); return; } catch (e) { console.warn('artifact', e); }
+    if (!CONFIG.uiEnhance || !root) return;
+    const pres = Array.from(root.querySelectorAll('pre'));
+    for (const pre of pres) {
+      if (pre.getAttribute('data-dh-done')) continue;
+      if (pre.closest('.dh-code-wrap') || pre.closest('.dh-artifact') || pre.closest('#__ds_shim_panel')) continue;
+      const codeEl = pre.querySelector('code') || pre;
+      const text = (codeEl.textContent || '').trim();
+      if (!text) continue;
+      const lang = ((codeEl.className || '') + ' ' + (pre.className || '')).toLowerCase();
+
+      // Artifacts
+      if (/html-artifact|language-html|\bhtml\b|artifact|simulation|interactive/.test(lang) ||
+          (/^\s*<(!doctype|html|div|section|canvas|svg|body)/i.test(text) && text.length > 40 && /<\/[a-z]+>/i.test(text))) {
+        const kind = /simulation/.test(lang) ? 'simulation' : (/interactive/.test(lang) ? 'interactive' : 'html');
+        try { renderArtifactCard(pre, text, kind); } catch (e) { console.warn('artifact', e); }
+        continue;
       }
-      if (/chart|dh-chart/i.test(lang) || text.trim().startsWith('{') && /"values"\s*:/.test(text)) {
-        const html = parseChartBlock(text.trim());
+
+      // Charts — each pre independently
+      if (/chart|dh-chart/.test(lang) || (text.startsWith('{') && /"values"\s*:/.test(text)) ||
+          (/^[^,\n]+,\s*[0-9.]+/m.test(text) && text.split('\n').filter(l => /,\s*[0-9.]+/.test(l)).length >= 2 && !text.includes('function'))) {
+        const html = parseChartBlock(text);
         if (html) {
           const div = document.createElement('div');
           div.innerHTML = html;
-          pre.replaceWith(div.firstChild);
-          return;
+          const node = div.firstChild;
+          pre.setAttribute('data-dh-done', 'chart');
+          pre.replaceWith(node);
+          continue;
         }
       }
+
       // File tree
-      if (/file-?tree|tree/i.test(lang) && /[├└│]/.test(text)) {
+      if (/file-?tree|\btree\b/.test(lang) && /[├└│|]/.test(text)) {
         const div = document.createElement('div');
         div.className = 'dh-ui-card dh-file-tree';
-        div.innerHTML = '<h4>File tree</h4>' + esc(text).replace(/^(\s*)([^/\n]+)\/$/gm, '$1<span class="d">$2/</span>')
-          .replace(/\n/g, '<br>');
+        div.innerHTML = '<h4>File tree</h4><pre style="margin:0;white-space:pre-wrap">' + esc(text) + '</pre>';
+        pre.setAttribute('data-dh-done', 'tree');
         pre.replaceWith(div);
-        return;
+        continue;
       }
+
+      // Copy button for remaining code
+      pre.setAttribute('data-dh-done', 'code');
       const wrap = document.createElement('div');
       wrap.className = 'dh-code-wrap';
       const btn = document.createElement('button');
@@ -2000,53 +2120,220 @@ window.dh = {
           if (nat?.clipboard?.write) await nat.clipboard.write(text);
           else await navigator.clipboard.writeText(text);
           btn.textContent = 'Copied';
-          setTimeout(() => btn.textContent = 'Copy', 1200);
+          setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
         } catch { btn.textContent = 'Fail'; }
       };
-      pre.parentNode?.insertBefore(wrap, pre);
-      wrap.appendChild(btn);
-      wrap.appendChild(pre);
-    });
-    // Tables
+      if (pre.parentNode) {
+        pre.parentNode.insertBefore(wrap, pre);
+        wrap.appendChild(btn);
+        wrap.appendChild(pre);
+      }
+    }
+
     root.querySelectorAll('table').forEach(table => {
-      if (table.closest('.dh-table-wrap')) return;
-      if (table.closest('#__ds_shim_panel')) return;
+      if (table.closest('.dh-table-wrap') || table.closest('#__ds_shim_panel')) return;
       const wrap = document.createElement('div');
       wrap.className = 'dh-table-wrap';
       table.parentNode?.insertBefore(wrap, table);
       wrap.appendChild(table);
     });
-  }
 
-  function enhanceAllMessages() {
-    if (!CONFIG.uiEnhance) return;
-    document.querySelectorAll('div.ds-message').forEach(el => {
-      try { enhanceCodeBlocks(el); } catch {}
+    // Bookmarks on messages
+    root.querySelectorAll('div.ds-message').forEach(msg => {
+      if (msg.querySelector('.dh-bookmark-btn')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dh-bookmark-btn';
+      btn.title = 'Bookmark';
+      btn.textContent = '★';
+      const id = msgInfo(msg)?.id || ('m' + Math.random().toString(36).slice(2, 8));
+      let marks = [];
+      try { marks = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]'); } catch {}
+      if (marks.some(m => m.id === id)) btn.classList.add('on');
+      btn.onclick = (ev) => {
+        ev.stopPropagation();
+        try { marks = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]'); } catch { marks = []; }
+        const i = marks.findIndex(m => m.id === id);
+        if (i >= 0) { marks.splice(i, 1); btn.classList.remove('on'); showToast('Bookmark removed'); }
+        else {
+          marks.push({ id, text: (msg.textContent || '').slice(0, 400), at: Date.now() });
+          btn.classList.add('on');
+          showToast('Bookmarked');
+        }
+        try { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(marks.slice(-100))); } catch {}
+      };
+      msg.appendChild(btn);
     });
   }
 
-  // Expose projects to agent via shim API
+  let enhanceQueued = false;
+  function enhanceAllMessages() {
+    if (!CONFIG.uiEnhance || enhanceQueued) return;
+    enhanceQueued = true;
+    requestAnimationFrame(() => {
+      enhanceQueued = false;
+      try {
+        document.querySelectorAll('div.ds-message').forEach(el => {
+          try { enhanceCodeBlocks(el); } catch {}
+        });
+        // Also scan orphan pres outside messages
+        try { enhanceCodeBlocks(document.body); } catch {}
+      } catch {}
+    });
+  }
+
   window.__DH_PROJECTS__ = {
     list: loadProjects,
-    active: () => {
-      const id = getActiveProjectId();
-      return loadProjects().find(p => p.id === id) || null;
-    },
+    active: () => loadProjects().find(p => p.id === getActiveProjectId()) || null,
     create: createProject,
+    files: (pid) => (loadProjectFiles()[pid || getActiveProjectId()] || []),
+    addFile: (name, content) => {
+      const id = getActiveProjectId();
+      if (!id) return false;
+      const map = loadProjectFiles();
+      const arr = map[id] || [];
+      arr.push({ id: 'f_' + Date.now().toString(36), name, content, ticked: true });
+      map[id] = arr;
+      saveProjectFiles(map);
+      renderProjectList();
+      return true;
+    },
   };
 
-  // Periodic enhance + on mutations
-  setInterval(enhanceAllMessages, 2000);
-  const uiObs = new MutationObserver(() => {
-    if (!CONFIG.uiEnhance) return;
-    enhanceAllMessages();
-  });
-  try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
-  renderProjectList();
+  // ---- Prompt queue (BDS-inspired) ----
+  const promptQueue = [];
+  let queueBadge = null;
+  function ensureQueueBadge() {
+    if (queueBadge) return queueBadge;
+    queueBadge = document.createElement('div');
+    queueBadge.className = 'dh-queue-badge';
+    queueBadge.hidden = true;
+    queueBadge.onclick = () => { showToast(promptQueue.length + ' queued'); };
+    document.body.appendChild(queueBadge);
+    return queueBadge;
+  }
+  function updateQueueBadge() {
+    const b = ensureQueueBadge();
+    if (!promptQueue.length) { b.hidden = true; return; }
+    b.hidden = false;
+    b.textContent = 'Queue: ' + promptQueue.length;
+  }
+  async function drainQueue() {
+    if (!promptQueue.length || isGenerating()) return;
+    const next = promptQueue.shift();
+    updateQueueBadge();
+    if (next) await sendMessage(next);
+  }
+  setInterval(() => { if (!isGenerating()) drainQueue(); }, 1200);
 
+  // ---- Token estimate badge ----
+  let tokenBadge = null;
+  function estimateTokens() {
+    let chars = 0;
+    document.querySelectorAll('div.ds-message').forEach(el => { chars += (el.textContent || '').length; });
+    const active = window.__DH_PROJECTS__.active();
+    if (active?.instructions) chars += active.instructions.length;
+    try { chars += (localStorage.getItem(PERSONA_KEY) || '').length; } catch {}
+    return Math.round(chars / 4);
+  }
+  function updateTokenBadge() {
+    if (!tokenBadge) {
+      tokenBadge = document.createElement('div');
+      tokenBadge.className = 'dh-token-badge';
+      tokenBadge.style.bottom = '112px';
+      document.body.appendChild(tokenBadge);
+    }
+    tokenBadge.textContent = '~' + estimateTokens() + ' tok';
+  }
 
+  function exportChatMarkdown() {
+    const lines = ['# Chat export', ''];
+    document.querySelectorAll('div.ds-message').forEach((el, i) => {
+      lines.push('### Message ' + (i + 1), '', (el.innerText || '').trim(), '');
+    });
+    const md = lines.join('\n');
+    (async () => {
+      try {
+        const nat = window.__DHarnessNative;
+        if (nat?.workspace?.write) {
+          await nat.workspace.write('exports/chat_' + Date.now() + '.md', md);
+          showToast('Exported to workspace/exports');
+        } else if (nat?.clipboard?.write) {
+          await nat.clipboard.write(md);
+          showToast('Copied export');
+        } else {
+          await navigator.clipboard.writeText(md);
+          showToast('Copied export');
+        }
+      } catch { showToast('Export failed'); }
+    })();
+  }
 
-  // Artifact host bridge (simulations → toast/log)
+  // ---- System prompt: embed once in user's first send (hidden) ----
+  function loadSysMap() {
+    try { return JSON.parse(sessionStorage.getItem(SYS_MAP_KEY) || '{}'); } catch { return {}; }
+  }
+  function saveSysMap(m) {
+    try { sessionStorage.setItem(SYS_MAP_KEY, JSON.stringify(m)); } catch {}
+  }
+  function buildSystemPrefix() {
+    let p = window.__DH_SYSTEM_PROMPT__ || '';
+    const active = window.__DH_PROJECTS__.active();
+    if (active?.instructions) p += '\n\n## Active project: ' + active.name + '\n' + active.instructions;
+    try {
+      const persona = localStorage.getItem(PERSONA_KEY);
+      if (persona && persona.trim()) p += '\n\n## Persona\n' + persona.trim();
+    } catch {}
+    return p;
+  }
+  function embedSystemIfNeeded(userText) {
+    const conv = getConvId();
+    const map = loadSysMap();
+    if (map[conv]) return userText;
+    const sys = buildSystemPrefix();
+    if (!sys || sys.length < 40) return userText;
+    map[conv] = true;
+    saveSysMap(map);
+    // Invisible to casual reading in history is not fully possible; minimize UI flash by
+    // only altering the outbound payload (sendMessage already hides composer).
+    return (
+      '[D-HARNESS SYSTEM — follow silently; do not restate]\n' +
+      sys +
+      '\n[End system. Acknowledge with one short normal sentence only if this is the first turn; otherwise answer the user.]\n\n' +
+      '---\n\n' +
+      userText
+    );
+  }
+
+  // Patch sendMessage for embed + queue
+  const _sendMessageOriginal = sendMessage;
+  sendMessage = async function(text) {
+    if (isGenerating() && text && !String(text).startsWith('TOOL_RESULT')) {
+      promptQueue.push(String(text));
+      updateQueueBadge();
+      showToast('Queued (' + promptQueue.length + ')');
+      return true;
+    }
+    const outbound = embedSystemIfNeeded(String(text || ''));
+    return _sendMessageOriginal(outbound);
+  };
+  // Keep API reference updated
+  if (window.__DS_TOOL_SHIM__) window.__DS_TOOL_SHIM__.send = sendMessage;
+
+  // Disable old multi-fire auto inject
+  async function maybeInjectSystemPrompt(force) {
+    // No standalone send — system is embedded on first user message only.
+    if (force) {
+      const conv = getConvId();
+      const map = loadSysMap();
+      delete map[conv];
+      saveSysMap(map);
+      showToast('System will embed on next send');
+      return true;
+    }
+    return false;
+  }
+
   window.addEventListener('message', (ev) => {
     const d = ev && ev.data;
     if (!d || d.type !== 'dh-artifact') return;
@@ -2054,64 +2341,15 @@ window.dh = {
     if (d.action === 'log') log('[artifact]', d.text);
   });
 
-  // ---- Auto system prompt on new chat ----
-  const SYS_INJECT_MAP = '__dh_sys_injected_v2';
-  function loadSysMap() {
-    try { return JSON.parse(localStorage.getItem(SYS_INJECT_MAP) || '{}'); } catch { return {}; }
-  }
-  function saveSysMap(m) {
-    try { localStorage.setItem(SYS_INJECT_MAP, JSON.stringify(m)); } catch {}
-  }
-  let sysInjectBusy = false;
-  async function maybeInjectSystemPrompt(force) {
-    if (sysInjectBusy) return false;
-    if (!force && window.__DH_AUTO_SYS_PROMPT === false) return false;
-    const prompt = window.__DH_SYSTEM_PROMPT__;
-    if (!prompt || typeof prompt !== 'string' || prompt.length < 40) return false;
-    const conv = getConvId();
-    const map = loadSysMap();
-    if (!force && map[conv]) return false;
-    // Skip if conversation already has substantial user/assistant content
-    const msgs = document.querySelectorAll('div.ds-message');
-    if (!force && msgs.length > 3) {
-      map[conv] = true;
-      saveSysMap(map);
-      return false;
-    }
-    if (isGenerating()) return false;
-    sysInjectBusy = true;
-    try {
-      // Prefix so model treats as system-style context
-      const body = '[D-HARNESS SYSTEM — read once]\\n\\n' + prompt +
-        '\\n\\n[End system context. Acknowledge in one short normal sentence, then wait.]';
-      log('auto system prompt inject', conv);
-      const ok = await sendMessage(body);
-      if (ok) {
-        map[conv] = true;
-        saveSysMap(map);
-        setStatus('idle');
-        showToast('System context sent');
-      }
-      return !!ok;
-    } catch (e) {
-      log('sys inject fail', e);
-      return false;
-    } finally {
-      sysInjectBusy = false;
-    }
-  }
-  // Retry on navigation / empty new chat
-  let lastConv = getConvId();
-  setInterval(() => {
-    const c = getConvId();
-    if (c !== lastConv) {
-      lastConv = c;
-      setTimeout(() => maybeInjectSystemPrompt(false), 1200);
-    }
-  }, 1500);
-  setTimeout(() => maybeInjectSystemPrompt(false), 2000);
-  setTimeout(() => maybeInjectSystemPrompt(false), 5000);
-
+  const uiObs = new MutationObserver(() => enhanceAllMessages());
+  try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
+  // Fast pass while streaming + light steady pass
+  let streamEnhance = setInterval(enhanceAllMessages, 400);
+  setTimeout(() => { clearInterval(streamEnhance); streamEnhance = setInterval(enhanceAllMessages, 1500); }, 15000);
+  setInterval(updateTokenBadge, 3000);
+  enhanceAllMessages();
+  renderProjectList();
+  updateTokenBadge();
 
   refreshCounts();
   console.log(`%c[shim] DeepSeek Tool Shim v${VERSION} loaded`, 'color:#0af;font-weight:bold');
