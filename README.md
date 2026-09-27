@@ -2,6 +2,11 @@
 
 Android harness for DeepSeek Chat: native tools, workspace sandbox, background agent.
 
+## Highlights (1.7.1)
+
+- **Projects panel** (Claude-style) + chart/file-tree UI in chat
+- Zero-deps SVG charts, code copy, table polish
+
 ## Highlights (1.7)
 
 - **Research**: `research.web`, URL preview, HTML text extract, research plans

@@ -1,3 +1,14 @@
+## 1.7.1
+
+### In-chat UI (Better DeepSeek / Claude inspired)
+- **Projects** panel: create, select active, save instructions (localStorage)
+- **SVG bar charts** from `chart` fences or JSON `{labels,values}`
+- **File-tree** cards, code **Copy** buttons, improved tables
+- Zero new native libs (no app size bloat)
+
+### Agent
+- Instructions document projects + chart fences
+
 ## 1.7.0
 
 ### Research & web

@@ -1,6 +1,6 @@
 /*!
  * DeepSeek Tool Shim
- * @version 7.7.0-native-agent (upstream dsh.js + D-Harness native bridge tools)
+ * @version 7.8.0-ui-projects-charts (upstream dsh.js + D-Harness native bridge tools)
  * @description run_js tool bridge + draggable status dot + management panel
  *
  * 7.6.1:
@@ -61,7 +61,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '7.5.0-native';
+  const VERSION = '7.8.0-ui';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -282,7 +282,36 @@
       box-shadow: 0 4px 14px rgba(0,0,0,0.35);
     }
     #__ds_shim_toast.show { opacity: 1; }
-  `;
+  
+    /* —— Chat UI enhancements (zero deps) —— */
+    .dh-ui-card {
+      margin: 10px 0; padding: 12px 14px; border-radius: 12px;
+      background: rgba(20,28,40,0.92); border: 1px solid rgba(80,160,200,0.25);
+      font-family: ui-sans-serif, system-ui, sans-serif; color: #d8e6f0;
+    }
+    .dh-ui-card h4 { margin: 0 0 8px; font-size: 13px; color: #6dd; font-weight: 600; }
+    .dh-chart svg { width: 100%; max-width: 420px; height: auto; display: block; }
+    .dh-chart .bar { fill: #3ab; }
+    .dh-chart .bar:hover { fill: #5cf; }
+    .dh-chart .axis { stroke: #456; stroke-width: 1; }
+    .dh-chart text { fill: #9ab; font-size: 10px; }
+    .dh-code-wrap { position: relative; margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(100,140,180,0.2); }
+    .dh-code-wrap pre { margin: 0; padding: 12px 14px; overflow-x: auto; background: #0d1218; font-size: 12px; }
+    .dh-code-copy {
+      position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 3px 8px;
+      border-radius: 6px; border: 1px solid rgba(100,160,200,0.35); background: rgba(20,40,55,0.9);
+      color: #8cf; cursor: pointer;
+    }
+    .dh-code-copy:active { background: #1a3a4a; }
+    .dh-table-wrap { overflow-x: auto; margin: 8px 0; border-radius: 10px; border: 1px solid rgba(100,140,180,0.2); }
+    .dh-table-wrap table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    .dh-table-wrap th, .dh-table-wrap td { border: 1px solid rgba(100,140,180,0.15); padding: 6px 10px; text-align: left; }
+    .dh-table-wrap th { background: rgba(40,60,80,0.5); color: #8cf; }
+    .dh-file-tree { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.45; }
+    .dh-file-tree .f { color: #9cf; } .dh-file-tree .d { color: #6d8; font-weight: 600; }
+    .dh-proj-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(100,140,180,0.12); font-size: 12px; }
+    .dh-proj-item button { font-size: 11px; padding: 2px 8px; }
+`;
   document.head.appendChild(style);
 
   // ---------- FAB ----------
@@ -336,6 +365,18 @@
         <button data-act="copyLogs">Copy logs</button>
         <button data-act="stop" class="danger wide">Stop shim</button>
       </div>
+      <hr/>
+      <div class="ds-shim-section-title">Projects</div>
+      <div id="dh-proj-list" style="max-height:140px;overflow:auto;margin-bottom:8px;"></div>
+      <div class="ds-shim-row" style="gap:6px;flex-wrap:wrap;">
+        <input id="dh-proj-name" placeholder="Project name" style="flex:1;min-width:100px;background:#0d1520;border:1px solid rgba(100,140,180,0.3);color:#def;border-radius:8px;padding:6px 8px;font-size:12px;"/>
+        <button data-act="projCreate">New</button>
+        <button data-act="projActive">Set active</button>
+      </div>
+      <textarea id="dh-proj-instr" placeholder="Project instructions (sent with system prompt)" rows="3" style="width:100%;margin-top:6px;background:#0d1520;border:1px solid rgba(100,140,180,0.3);color:#def;border-radius:8px;padding:8px;font-size:12px;resize:vertical;"></textarea>
+      <button data-act="projSaveInstr" class="wide" style="margin-top:6px;">Save instructions</button>
+      <hr/>
+      <label class="ds-shim-toggle"><input type="checkbox" data-opt="uiEnhance" checked /><span>In-chat charts / code / tables</span></label>
     </div>
   `;
 
@@ -1673,6 +1714,8 @@ async selftest() {
       return s;
     },
     logs: () => LOGS.slice(),
+    projects: () => window.__DH_PROJECTS__,
+    enhanceUI: () => enhanceAllMessages(),
     inspect() {
       const out = [];
       document.querySelectorAll('div.ds-message').forEach((el, i) => {
@@ -1690,6 +1733,225 @@ async selftest() {
       return out;
     },
   };
+
+
+  // ============================================================
+  // UI enhancer: charts, code copy, tables, file trees, projects
+  // Zero external libs (SVG only). Inspired by Better DeepSeek + Claude Projects.
+  // ============================================================
+  const PROJ_KEY = '__dh_projects_v1';
+  const PROJ_ACTIVE = '__dh_project_active_v1';
+  function loadProjects() {
+    try { return JSON.parse(localStorage.getItem(PROJ_KEY) || '[]'); } catch { return []; }
+  }
+  function saveProjects(list) {
+    try { localStorage.setItem(PROJ_KEY, JSON.stringify(list)); } catch {}
+  }
+  function getActiveProjectId() {
+    try { return localStorage.getItem(PROJ_ACTIVE) || ''; } catch { return ''; }
+  }
+  function setActiveProjectId(id) {
+    try { localStorage.setItem(PROJ_ACTIVE, id || ''); } catch {}
+  }
+  function renderProjectList() {
+    const box = document.getElementById('dh-proj-list');
+    if (!box) return;
+    const list = loadProjects();
+    const active = getActiveProjectId();
+    if (!list.length) { box.innerHTML = '<div style="opacity:.6;font-size:12px;">No projects yet</div>'; return; }
+    box.innerHTML = list.map(p => {
+      const on = p.id === active;
+      return `<div class="dh-proj-item"><span>${on ? '● ' : ''}<b>${esc(p.name)}</b></span>
+        <span>
+          <button data-proj-act="select" data-id="${p.id}">${on ? 'Active' : 'Select'}</button>
+          <button data-proj-act="del" data-id="${p.id}">Del</button>
+        </span></div>`;
+    }).join('');
+    box.querySelectorAll('[data-proj-act]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.getAttribute('data-id');
+        if (btn.getAttribute('data-proj-act') === 'del') {
+          saveProjects(loadProjects().filter(x => x.id !== id));
+          if (getActiveProjectId() === id) setActiveProjectId('');
+        } else {
+          setActiveProjectId(id);
+          const p = loadProjects().find(x => x.id === id);
+          const ta = document.getElementById('dh-proj-instr');
+          if (ta && p) ta.value = p.instructions || '';
+          const name = document.getElementById('dh-proj-name');
+          if (name && p) name.value = p.name || '';
+        }
+        renderProjectList();
+      };
+    });
+  }
+  function createProject(name) {
+    const n = (name || '').trim() || ('Project ' + (loadProjects().length + 1));
+    const list = loadProjects();
+    const id = 'p_' + Date.now().toString(36);
+    list.push({ id, name: n, instructions: '', files: [], updated: Date.now() });
+    saveProjects(list);
+    setActiveProjectId(id);
+    renderProjectList();
+    showToast('Project created');
+  }
+  // Wire project buttons (panel clicks)
+  panel.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.getAttribute('data-act');
+    if (act === 'projCreate') {
+      createProject(document.getElementById('dh-proj-name')?.value);
+    } else if (act === 'projActive') {
+      const name = document.getElementById('dh-proj-name')?.value?.trim();
+      const list = loadProjects();
+      let p = list.find(x => x.name === name);
+      if (!p && list.length) p = list.find(x => x.id === getActiveProjectId()) || list[list.length - 1];
+      if (p) { setActiveProjectId(p.id); renderProjectList(); showToast('Active: ' + p.name); }
+    } else if (act === 'projSaveInstr') {
+      const id = getActiveProjectId();
+      const list = loadProjects();
+      const p = list.find(x => x.id === id);
+      if (!p) { showToast('Select a project first'); return; }
+      p.instructions = document.getElementById('dh-proj-instr')?.value || '';
+      p.updated = Date.now();
+      saveProjects(list);
+      showToast('Instructions saved');
+    }
+  });
+  // uiEnhance toggle
+  panel.querySelector('[data-opt="uiEnhance"]')?.addEventListener('change', (e) => {
+    CONFIG.uiEnhance = e.target.checked;
+    try { localStorage.setItem('__dh_ui_enhance', CONFIG.uiEnhance ? '1' : '0'); } catch {}
+  });
+  try {
+    if (localStorage.getItem('__dh_ui_enhance') === '0') {
+      CONFIG.uiEnhance = false;
+      const cb = panel.querySelector('[data-opt="uiEnhance"]');
+      if (cb) cb.checked = false;
+    } else CONFIG.uiEnhance = true;
+  } catch { CONFIG.uiEnhance = true; }
+
+  function svgBarChart(labels, values) {
+    const w = 360, h = 160, pad = 28;
+    const max = Math.max(...values, 1);
+    const bw = (w - pad * 2) / values.length;
+    let bars = '';
+    values.forEach((v, i) => {
+      const bh = ((h - pad * 2) * v) / max;
+      const x = pad + i * bw + 4;
+      const y = h - pad - bh;
+      bars += `<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${bh}" rx="3"/>`;
+      bars += `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(labels[i] ?? i).slice(0, 8))}</text>`;
+    });
+    return `<div class="dh-ui-card dh-chart"><h4>Chart</h4><svg viewBox="0 0 ${w} ${h}" role="img">
+      <line class="axis" x1="${pad}" y1="${h - pad}" x2="${w - 8}" y2="${h - pad}"/>
+      <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}"/>
+      ${bars}</svg></div>`;
+  }
+
+  function parseChartBlock(body) {
+    // JSON: {"type":"bar","labels":["a"],"values":[1]}
+    // or CSV lines: label,value
+    try {
+      const j = JSON.parse(body);
+      if (j.labels && j.values) return svgBarChart(j.labels, j.values.map(Number));
+      if (j.data && Array.isArray(j.data)) {
+        return svgBarChart(j.data.map(d => d.label ?? d.x), j.data.map(d => Number(d.value ?? d.y)));
+      }
+    } catch {}
+    const labels = [], values = [];
+    body.split(/\n+/).forEach(line => {
+      const m = line.trim().match(/^([^,]+),([0-9.]+)$/);
+      if (m) { labels.push(m[1].trim()); values.push(Number(m[2])); }
+    });
+    if (values.length) return svgBarChart(labels, values);
+    return null;
+  }
+
+  function enhanceCodeBlocks(root) {
+    if (!CONFIG.uiEnhance) return;
+    root.querySelectorAll('pre').forEach(pre => {
+      if (pre.closest('.dh-code-wrap')) return;
+      if (pre.closest('#__ds_shim_panel')) return;
+      const text = pre.textContent || '';
+      // Chart fence content detection
+      const parent = pre.parentElement;
+      const lang = (parent?.querySelector('code')?.className || '') + ' ' + (pre.className || '');
+      if (/chart|dh-chart/i.test(lang) || text.trim().startsWith('{') && /"values"\s*:/.test(text)) {
+        const html = parseChartBlock(text.trim());
+        if (html) {
+          const div = document.createElement('div');
+          div.innerHTML = html;
+          pre.replaceWith(div.firstChild);
+          return;
+        }
+      }
+      // File tree
+      if (/file-?tree|tree/i.test(lang) && /[├└│]/.test(text)) {
+        const div = document.createElement('div');
+        div.className = 'dh-ui-card dh-file-tree';
+        div.innerHTML = '<h4>File tree</h4>' + esc(text).replace(/^(\s*)([^/\n]+)\/$/gm, '$1<span class="d">$2/</span>')
+          .replace(/\n/g, '<br>');
+        pre.replaceWith(div);
+        return;
+      }
+      const wrap = document.createElement('div');
+      wrap.className = 'dh-code-wrap';
+      const btn = document.createElement('button');
+      btn.className = 'dh-code-copy';
+      btn.type = 'button';
+      btn.textContent = 'Copy';
+      btn.onclick = async () => {
+        try {
+          const nat = window.__DHarnessNative;
+          if (nat?.clipboard?.write) await nat.clipboard.write(text);
+          else await navigator.clipboard.writeText(text);
+          btn.textContent = 'Copied';
+          setTimeout(() => btn.textContent = 'Copy', 1200);
+        } catch { btn.textContent = 'Fail'; }
+      };
+      pre.parentNode?.insertBefore(wrap, pre);
+      wrap.appendChild(btn);
+      wrap.appendChild(pre);
+    });
+    // Tables
+    root.querySelectorAll('table').forEach(table => {
+      if (table.closest('.dh-table-wrap')) return;
+      if (table.closest('#__ds_shim_panel')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'dh-table-wrap';
+      table.parentNode?.insertBefore(wrap, table);
+      wrap.appendChild(table);
+    });
+  }
+
+  function enhanceAllMessages() {
+    if (!CONFIG.uiEnhance) return;
+    document.querySelectorAll('div.ds-message').forEach(el => {
+      try { enhanceCodeBlocks(el); } catch {}
+    });
+  }
+
+  // Expose projects to agent via shim API
+  window.__DH_PROJECTS__ = {
+    list: loadProjects,
+    active: () => {
+      const id = getActiveProjectId();
+      return loadProjects().find(p => p.id === id) || null;
+    },
+    create: createProject,
+  };
+
+  // Periodic enhance + on mutations
+  setInterval(enhanceAllMessages, 2000);
+  const uiObs = new MutationObserver(() => {
+    if (!CONFIG.uiEnhance) return;
+    enhanceAllMessages();
+  });
+  try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
+  renderProjectList();
+
 
   refreshCounts();
   console.log(`%c[shim] DeepSeek Tool Shim v${VERSION} loaded`, 'color:#0af;font-weight:bold');
