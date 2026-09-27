@@ -356,6 +356,40 @@ window.__DHarnessNative = {
       return DHarness.execWithStdin(JSON.stringify(argv || []), stdin != null ? String(stdin) : null, timeoutMs || 15000, cwd || null);
     });
   },
+
+  research: {
+    web: function (query, maxSources) {
+      return _j(function () { return DHarness.researchWeb(String(query || ''), maxSources || 5); });
+    },
+    preview: function (url) {
+      return _j(function () { return DHarness.researchPreview(String(url || '')); });
+    },
+    html_text: function (url, maxChars) {
+      return _j(function () { return DHarness.researchHtmlText(String(url || ''), maxChars || 12000); });
+    },
+    plan: function (topic) {
+      return _j(function () { return DHarness.researchPlan(String(topic || '')); });
+    }
+  },
+  workspace_grep: function (query, useRegex, maxHits) {
+    return _j(function () { return DHarness.workspaceGrep(String(query || ''), !!useRegex, maxHits || 50); });
+  },
+  exec_langs: function () { return _j(function () { return DHarness.execLangs(); }); },
+  exec_which: function (bin) { return _j(function () { return DHarness.execWhich(String(bin || '')); }); },
+  exec_lang: function (lang, code, timeoutMs) {
+    return _j(function () { return DHarness.execLang(String(lang || 'sh'), String(code || ''), timeoutMs || 30000); });
+  },
+  text_regex_find: function (text, pattern, flags) {
+    return _j(function () { return DHarness.textRegexFind(String(text || ''), String(pattern || ''), flags || null); });
+  },
+  text_regex_replace: function (text, pattern, replacement) {
+    return _j(function () { return DHarness.textRegexReplace(String(text || ''), String(pattern || ''), String(replacement || '')); });
+  },
+  util_base64: function (op, data) {
+    return _j(function () { return DHarness.utilBase64(String(op || 'encode'), String(data || '')); });
+  },
+  util_uuid: function () { return _j(function () { return DHarness.utilUuid(); }); },
+  util_time: function () { return _j(function () { return DHarness.utilTime(); }); },
   appInfo: function () { return _j(function () { return DHarness.appInfo(); }); },
   selftest: function () { return _j(function () { return DHarness.selftest(); }); },
   help: function (name) { return _j(function () { return DHarness.help(name || ''); }); },

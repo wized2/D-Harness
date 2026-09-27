@@ -144,6 +144,19 @@ class HarnessBridge(
         }
         tool("list_tools", "List tools + schemas", JSONObject())
         tool("selftest", "Probe which tools are actually bound", JSONObject())
+        tool("research.web", "Multi-source web research (DDG + Wikipedia + pages)", JSONObject().put("query", "string").put("maxSources", "number?"))
+        tool("research.preview", "URL title/description preview", JSONObject().put("url", "string"))
+        tool("research.html_text", "Fetch URL and extract visible text", JSONObject().put("url", "string").put("maxChars", "number?"))
+        tool("workspace.grep", "Search workspace files for text/regex", JSONObject().put("query", "string").put("regex", "boolean?").put("maxHits", "number?"))
+        tool("exec.lang", "Run code: python3|node|php|ruby|lua|perl|sh if installed", JSONObject().put("lang", "string").put("code", "string").put("timeoutMs", "number?"))
+        tool("exec.which", "Locate binary on PATH", JSONObject().put("bin", "string"))
+        tool("exec.langs", "List available script runtimes on device", JSONObject())
+        tool("text.regex_find", "Regex findall", JSONObject().put("text", "string").put("pattern", "string").put("flags", "string?"))
+        tool("text.regex_replace", "Regex replace", JSONObject().put("text", "string").put("pattern", "string").put("replacement", "string"))
+        tool("util.base64", "encode|decode", JSONObject().put("op", "string").put("data", "string"))
+        tool("util.uuid", "UUID v4", JSONObject())
+        tool("util.time", "Epoch + ISO + timezone", JSONObject())
+        tool("research.plan", "Structured research plan (no network)", JSONObject().put("topic", "string"))
         tool("sensors.list", "List hardware sensors", JSONObject())
         tool("sensors.read", "One-shot sensor reading by type", JSONObject().put("type", "string"))
         tool("torch.set", "Flashlight on/off", JSONObject().put("on", "boolean"))
@@ -2927,5 +2940,403 @@ class HarnessBridge(
         } catch (e: Exception) {
             envelope(false, error = e.message)
         }
+    }
+
+
+    // ─── Research / web ────────────────────────────────────────
+
+    private fun httpGetSync(url: String, timeoutMs: Int = 12_000): Pair<Int, String> {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = timeoutMs
+            readTimeout = timeoutMs
+            setRequestProperty("User-Agent", "D-Harness/1.7 (Android; research)")
+            setRequestProperty("Accept", "text/html,application/json,*/*")
+            instanceFollowRedirects = true
+        }
+        return try {
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+            code to body.take(400_000)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun stripHtml(html: String): String {
+        var s = html
+        s = Regex("(?is)<script[^>]*>.*?</script>").replace(s, " ")
+        s = Regex("(?is)<style[^>]*>.*?</style>").replace(s, " ")
+        s = Regex("(?is)<[^>]+>").replace(s, " ")
+        s = Regex("&nbsp;|&#160;").replace(s, " ")
+        s = Regex("&amp;").replace(s, "&")
+        s = Regex("&lt;").replace(s, "<")
+        s = Regex("&gt;").replace(s, ">")
+        s = Regex("&quot;").replace(s, "\"")
+        s = Regex("&#39;|&apos;").replace(s, "'")
+        s = Regex("[ \\t\\x0B\\f\\r]+").replace(s, " ")
+        s = Regex("\\n{3,}").replace(s, "\n\n")
+        return s.trim()
+    }
+
+    @JavascriptInterface
+    fun researchWeb(query: String, maxSources: Int): String {
+        val t0 = System.currentTimeMillis()
+        return try {
+            val q = query.trim()
+            if (q.isEmpty()) return envelope(false, error = "empty query")
+            val limit = maxSources.coerceIn(1, 8)
+            val sources = JSONArray()
+
+            // Wikipedia summary
+            try {
+                val title = q.replace(" ", "_")
+                val (code, body) = httpGetSync(
+                    "https://en.wikipedia.org/api/rest_v1/page/summary/" +
+                        java.net.URLEncoder.encode(title, "UTF-8").replace("+", "%20"),
+                    10_000
+                )
+                if (code in 200..299 && body.contains("extract")) {
+                    val jo = JSONObject(body)
+                    sources.put(
+                        JSONObject()
+                            .put("type", "wikipedia")
+                            .put("title", jo.optString("title"))
+                            .put("url", jo.optJSONObject("content_urls")
+                                ?.optJSONObject("desktop")?.optString("page")
+                                ?: ("https://en.wikipedia.org/wiki/" + title))
+                            .put("snippet", jo.optString("extract").take(1200))
+                    )
+                }
+            } catch (_: Exception) { }
+
+            // DuckDuckGo HTML results
+            try {
+                val enc = java.net.URLEncoder.encode(q, "UTF-8")
+                val (code, body) = httpGetSync("https://html.duckduckgo.com/html/?q=$enc", 12_000)
+                if (code in 200..299) {
+                    val re = Regex(
+                        """(?is)<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>"""
+                    )
+                    val snipRe = Regex("""(?is)<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>""")
+                    val snips = snipRe.findAll(body).map { stripHtml(it.groupValues[1]).take(280) }.toList()
+                    var i = 0
+                    for (m in re.findAll(body)) {
+                        if (sources.length() >= limit) break
+                        val href = m.groupValues[1]
+                        val title = stripHtml(m.groupValues[2]).take(200)
+                        if (title.isBlank()) continue
+                        val snip = snips.getOrNull(i) ?: ""
+                        i++
+                        sources.put(
+                            JSONObject()
+                                .put("type", "web")
+                                .put("title", title)
+                                .put("url", href)
+                                .put("snippet", snip)
+                        )
+                    }
+                }
+            } catch (_: Exception) { }
+
+            // Optional: fetch first 1-2 page texts
+            val pages = JSONArray()
+            var fetched = 0
+            for (i in 0 until sources.length()) {
+                if (fetched >= 2) break
+                val src = sources.getJSONObject(i)
+                val u = src.optString("url")
+                if (!u.startsWith("http")) continue
+                try {
+                    val (code, body) = httpGetSync(u, 10_000)
+                    if (code in 200..299) {
+                        pages.put(
+                            JSONObject()
+                                .put("url", u)
+                                .put("text", stripHtml(body).take(4000))
+                        )
+                        fetched++
+                    }
+                } catch (_: Exception) { }
+            }
+
+            envelope(
+                sources.length() > 0,
+                JSONObject()
+                    .put("query", q)
+                    .put("sources", sources)
+                    .put("pages", pages)
+                    .put("count", sources.length()),
+                error = if (sources.length() == 0) "no results" else null,
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message, ms = System.currentTimeMillis() - t0)
+        }
+    }
+
+    @JavascriptInterface
+    fun researchPreview(url: String): String {
+        val t0 = System.currentTimeMillis()
+        return try {
+            val u = url.trim()
+            if (!u.startsWith("http")) return envelope(false, error = "url must start with http")
+            val (code, body) = httpGetSync(u, 12_000)
+            val title = Regex("(?is)<title[^>]*>(.*?)</title>").find(body)?.groupValues?.get(1)?.let { stripHtml(it) }
+            val desc = Regex("(?is)<meta[^>]+name=[\"']description[\"'][^>]+content=[\"'](.*?)[\"']").find(body)?.groupValues?.get(1)
+                ?: Regex("(?is)<meta[^>]+content=[\"'](.*?)[\"'][^>]+name=[\"']description[\"']").find(body)?.groupValues?.get(1)
+            envelope(
+                code in 200..299,
+                JSONObject()
+                    .put("url", u)
+                    .put("status", code)
+                    .put("title", title ?: JSONObject.NULL)
+                    .put("description", desc?.let { stripHtml(it).take(500) } ?: JSONObject.NULL)
+                    .put("length", body.length),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message, ms = System.currentTimeMillis() - t0)
+        }
+    }
+
+    @JavascriptInterface
+    fun researchHtmlText(url: String, maxChars: Int): String {
+        val t0 = System.currentTimeMillis()
+        return try {
+            val u = url.trim()
+            if (!u.startsWith("http")) return envelope(false, error = "url must start with http")
+            val (code, body) = httpGetSync(u, 15_000)
+            val text = stripHtml(body).take(maxChars.coerceIn(500, 50_000))
+            envelope(
+                code in 200..299,
+                JSONObject().put("url", u).put("status", code).put("text", text).put("chars", text.length),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message, ms = System.currentTimeMillis() - t0)
+        }
+    }
+
+    @JavascriptInterface
+    fun researchPlan(topic: String): String {
+        val t = topic.trim().ifEmpty { "general topic" }
+        val steps = JSONArray()
+            .put(JSONObject().put("step", 1).put("action", "clarify").put("detail", "Define scope and key questions for: $t"))
+            .put(JSONObject().put("step", 2).put("action", "research.web").put("detail", "DHarness.researchWeb(query) for overview + sources"))
+            .put(JSONObject().put("step", 3).put("action", "research.preview / html_text").put("detail", "Deep-read top 2–3 URLs"))
+            .put(JSONObject().put("step", 4).put("action", "synthesize").put("detail", "Compare claims; note disagreements"))
+            .put(JSONObject().put("step", 5).put("action", "workspace.write").put("detail", "Save notes + citations under workspace/research/"))
+        return envelope(true, JSONObject().put("topic", t).put("steps", steps))
+    }
+
+    @JavascriptInterface
+    fun workspaceGrep(query: String, useRegex: Boolean, maxHits: Int): String {
+        val t0 = System.currentTimeMillis()
+        return try {
+            val q = query.trim()
+            if (q.isEmpty()) return envelope(false, error = "empty query")
+            val limit = maxHits.coerceIn(1, 200)
+            val hits = JSONArray()
+            val pattern = if (useRegex) Regex(q, RegexOption.IGNORE_CASE) else null
+            workspaceRoot.walkTopDown().filter { it.isFile && it.length() < 2_000_000 }.forEach { f ->
+                if (hits.length() >= limit) return@forEach
+                val rel = f.relativeTo(workspaceRoot).path
+                if (rel.startsWith(".")) return@forEach
+                try {
+                    val lines = f.readLines(Charsets.UTF_8)
+                    lines.forEachIndexed { idx, line ->
+                        if (hits.length() >= limit) return@forEachIndexed
+                        val match = if (pattern != null) pattern.containsMatchIn(line)
+                        else line.contains(q, ignoreCase = true)
+                        if (match) {
+                            hits.put(
+                                JSONObject()
+                                    .put("path", rel)
+                                    .put("line", idx + 1)
+                                    .put("text", line.take(300))
+                            )
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
+            envelope(
+                true,
+                JSONObject().put("query", q).put("regex", useRegex).put("hits", hits).put("count", hits.length()),
+                ms = System.currentTimeMillis() - t0
+            )
+        } catch (e: Exception) {
+            envelope(false, error = e.message, ms = System.currentTimeMillis() - t0)
+        }
+    }
+
+    private fun resolveLangBinary(lang: String): String? {
+        val candidates = when (lang.lowercase()) {
+            "python", "python3", "py" -> listOf("python3", "python")
+            "node", "nodejs", "js" -> listOf("node", "nodejs")
+            "php" -> listOf("php")
+            "ruby", "rb" -> listOf("ruby")
+            "lua" -> listOf("lua")
+            "perl", "pl" -> listOf("perl")
+            "sh", "bash", "shell" -> listOf("sh", "bash")
+            else -> listOf(lang)
+        }
+        for (bin in candidates) {
+            val paths = listOf("/system/bin/$bin", "/system/xbin/$bin", "/data/local/tmp/$bin")
+            if (paths.any { File(it).canExecute() }) return paths.first { File(it).canExecute() }
+            // which via toybox
+            try {
+                val p = ProcessBuilder("sh", "-c", "command -v $bin 2>/dev/null").start()
+                val out = p.inputStream.bufferedReader().readText().trim()
+                p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+                if (out.isNotEmpty() && File(out).canExecute()) return out
+            } catch (_: Exception) { }
+        }
+        return null
+    }
+
+    @JavascriptInterface
+    fun execLangs(): String {
+        return try {
+            val langs = listOf("python3", "node", "php", "ruby", "lua", "perl", "sh")
+            val arr = JSONArray()
+            for (l in langs) {
+                val bin = resolveLangBinary(l)
+                arr.put(JSONObject().put("lang", l).put("available", bin != null).put("path", bin ?: JSONObject.NULL))
+            }
+            envelope(true, JSONObject().put("runtimes", arr))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun execWhich(bin: String): String {
+        return try {
+            val b = bin.trim().substringAfterLast('/')
+            if (b.isEmpty() || b.contains(' ')) return envelope(false, error = "invalid bin")
+            val path = resolveLangBinary(b) ?: run {
+                val p = ProcessBuilder("sh", "-c", "command -v $b 2>/dev/null").start()
+                val out = p.inputStream.bufferedReader().readText().trim()
+                p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+                out.ifEmpty { null }
+            }
+            envelope(path != null, JSONObject().put("bin", b).put("path", path ?: JSONObject.NULL))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun execLang(lang: String, code: String, timeoutMs: Int): String {
+        val t0 = System.currentTimeMillis()
+        return try {
+            val binary = resolveLangBinary(lang)
+                ?: return envelope(false, error = "runtime not found: $lang — call execLangs()")
+            val ext = when (lang.lowercase()) {
+                "python", "python3", "py" -> ".py"
+                "node", "nodejs", "js" -> ".js"
+                "php" -> ".php"
+                "ruby", "rb" -> ".rb"
+                "lua" -> ".lua"
+                "perl", "pl" -> ".pl"
+                else -> ".sh"
+            }
+            val script = File(workspaceRoot, ".run_${System.currentTimeMillis()}$ext")
+            script.writeText(code)
+            try {
+                val argv = when {
+                    ext == ".py" -> JSONArray().put(binary).put(script.absolutePath)
+                    ext == ".js" -> JSONArray().put(binary).put(script.absolutePath)
+                    ext == ".php" -> JSONArray().put(binary).put(script.absolutePath)
+                    ext == ".rb" -> JSONArray().put(binary).put(script.absolutePath)
+                    ext == ".lua" -> JSONArray().put(binary).put(script.absolutePath)
+                    ext == ".pl" -> JSONArray().put(binary).put(script.absolutePath)
+                    else -> JSONArray().put(binary).put(script.absolutePath)
+                }
+                val result = exec(argv.toString(), timeoutMs.coerceIn(500, 120_000), null)
+                // wrap
+                val jo = try { JSONObject(result) } catch (_: Exception) { JSONObject().put("raw", result) }
+                jo.put("lang", lang).put("binary", binary).put("script", script.name)
+                jo.toString()
+            } finally {
+                script.delete()
+            }
+        } catch (e: Exception) {
+            envelope(false, error = e.message, ms = System.currentTimeMillis() - t0)
+        }
+    }
+
+    @JavascriptInterface
+    fun textRegexFind(text: String, pattern: String, flags: String?): String {
+        return try {
+            val opts = mutableSetOf<RegexOption>()
+            val f = flags ?: ""
+            if (f.contains("i")) opts.add(RegexOption.IGNORE_CASE)
+            if (f.contains("m")) opts.add(RegexOption.MULTILINE)
+            if (f.contains("s")) opts.add(RegexOption.DOT_MATCHES_ALL)
+            val re = if (opts.isEmpty()) Regex(pattern) else Regex(pattern, opts)
+            val matches = JSONArray()
+            re.findAll(text).take(200).forEach { m ->
+                matches.put(
+                    JSONObject()
+                        .put("match", m.value.take(500))
+                        .put("start", m.range.first)
+                        .put("end", m.range.last + 1)
+                )
+            }
+            envelope(true, JSONObject().put("count", matches.length()).put("matches", matches))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun textRegexReplace(text: String, pattern: String, replacement: String): String {
+        return try {
+            val out = Regex(pattern).replace(text, replacement)
+            envelope(true, JSONObject().put("text", out).put("length", out.length))
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun utilBase64(op: String, data: String): String {
+        return try {
+            when (op.lowercase()) {
+                "encode", "enc" -> {
+                    val b64 = Base64.encodeToString(data.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                    envelope(true, JSONObject().put("result", b64))
+                }
+                "decode", "dec" -> {
+                    val bytes = Base64.decode(data, Base64.DEFAULT)
+                    envelope(true, JSONObject().put("result", String(bytes, Charsets.UTF_8)))
+                }
+                else -> envelope(false, error = "op must be encode|decode")
+            }
+        } catch (e: Exception) {
+            envelope(false, error = e.message)
+        }
+    }
+
+    @JavascriptInterface
+    fun utilUuid(): String {
+        return envelope(true, JSONObject().put("uuid", java.util.UUID.randomUUID().toString()))
+    }
+
+    @JavascriptInterface
+    fun utilTime(): String {
+        val now = System.currentTimeMillis()
+        val tz = java.util.TimeZone.getDefault()
+        return envelope(
+            true,
+            JSONObject()
+                .put("epochMs", now)
+                .put("iso", java.time.Instant.ofEpochMilli(now).toString())
+                .put("timezone", tz.id)
+                .put("offsetMs", tz.rawOffset)
+        )
     }
 }

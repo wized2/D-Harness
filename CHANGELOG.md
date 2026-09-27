@@ -1,3 +1,21 @@
+## 1.7.0
+
+### Research & web
+- `research.web` — DuckDuckGo + Wikipedia + page text
+- `research.preview` / `research.html_text` / `research.plan`
+
+### Exec languages
+- `exec.lang` (python3, node, php, ruby, lua, perl, sh)
+- `exec.langs` / `exec.which`
+
+### Workspace & text
+- `workspace.grep`
+- `text.regex_find` / `text.regex_replace`
+- `util.base64` / `util.uuid` / `util.time`
+
+### Agent
+- Expanded system instructions: research workflow, multi-step tools
+
 ## 1.6.4
 
 - **Secrets encrypted at rest** — GitHub PAT and custom keys use EncryptedSharedPreferences + Android Keystore

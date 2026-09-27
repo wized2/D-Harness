@@ -183,15 +183,13 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         findViewById<TextView>(R.id.toolsList).text = """
-            Quick map:
-            list_tools / describe = discover tools
-            workspace.* = sandbox files
-            paste_box = paste UI → workspace file
-            memory.* = scratchpad
-            keys.* = secrets (PAT) — never print values
-            http_request / fetch_url = headers supported
-            github.* = needs PAT key github
-            No shell/exec on device (safety)
+            Quick map (DHarness primary API):
+            selftest / help / capabilities / list_tools
+            research.web · preview · html_text · plan
+            workspace.* · workspace.grep · paste_box
+            exec · exec.lang · exec.langs · toybox
+            http_request (no CORS) · github.* (PAT)
+            sensors · torch · geo · clipboard · memory · keys
         """.trimIndent()
 
         

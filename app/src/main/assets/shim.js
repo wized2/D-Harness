@@ -1008,7 +1008,29 @@
       if (op === 'run') return await nat.toybox.run(args.applet, args.args || []);
       return await nat.toybox.list();
     },
-    async selftest() {
+        async research(args) {
+      const nat = N();
+      if (!nat || !nat.research) throw new Error('research requires native');
+      const op = (args && (args.op || args.action)) || 'web';
+      if (op === 'web') return await nat.research.web(args.query || args.q, args.maxSources || args.limit || 5);
+      if (op === 'preview') return await nat.research.preview(args.url);
+      if (op === 'html_text' || op === 'html') return await nat.research.html_text(args.url, args.maxChars);
+      if (op === 'plan') return await nat.research.plan(args.topic || args.query);
+      throw new Error('unknown research op: ' + op);
+    },
+    async workspace_grep(args) {
+      const nat = N();
+      if (nat && nat.workspace_grep) return await nat.workspace_grep(args.query, args.regex, args.maxHits);
+      throw new Error('workspace_grep requires native');
+    },
+    async exec_lang(args) {
+      const nat = N();
+      if (!nat || !nat.exec_lang) throw new Error('exec_lang requires native');
+      if (args && args.op === 'list') return await nat.exec_langs();
+      if (args && args.op === 'which') return await nat.exec_which(args.bin);
+      return await nat.exec_lang(args.lang, args.code, args.timeout_ms || args.timeoutMs);
+    },
+async selftest() {
       const nat = N();
       const checks = {};
       const tryCall = async (name, fn) => {
