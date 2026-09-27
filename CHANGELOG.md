@@ -1,3 +1,10 @@
+## 1.8.2
+
+- Remove token badge and message star bookmarks
+- **System prompt**: intercept first native Send/Enter; embed once per chat; persist prompt to localStorage
+- **Projects** drawer button on web UI (not only hidden panel)
+- Keep prompt **queue** while generating
+
 ## 1.8.1
 
 ### Fixes

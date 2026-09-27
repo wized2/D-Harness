@@ -521,8 +521,16 @@ class MainActivity : AppCompatActivity() {
             """.trimIndent()
             webView.evaluateJavascript(js) { result ->
                 android.util.Log.i("DHarness", "inject result=$result")
-                val promptJs = "window.__DH_SYSTEM_PROMPT__=" + org.json.JSONObject.quote(AGENT_INSTRUCTIONS) + ";window.__DH_AUTO_SYS_PROMPT=true;"
+                val quoted = org.json.JSONObject.quote(AGENT_INSTRUCTIONS)
+                val promptJs = (
+                    "window.__DH_SYSTEM_PROMPT__=" + quoted + ";" +
+                    "try{localStorage.setItem('__DH_SYSTEM_PROMPT__'," + quoted + ");}catch(e){}" +
+                    "window.__DH_AUTO_SYS_PROMPT=true;"
+                )
                 webView.evaluateJavascript(promptJs, null)
+                // Re-assert after SPA settles
+                webView.postDelayed({ webView.evaluateJavascript(promptJs, null) }, 2000)
+                webView.postDelayed({ webView.evaluateJavascript(promptJs, null) }, 5000)
                 webView.postDelayed({
                     webView.evaluateJavascript(
                         """

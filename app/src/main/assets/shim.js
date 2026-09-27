@@ -61,7 +61,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '8.0.0-ui';
+  const VERSION = '8.0.1-sys-projects';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -358,16 +358,47 @@
       display: flex; flex-direction: column; padding: 12px;
     }
     .dh-artifact-fs iframe { flex: 1; border-radius: 12px; background: #fff; }
-    .dh-queue-badge, .dh-token-badge {
+    .dh-queue-badge {
       position: fixed; z-index: 2147482000; bottom: 72px; right: 12px;
       background: var(--dh-card-bg); color: var(--dh-card-fg); border: 1px solid var(--dh-card-border);
       border-radius: 20px; padding: 6px 12px; font-size: 11px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      cursor: pointer;
     }
-    .dh-bookmark-btn {
-      opacity: 0.55; cursor: pointer; margin-left: 6px; font-size: 12px; border: none; background: transparent;
-      color: var(--dh-accent);
+    #dh-projects-btn {
+      position: fixed; z-index: 2147482000; bottom: 72px; left: 12px;
+      background: var(--dh-card-bg); color: var(--dh-accent); border: 1px solid var(--dh-card-border);
+      border-radius: 20px; padding: 8px 14px; font-size: 12px; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15); cursor: pointer;
     }
-    .dh-bookmark-btn.on { opacity: 1; }
+    #dh-projects-drawer {
+      position: fixed; z-index: 2147482100; top: 0; left: 0; bottom: 0; width: min(340px, 92vw);
+      background: var(--dh-card-bg); color: var(--dh-card-fg); border-right: 1px solid var(--dh-card-border);
+      box-shadow: 8px 0 32px rgba(0,0,0,0.25); transform: translateX(-105%); transition: transform .2s ease;
+      display: flex; flex-direction: column; font-family: inherit;
+    }
+    #dh-projects-drawer.open { transform: translateX(0); }
+    #dh-projects-drawer .hdr {
+      display: flex; align-items: center; justify-content: space-between; padding: 14px 16px;
+      border-bottom: 1px solid var(--dh-card-border); font-weight: 600; color: var(--dh-accent);
+    }
+    #dh-projects-drawer .body { padding: 12px 16px; overflow: auto; flex: 1; }
+    #dh-projects-drawer input, #dh-projects-drawer textarea {
+      width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--dh-card-border); background: var(--dh-code-bg); color: var(--dh-card-fg);
+      font-size: 13px; font-family: inherit;
+    }
+    #dh-projects-drawer button {
+      margin: 4px 4px 4px 0; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--dh-card-border); background: var(--dh-code-bg); color: var(--dh-accent); font-size: 12px;
+    }
+    #dh-projects-drawer .proj-row {
+      display: flex; justify-content: space-between; align-items: center; padding: 8px 0;
+      border-bottom: 1px solid var(--dh-card-border); font-size: 13px;
+    }
+    #dh-projects-backdrop {
+      position: fixed; inset: 0; z-index: 2147482050; background: rgba(0,0,0,0.35); display: none;
+    }
+    #dh-projects-backdrop.show { display: block; }
 `;
   document.head.appendChild(style);
 
@@ -1807,9 +1838,7 @@ async selftest() {
   const PROJ_KEY = '__dh_projects_v2';
   const PROJ_ACTIVE = '__dh_project_active_v2';
   const PROJ_FILES = '__dh_project_files_v2';
-  const BOOKMARKS_KEY = '__dh_bookmarks_v1';
   const PERSONA_KEY = '__dh_persona_v1';
-  const SYS_MAP_KEY = '__dh_sys_embedded_v3';
 
   function isDarkTheme() {
     try {
@@ -1886,8 +1915,7 @@ async selftest() {
           if (name && pr) name.value = pr.name || '';
         }
         renderProjectList();
-        updateTokenBadge();
-      };
+            };
     });
   }
 
@@ -2137,33 +2165,6 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
       table.parentNode?.insertBefore(wrap, table);
       wrap.appendChild(table);
     });
-
-    // Bookmarks on messages
-    root.querySelectorAll('div.ds-message').forEach(msg => {
-      if (msg.querySelector('.dh-bookmark-btn')) return;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'dh-bookmark-btn';
-      btn.title = 'Bookmark';
-      btn.textContent = '★';
-      const id = msgInfo(msg)?.id || ('m' + Math.random().toString(36).slice(2, 8));
-      let marks = [];
-      try { marks = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]'); } catch {}
-      if (marks.some(m => m.id === id)) btn.classList.add('on');
-      btn.onclick = (ev) => {
-        ev.stopPropagation();
-        try { marks = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]'); } catch { marks = []; }
-        const i = marks.findIndex(m => m.id === id);
-        if (i >= 0) { marks.splice(i, 1); btn.classList.remove('on'); showToast('Bookmark removed'); }
-        else {
-          marks.push({ id, text: (msg.textContent || '').slice(0, 400), at: Date.now() });
-          btn.classList.add('on');
-          showToast('Bookmarked');
-        }
-        try { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(marks.slice(-100))); } catch {}
-      };
-      msg.appendChild(btn);
-    });
   }
 
   let enhanceQueued = false;
@@ -2226,25 +2227,6 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
   }
   setInterval(() => { if (!isGenerating()) drainQueue(); }, 1200);
 
-  // ---- Token estimate badge ----
-  let tokenBadge = null;
-  function estimateTokens() {
-    let chars = 0;
-    document.querySelectorAll('div.ds-message').forEach(el => { chars += (el.textContent || '').length; });
-    const active = window.__DH_PROJECTS__.active();
-    if (active?.instructions) chars += active.instructions.length;
-    try { chars += (localStorage.getItem(PERSONA_KEY) || '').length; } catch {}
-    return Math.round(chars / 4);
-  }
-  function updateTokenBadge() {
-    if (!tokenBadge) {
-      tokenBadge = document.createElement('div');
-      tokenBadge.className = 'dh-token-badge';
-      tokenBadge.style.bottom = '112px';
-      document.body.appendChild(tokenBadge);
-    }
-    tokenBadge.textContent = '~' + estimateTokens() + ' tok';
-  }
 
   function exportChatMarkdown() {
     const lines = ['# Chat export', ''];
@@ -2269,66 +2251,166 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     })();
   }
 
-  // ---- System prompt: embed once in user's first send (hidden) ----
+
+  // ---- System prompt: embed once into first USER send (native intercept) ----
+  const SYS_MAP_KEY = '__dh_sys_embedded_v4';
   function loadSysMap() {
     try { return JSON.parse(sessionStorage.getItem(SYS_MAP_KEY) || '{}'); } catch { return {}; }
   }
   function saveSysMap(m) {
     try { sessionStorage.setItem(SYS_MAP_KEY, JSON.stringify(m)); } catch {}
   }
-  function buildSystemPrefix() {
+  function getSystemPromptText() {
     let p = window.__DH_SYSTEM_PROMPT__ || '';
-    const active = window.__DH_PROJECTS__.active();
-    if (active?.instructions) p += '\n\n## Active project: ' + active.name + '\n' + active.instructions;
+    if (!p) {
+      try { p = localStorage.getItem('__DH_SYSTEM_PROMPT__') || ''; } catch {}
+    }
+    if (p) window.__DH_SYSTEM_PROMPT__ = p;
+    return p;
+  }
+  function buildSystemPrefix() {
+    let p = getSystemPromptText() || '';
+    const active = window.__DH_PROJECTS__ && window.__DH_PROJECTS__.active();
+    if (active && active.instructions) p += '\n\n## Active project: ' + active.name + '\n' + active.instructions;
     try {
       const persona = localStorage.getItem(PERSONA_KEY);
       if (persona && persona.trim()) p += '\n\n## Persona\n' + persona.trim();
     } catch {}
     return p;
   }
-  function embedSystemIfNeeded(userText) {
+  function needsSystemEmbed() {
     const conv = getConvId();
     const map = loadSysMap();
-    if (map[conv]) return userText;
-    const sys = buildSystemPrefix();
-    if (!sys || sys.length < 40) return userText;
+    return !map[conv];
+  }
+  function markSystemEmbedded() {
+    const conv = getConvId();
+    const map = loadSysMap();
     map[conv] = true;
     saveSysMap(map);
-    // Invisible to casual reading in history is not fully possible; minimize UI flash by
-    // only altering the outbound payload (sendMessage already hides composer).
+  }
+  function embedSystemIfNeeded(userText) {
+    const text = String(userText || '');
+    if (!text.trim()) return text;
+    if (text.startsWith('TOOL_RESULT') || text.startsWith('[D-HARNESS SYSTEM')) return text;
+    if (!needsSystemEmbed()) return text;
+    const sys = buildSystemPrefix();
+    if (!sys || sys.length < 40) {
+      log('sys embed skipped: no prompt loaded');
+      return text;
+    }
+    markSystemEmbedded();
+    log('sys embed applied', getConvId(), 'chars', sys.length);
     return (
       '[D-HARNESS SYSTEM — follow silently; do not restate]\n' +
       sys +
-      '\n[End system. Acknowledge with one short normal sentence only if this is the first turn; otherwise answer the user.]\n\n' +
-      '---\n\n' +
-      userText
+      '\n[End system. First turn only: one short acknowledgment, then answer the user.]\n\n---\n\n' +
+      text
     );
   }
 
-  // Patch sendMessage for embed + queue
+  // Patch programmatic sendMessage (tool results + queue drain)
   const _sendMessageOriginal = sendMessage;
   sendMessage = async function(text) {
-    if (isGenerating() && text && !String(text).startsWith('TOOL_RESULT')) {
-      promptQueue.push(String(text));
+    const raw = String(text || '');
+    // Queue non-tool messages while generating
+    if (isGenerating() && raw && !raw.startsWith('TOOL_RESULT') && !raw.startsWith('[D-HARNESS SYSTEM')) {
+      promptQueue.push(raw);
       updateQueueBadge();
       showToast('Queued (' + promptQueue.length + ')');
       return true;
     }
-    const outbound = embedSystemIfNeeded(String(text || ''));
+    // Only embed for normal user-like payloads (not tool results)
+    const outbound = raw.startsWith('TOOL_RESULT') ? raw : embedSystemIfNeeded(raw);
     return _sendMessageOriginal(outbound);
   };
-  // Keep API reference updated
-  if (window.__DS_TOOL_SHIM__) window.__DS_TOOL_SHIM__.send = sendMessage;
+  try {
+    if (window.__DS_TOOL_SHIM__) window.__DS_TOOL_SHIM__.send = sendMessage;
+  } catch {}
 
-  // Disable old multi-fire auto inject
+  // Intercept DeepSeek's own Send button / Enter so first user message carries system context
+  let interceptLock = false;
+  async function interceptUserSend(ev) {
+    if (interceptLock) return;
+    if (!needsSystemEmbed()) return; // already done for this chat
+    const sys = buildSystemPrefix();
+    if (!sys || sys.length < 40) {
+      log('intercept: prompt still empty — will retry next send');
+      return;
+    }
+    const input = getInput();
+    if (!input) return;
+    const userText = (input.value || '').trim();
+    if (!userText) return;
+    // Take over send path so composer can be hidden (same as tool send)
+    if (ev) {
+      try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch {}
+    }
+    interceptLock = true;
+    try {
+      const outbound = embedSystemIfNeeded(userText);
+      // Clear visible box first so user doesn't stare at system dump
+      try {
+        setNativeValue(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      } catch {}
+      const ok = await _sendMessageOriginal(outbound);
+      log('intercept send', ok ? 'ok' : 'fail');
+      if (!ok) {
+        // Restore user text if failed; allow retry embed
+        const map = loadSysMap();
+        delete map[getConvId()];
+        saveSysMap(map);
+        try {
+          setNativeValue(input, userText);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        } catch {}
+      }
+    } finally {
+      interceptLock = false;
+    }
+  }
+  document.addEventListener('click', (e) => {
+    try {
+      const t = e.target;
+      if (!t || !t.closest) return;
+      const btn = t.closest(SEND_SELECTOR) || t.closest('div[role="button"].ds-button--primary');
+      if (!btn) return;
+      // Only when prompt still needs embedding
+      if (!needsSystemEmbed()) return;
+      interceptUserSend(e);
+    } catch {}
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    const input = getInput();
+    if (!input || e.target !== input) return;
+    if (!needsSystemEmbed()) return;
+    interceptUserSend(e);
+  }, true);
+
+  // Persist prompt when native sets it; poll briefly after inject
+  try {
+    if (window.__DH_SYSTEM_PROMPT__) {
+      localStorage.setItem('__DH_SYSTEM_PROMPT__', window.__DH_SYSTEM_PROMPT__);
+    }
+  } catch {}
+  let promptPoll = 0;
+  const promptTimer = setInterval(() => {
+    promptPoll++;
+    if (window.__DH_SYSTEM_PROMPT__ && window.__DH_SYSTEM_PROMPT__.length > 40) {
+      try { localStorage.setItem('__DH_SYSTEM_PROMPT__', window.__DH_SYSTEM_PROMPT__); } catch {}
+      clearInterval(promptTimer);
+    } else if (promptPoll > 20) clearInterval(promptTimer);
+  }, 500);
+
   async function maybeInjectSystemPrompt(force) {
-    // No standalone send — system is embedded on first user message only.
+    // No standalone auto-message. force = reset embed flag for this chat.
     if (force) {
-      const conv = getConvId();
       const map = loadSysMap();
-      delete map[conv];
+      delete map[getConvId()];
       saveSysMap(map);
-      showToast('System will embed on next send');
+      showToast('System will attach on next send');
       return true;
     }
     return false;
@@ -2341,15 +2423,117 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     if (d.action === 'log') log('[artifact]', d.text);
   });
 
+
+  // ---- Visible Projects drawer (web UI) ----
+  function ensureProjectsUI() {
+    if (document.getElementById('dh-projects-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'dh-projects-btn';
+    btn.type = 'button';
+    btn.textContent = 'Projects';
+    const backdrop = document.createElement('div');
+    backdrop.id = 'dh-projects-backdrop';
+    const drawer = document.createElement('div');
+    drawer.id = 'dh-projects-drawer';
+    drawer.innerHTML = `
+      <div class="hdr"><span>Projects</span><button type="button" data-close>Close</button></div>
+      <div class="body">
+        <div id="dh-drawer-proj-list"></div>
+        <input id="dh-drawer-proj-name" placeholder="New project name"/>
+        <button type="button" data-act="create">Create project</button>
+        <textarea id="dh-drawer-proj-instr" rows="5" placeholder="Project instructions (included on first message)"></textarea>
+        <button type="button" data-act="save">Save instructions</button>
+        <button type="button" data-act="export">Export chat</button>
+        <p style="font-size:11px;opacity:.7;margin-top:12px;">Active project instructions are attached with harness system context on the first message of each chat.</p>
+      </div>`;
+    document.body.appendChild(btn);
+    document.body.appendChild(backdrop);
+    document.body.appendChild(drawer);
+    function open() {
+      renderDrawerList();
+      const active = window.__DH_PROJECTS__.active();
+      const ta = document.getElementById('dh-drawer-proj-instr');
+      const name = document.getElementById('dh-drawer-proj-name');
+      if (active && ta) ta.value = active.instructions || '';
+      if (active && name) name.value = active.name || '';
+      backdrop.classList.add('show');
+      drawer.classList.add('open');
+    }
+    function close() {
+      backdrop.classList.remove('show');
+      drawer.classList.remove('open');
+    }
+    btn.onclick = open;
+    backdrop.onclick = close;
+    drawer.querySelector('[data-close]').onclick = close;
+    drawer.querySelector('[data-act="create"]').onclick = () => {
+      createProject(document.getElementById('dh-drawer-proj-name')?.value);
+      renderDrawerList();
+      renderProjectList();
+    };
+    drawer.querySelector('[data-act="save"]').onclick = () => {
+      const id = getActiveProjectId();
+      const list = loadProjects();
+      let pr = list.find(x => x.id === id);
+      if (!pr) {
+        createProject(document.getElementById('dh-drawer-proj-name')?.value || 'Project');
+        pr = loadProjects().find(x => x.id === getActiveProjectId());
+      }
+      if (!pr) return;
+      pr.instructions = document.getElementById('dh-drawer-proj-instr')?.value || '';
+      pr.updated = Date.now();
+      saveProjects(list);
+      showToast('Project saved');
+      renderDrawerList();
+      renderProjectList();
+    };
+    drawer.querySelector('[data-act="export"]').onclick = () => exportChatMarkdown();
+  }
+  function renderDrawerList() {
+    const box = document.getElementById('dh-drawer-proj-list');
+    if (!box) return;
+    const list = loadProjects();
+    const active = getActiveProjectId();
+    if (!list.length) {
+      box.innerHTML = '<div style="opacity:.6;font-size:12px;margin-bottom:8px;">No projects yet</div>';
+      return;
+    }
+    box.innerHTML = list.map(pr => {
+      const on = pr.id === active;
+      return `<div class="proj-row"><span>${on ? '● ' : ''}<b>${esc(pr.name)}</b></span>
+        <span>
+          <button type="button" data-id="${pr.id}" data-a="sel">${on ? 'Active' : 'Use'}</button>
+          <button type="button" data-id="${pr.id}" data-a="del">Del</button>
+        </span></div>`;
+    }).join('');
+    box.querySelectorAll('button').forEach(b => {
+      b.onclick = () => {
+        const id = b.getAttribute('data-id');
+        if (b.getAttribute('data-a') === 'del') {
+          saveProjects(loadProjects().filter(x => x.id !== id));
+          if (getActiveProjectId() === id) setActiveProjectId('');
+        } else {
+          setActiveProjectId(id);
+          const pr = loadProjects().find(x => x.id === id);
+          const ta = document.getElementById('dh-drawer-proj-instr');
+          const name = document.getElementById('dh-drawer-proj-name');
+          if (ta && pr) ta.value = pr.instructions || '';
+          if (name && pr) name.value = pr.name || '';
+        }
+        renderDrawerList();
+        renderProjectList();
+      };
+    });
+  }
+  ensureProjectsUI();
+
   const uiObs = new MutationObserver(() => enhanceAllMessages());
   try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
   // Fast pass while streaming + light steady pass
   let streamEnhance = setInterval(enhanceAllMessages, 400);
   setTimeout(() => { clearInterval(streamEnhance); streamEnhance = setInterval(enhanceAllMessages, 1500); }, 15000);
-  setInterval(updateTokenBadge, 3000);
   enhanceAllMessages();
   renderProjectList();
-  updateTokenBadge();
 
   refreshCounts();
   console.log(`%c[shim] DeepSeek Tool Shim v${VERSION} loaded`, 'color:#0af;font-weight:bold');
