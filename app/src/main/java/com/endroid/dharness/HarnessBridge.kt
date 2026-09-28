@@ -297,6 +297,36 @@ class HarnessBridge(
         tool("text.snippet", "First N lines of text", JSONObject().put("text", "string").put("lines", "number?"))
         tool("github.repo", "Compact repo metadata", JSONObject().put("owner", "string").put("repo", "string"))
 
+        // ── Extra coding + GitHub (1.9.7) ─────────────────────
+        tool("code.search", "Regex search workspace source files by extension filter.", JSONObject().put("query", "string").put("path", "string?").put("ext", "string?").put("maxHits", "number?"), example = "return await code.search('class Main', '.', 'kt,java', 30)")
+        tool("code.slice", "Read line range from a workspace file (1-based, inclusive).", JSONObject().put("path", "string").put("start", "number").put("end", "number?"), example = "return await code.slice('src/A.kt', 10, 40)")
+        tool("code.count_lines", "Count lines / non-empty / chars for a file or raw content.", JSONObject().put("path", "string?").put("content", "string?"))
+        tool("code.imports", "Extract import/require/include lines from source.", JSONObject().put("path", "string?").put("content", "string?"))
+        tool("code.detect_lang", "Guess language from path extension or content heuristics.", JSONObject().put("path", "string?").put("content", "string?"))
+        tool("workspace.replace", "Find/replace in a workspace file (literal or regex).", JSONObject().put("path", "string").put("find", "string").put("replace", "string").put("regex", "boolean?"), example = "return await workspace.replace('a.txt', 'foo', 'bar', false)")
+        tool("workspace.head", "First N lines of a workspace file.", JSONObject().put("path", "string").put("lines", "number?"))
+        tool("workspace.tail", "Last N lines of a workspace file.", JSONObject().put("path", "string").put("lines", "number?"))
+        tool("workspace.glob", "List files under path matching a simple glob (*.kt, **/*.js).", JSONObject().put("pattern", "string").put("path", "string?").put("max", "number?"))
+        tool("json.merge", "Shallow-merge two JSON objects (string or object).", JSONObject().put("a", "string").put("b", "string"))
+        tool("json.keys", "List top-level keys of a JSON object.", JSONObject().put("json", "string"))
+        tool("text.word_count", "Words, lines, chars for text.", JSONObject().put("text", "string"))
+        tool("diff.file", "Line-diff two workspace files.", JSONObject().put("pathA", "string").put("pathB", "string"))
+        tool("github.pr_list", "List pull requests (state: open|closed|all).", JSONObject().put("owner", "string").put("repo", "string").put("state", "string?").put("per_page", "number?"), example = "return await github.pr_list('o','r','open',10)")
+        tool("github.pr_merge", "Merge a PR (merge|squash|rebase).", JSONObject().put("owner", "string").put("repo", "string").put("number", "number").put("method", "string?"), example = "return await github.pr_merge('o','r',12,'squash')")
+        tool("github.issue_update", "Update issue title/body/state (open|closed).", JSONObject().put("owner", "string").put("repo", "string").put("number", "number").put("title", "string?").put("body", "string?").put("state", "string?"))
+        tool("github.labels", "List repo labels.", JSONObject().put("owner", "string").put("repo", "string"))
+        tool("github.branches", "List branches.", JSONObject().put("owner", "string").put("repo", "string").put("per_page", "number?"))
+        tool("github.release_latest", "Latest release metadata.", JSONObject().put("owner", "string").put("repo", "string"))
+        tool("github.releases", "List releases.", JSONObject().put("owner", "string").put("repo", "string").put("per_page", "number?"))
+        tool("github.workflows", "List GitHub Actions workflows.", JSONObject().put("owner", "string").put("repo", "string"))
+        tool("github.workflow_runs", "List recent workflow runs.", JSONObject().put("owner", "string").put("repo", "string").put("per_page", "number?"))
+        tool("github.tree", "Git tree listing for a ref (recursive optional).", JSONObject().put("owner", "string").put("repo", "string").put("ref", "string?").put("recursive", "boolean?"))
+        tool("github.user", "Get a GitHub user profile.", JSONObject().put("username", "string"))
+        tool("github.gist_create", "Create a secret/public gist from filename→content map JSON.", JSONObject().put("files", "object").put("description", "string?").put("public", "boolean?"), example = "return await github.gist_create({note:'hi'}, 'demo', false)")
+        tool("github.pr_comment", "Comment on a PR (issue comments API).", JSONObject().put("owner", "string").put("repo", "string").put("number", "number").put("body", "string"))
+        tool("github.forks", "List forks of a repo.", JSONObject().put("owner", "string").put("repo", "string").put("per_page", "number?"))
+        tool("github.tags", "List tags.", JSONObject().put("owner", "string").put("repo", "string").put("per_page", "number?"))
+
         return JSONObject()
             .put("tools", tools)
             .put("native", true)
@@ -3470,4 +3500,546 @@ class HarnessBridge(
                 .put("offsetMs", tz.rawOffset)
         )
     }
+
+
+    // ── Extra coding / GitHub tools (1.9.7) ───────────────────
+
+    private fun readWorkspaceText(path: String): String = safeFile(path).readText()
+
+    @JavascriptInterface
+    fun codeSearch(query: String, path: String?, ext: String?, maxHits: Int): String {
+        return try {
+            val root = if (path.isNullOrBlank()) workspaceRoot else safeFile(path)
+            val limit = if (maxHits <= 0) 40 else maxHits.coerceAtMost(200)
+            val re = Regex(query)
+            val exts = ext?.split(',', ' ')?.map { it.trim().trimStart('.').lowercase() }?.filter { it.isNotEmpty() }?.toSet()
+            val hits = JSONArray()
+            fun walk(f: java.io.File) {
+                if (hits.length() >= limit) return
+                if (f.isDirectory) {
+                    f.listFiles()?.forEach { walk(it) }
+                    return
+                }
+                if (f.length() > 1_500_000) return
+                val name = f.name.lowercase()
+                val e = name.substringAfterLast('.', "")
+                if (exts != null && e !in exts) return
+                f.readLines().forEachIndexed { i, line ->
+                    if (hits.length() >= limit) return
+                    if (re.containsMatchIn(line)) {
+                        val rel = try { f.relativeTo(workspaceRoot).path } catch (_: Exception) { f.name }
+                        hits.put(JSONObject().put("path", rel).put("line", i + 1).put("text", line.trim().take(200)))
+                    }
+                }
+            }
+            walk(root)
+            JSONObject().put("ok", true).put("count", hits.length()).put("hits", hits).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun codeSlice(path: String, start: Int, end: Int): String {
+        return try {
+            val lines = readWorkspaceText(path).split('\n')
+            val s = start.coerceAtLeast(1)
+            val e = (if (end <= 0) lines.size else end).coerceAtMost(lines.size)
+            if (s > e) return JSONObject().put("ok", false).put("error", "bad range").toString()
+            val slice = lines.subList(s - 1, e).joinToString("\n")
+            JSONObject().put("ok", true).put("start", s).put("end", e).put("text", slice).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun codeCountLines(path: String?, content: String?): String {
+        return try {
+            val src = when {
+                !content.isNullOrBlank() -> content
+                !path.isNullOrBlank() -> readWorkspaceText(path)
+                else -> return JSONObject().put("ok", false).put("error", "path or content").toString()
+            }
+            val lines = src.split('\n')
+            JSONObject().put("ok", true)
+                .put("lines", lines.size)
+                .put("nonEmpty", lines.count { it.isNotBlank() })
+                .put("chars", src.length)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun codeImports(path: String?, content: String?): String {
+        return try {
+            val src = when {
+                !content.isNullOrBlank() -> content
+                !path.isNullOrBlank() -> readWorkspaceText(path)
+                else -> return JSONObject().put("ok", false).put("error", "path or content").toString()
+            }
+            val re = Regex("""(?m)^\s*(?:import\s+.+|from\s+\S+\s+import\s+.+|require\s*\(.+\)|#include\s+[<"].+[>"])""")
+            val arr = JSONArray()
+            src.lineSequence().forEach { line ->
+                if (re.containsMatchIn(line)) arr.put(line.trim())
+            }
+            JSONObject().put("ok", true).put("imports", arr).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun codeDetectLang(path: String?, content: String?): String {
+        val p = path ?: ""
+        val ext = p.substringAfterLast('.', "").lowercase()
+        val map = mapOf(
+            "kt" to "kotlin", "kts" to "kotlin", "java" to "java", "js" to "javascript",
+            "ts" to "typescript", "tsx" to "typescript", "py" to "python", "go" to "go",
+            "rs" to "rust", "c" to "c", "cpp" to "cpp", "h" to "c", "md" to "markdown",
+            "json" to "json", "xml" to "xml", "html" to "html", "css" to "css", "sh" to "shell"
+        )
+        var lang = map[ext]
+        val sample = (content ?: "").take(400)
+        if (lang == null) {
+            lang = when {
+                "fun " in sample && "package " in sample -> "kotlin"
+                "def " in sample && "import " in sample -> "python"
+                "fn " in sample && "let " in sample -> "rust"
+                "function " in sample || "const " in sample -> "javascript"
+                else -> "unknown"
+            }
+        }
+        return JSONObject().put("ok", true).put("lang", lang).put("ext", ext).toString()
+    }
+
+    @JavascriptInterface
+    fun workspaceReplace(path: String, find: String, replace: String, regex: Boolean): String {
+        return try {
+            val f = safeFile(path)
+            val src = f.readText()
+            val out = if (regex) Regex(find).replace(src, replace) else src.replace(find, replace)
+            val count = if (regex) Regex(find).findAll(src).count() else src.split(find).size - 1
+            f.writeText(out)
+            JSONObject().put("ok", true).put("replacements", count.coerceAtLeast(0)).put("bytes", out.length).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceHead(path: String, lines: Int): String {
+        return try {
+            val n = if (lines <= 0) 20 else lines.coerceAtMost(500)
+            val text = readWorkspaceText(path).lineSequence().take(n).joinToString("\n")
+            JSONObject().put("ok", true).put("text", text).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceTail(path: String, lines: Int): String {
+        return try {
+            val n = if (lines <= 0) 20 else lines.coerceAtMost(500)
+            val all = readWorkspaceText(path).split('\n')
+            val text = all.takeLast(n).joinToString("\n")
+            JSONObject().put("ok", true).put("text", text).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceGlob(pattern: String, path: String?, max: Int): String {
+        return try {
+            val root = if (path.isNullOrBlank()) workspaceRoot else safeFile(path)
+            val limit = if (max <= 0) 200 else max.coerceAtMost(1000)
+            val pat = pattern.trim()
+            val recursive = pat.contains("**/") || pat.startsWith("**/")
+            val suffix = pat.removePrefix("**/").removePrefix("**")
+            val matches = JSONArray()
+            fun matchName(name: String): Boolean {
+                if (suffix.startsWith("*.")) {
+                    val ext = suffix.removePrefix("*")
+                    return name.endsWith(ext)
+                }
+                return name == suffix || name.contains(suffix.trim('*'))
+            }
+            fun walk(f: java.io.File) {
+                if (matches.length() >= limit) return
+                if (f.isDirectory) {
+                    f.listFiles()?.forEach { walk(it) }
+                    return
+                }
+                if (matchName(f.name)) {
+                    val rel = try { f.relativeTo(workspaceRoot).path } catch (_: Exception) { f.name }
+                    matches.put(rel)
+                }
+            }
+            walk(root)
+            JSONObject().put("ok", true).put("count", matches.length()).put("files", matches).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun jsonMerge(a: String, b: String): String {
+        return try {
+            val oa = JSONObject(a)
+            val ob = JSONObject(b)
+            val keys = ob.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                oa.put(k, ob.get(k))
+            }
+            JSONObject().put("ok", true).put("json", oa).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun jsonKeys(jsonStr: String): String {
+        return try {
+            val o = JSONObject(jsonStr)
+            val arr = JSONArray()
+            val keys = o.keys()
+            while (keys.hasNext()) arr.put(keys.next())
+            JSONObject().put("ok", true).put("keys", arr).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textWordCount(text: String): String {
+        val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return JSONObject().put("ok", true)
+            .put("words", words.size)
+            .put("lines", text.split('\n').size)
+            .put("chars", text.length)
+            .toString()
+    }
+
+    @JavascriptInterface
+    fun diffFile(pathA: String, pathB: String): String {
+        return try {
+            diffLines(readWorkspaceText(pathA), readWorkspaceText(pathB))
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun ghJsonArray(res: JSONObject): JSONArray {
+        val j = res.opt("json")
+        return when (j) {
+            is JSONArray -> j
+            else -> JSONArray()
+        }
+    }
+
+    private fun ghJsonObject(res: JSONObject): JSONObject? = res.optJSONObject("json")
+
+    @JavascriptInterface
+    fun githubPrList(owner: String, repo: String, state: String?, perPage: Int): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val n = if (perPage <= 0) 15 else perPage.coerceAtMost(50)
+            val st = state?.ifBlank { "open" } ?: "open"
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/pulls?state=$st&per_page=$n", null, token)
+            if (!res.optBoolean("ok")) return JSONObject().put("ok", false).put("status", res.optInt("status")).put("error", res.optString("text").take(300)).toString()
+            val arr = ghJsonArray(res)
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val p = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject().put("number", p.optInt("number")).put("title", p.optString("title"))
+                    .put("state", p.optString("state")).put("user", p.optJSONObject("user")?.optString("login"))
+                    .put("html_url", p.optString("html_url")))
+            }
+            JSONObject().put("ok", true).put("prs", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubPrMerge(owner: String, repo: String, number: Int, method: String?): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val m = when (method?.lowercase()) {
+                "squash" -> "squash"
+                "rebase" -> "rebase"
+                else -> "merge"
+            }
+            val body = JSONObject().put("merge_method", m).toString()
+            val res = githubRequestSync("PUT", "/repos/$owner/$repo/pulls/$number/merge", body, token)
+            val j = ghJsonObject(res)
+            JSONObject().put("ok", res.optBoolean("ok"))
+                .put("merged", j?.optBoolean("merged") ?: false)
+                .put("message", j?.optString("message") ?: res.optString("text").take(200))
+                .put("sha", j?.optString("sha"))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubIssueUpdate(owner: String, repo: String, number: Int, title: String?, body: String?, state: String?): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val payload = JSONObject()
+            if (!title.isNullOrBlank()) payload.put("title", title)
+            if (body != null) payload.put("body", body)
+            if (!state.isNullOrBlank()) payload.put("state", state)
+            val res = githubRequestSync("PATCH", "/repos/$owner/$repo/issues/$number", payload.toString(), token)
+            val j = ghJsonObject(res)
+            JSONObject().put("ok", res.optBoolean("ok"))
+                .put("number", j?.optInt("number") ?: number)
+                .put("state", j?.optString("state"))
+                .put("html_url", j?.optString("html_url"))
+                .put("error", if (!res.optBoolean("ok")) res.optString("text").take(300) else null)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubLabels(owner: String, repo: String): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/labels?per_page=50", null, token)
+            val arr = ghJsonArray(res)
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject().put("name", o.optString("name")).put("color", o.optString("color")))
+            }
+            JSONObject().put("ok", res.optBoolean("ok")).put("labels", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubBranches(owner: String, repo: String, perPage: Int): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val n = if (perPage <= 0) 30 else perPage.coerceAtMost(100)
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/branches?per_page=$n", null, token)
+            val arr = ghJsonArray(res)
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject().put("name", o.optString("name")).put("sha", o.optJSONObject("commit")?.optString("sha")?.take(8)))
+            }
+            JSONObject().put("ok", res.optBoolean("ok")).put("branches", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubReleaseLatest(owner: String, repo: String): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/releases/latest", null, token)
+            val j = ghJsonObject(res)
+            JSONObject().put("ok", res.optBoolean("ok"))
+                .put("tag", j?.optString("tag_name"))
+                .put("name", j?.optString("name"))
+                .put("html_url", j?.optString("html_url"))
+                .put("published_at", j?.optString("published_at"))
+                .put("body", j?.optString("body")?.take(2000))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubReleases(owner: String, repo: String, perPage: Int): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val n = if (perPage <= 0) 10 else perPage.coerceAtMost(30)
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/releases?per_page=$n", null, token)
+            val arr = ghJsonArray(res)
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject().put("tag", o.optString("tag_name")).put("name", o.optString("name")).put("html_url", o.optString("html_url")))
+            }
+            JSONObject().put("ok", res.optBoolean("ok")).put("releases", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubWorkflows(owner: String, repo: String): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/actions/workflows", null, token)
+            val j = ghJsonObject(res)
+            val arr = j?.optJSONArray("workflows") ?: JSONArray()
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject().put("id", o.optLong("id")).put("name", o.optString("name")).put("state", o.optString("state")).put("path", o.optString("path")))
+            }
+            JSONObject().put("ok", res.optBoolean("ok")).put("workflows", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubWorkflowRuns(owner: String, repo: String, perPage: Int): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val n = if (perPage <= 0) 10 else perPage.coerceAtMost(30)
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/actions/runs?per_page=$n", null, token)
+            val j = ghJsonObject(res)
+            val arr = j?.optJSONArray("workflow_runs") ?: JSONArray()
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject()
+                    .put("id", o.optLong("id"))
+                    .put("name", o.optString("name"))
+                    .put("status", o.optString("status"))
+                    .put("conclusion", o.optString("conclusion"))
+                    .put("html_url", o.optString("html_url"))
+                    .put("head_branch", o.optString("head_branch")))
+            }
+            JSONObject().put("ok", res.optBoolean("ok")).put("runs", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubTree(owner: String, repo: String, ref: String?, recursive: Boolean): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val r = ref?.ifBlank { "HEAD" } ?: "HEAD"
+            val path = "/repos/$owner/$repo/git/trees/$r" + if (recursive) "?recursive=1" else ""
+            val res = githubRequestSync("GET", path, null, token)
+            val j = ghJsonObject(res)
+            val arr = j?.optJSONArray("tree") ?: JSONArray()
+            val out = JSONArray()
+            val limit = 300
+            for (i in 0 until minOf(arr.length(), limit)) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject().put("path", o.optString("path")).put("type", o.optString("type")).put("size", o.optInt("size")))
+            }
+            JSONObject().put("ok", res.optBoolean("ok")).put("truncated", j?.optBoolean("truncated") ?: false).put("tree", out).put("count", out.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubUser(username: String): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val res = githubRequestSync("GET", "/users/$username", null, token)
+            val j = ghJsonObject(res)
+            JSONObject().put("ok", res.optBoolean("ok"))
+                .put("login", j?.optString("login"))
+                .put("name", j?.optString("name"))
+                .put("bio", j?.optString("bio"))
+                .put("public_repos", j?.optInt("public_repos"))
+                .put("followers", j?.optInt("followers"))
+                .put("html_url", j?.optString("html_url"))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubGistCreate(filesJson: String, description: String?, isPublic: Boolean): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val filesIn = JSONObject(filesJson)
+            val files = JSONObject()
+            val keys = filesIn.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                files.put(k, JSONObject().put("content", filesIn.get(k).toString()))
+            }
+            val payload = JSONObject()
+                .put("description", description ?: "")
+                .put("public", isPublic)
+                .put("files", files)
+            val res = githubRequestSync("POST", "/gists", payload.toString(), token)
+            val j = ghJsonObject(res)
+            JSONObject().put("ok", res.optBoolean("ok"))
+                .put("id", j?.optString("id"))
+                .put("html_url", j?.optString("html_url"))
+                .put("error", if (!res.optBoolean("ok")) res.optString("text").take(300) else null)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubPrComment(owner: String, repo: String, number: Int, body: String): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val payload = JSONObject().put("body", body).toString()
+            val res = githubRequestSync("POST", "/repos/$owner/$repo/issues/$number/comments", payload, token)
+            val j = ghJsonObject(res)
+            JSONObject().put("ok", res.optBoolean("ok"))
+                .put("id", j?.optLong("id"))
+                .put("html_url", j?.optString("html_url"))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubForks(owner: String, repo: String, perPage: Int): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val n = if (perPage <= 0) 10 else perPage.coerceAtMost(30)
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/forks?per_page=$n", null, token)
+            val arr = ghJsonArray(res)
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject().put("full_name", o.optString("full_name")).put("html_url", o.optString("html_url")))
+            }
+            JSONObject().put("ok", res.optBoolean("ok")).put("forks", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubTags(owner: String, repo: String, perPage: Int): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val n = if (perPage <= 0) 20 else perPage.coerceAtMost(50)
+            val res = githubRequestSync("GET", "/repos/$owner/$repo/tags?per_page=$n", null, token)
+            val arr = ghJsonArray(res)
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out.put(JSONObject().put("name", o.optString("name")).put("sha", o.optJSONObject("commit")?.optString("sha")?.take(8)))
+            }
+            JSONObject().put("ok", res.optBoolean("ok")).put("tags", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
 }

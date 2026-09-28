@@ -674,25 +674,25 @@ Wrong: inventing APIs, calling tools that are not in `list_tools`, stacking mult
 Example: `return await workspace.write('notes/todo.md', '# Todo\\n')`
 
 ### Coding helpers
-- `diff.lines(a, b)` — line diff
-- `json.pretty(json, indent?)` · `json.parse(json)` · `json.query(json, path)` — path like `user.name` or `items[0].id`
-- `text.regex_find(text, pattern, flags?)` · `text.regex_replace(...)`
-- `crypto.hash(algo, data)` — algo: sha256|sha1|md5
-- `exec.lang(lang, code)` — lang only if present: python3|node|sh|… ; first `return await exec.langs()`
-- `exec(cmd, args?)` — allowlisted binaries; cwd = workspace
-- `code.outline(path|content)` — extract functions/classes/headers (added helper)
-- `paste_box(filename)` — UI paste for large text; no timeout; returns saved path
+- `code.outline` · `code.search(query, path?, ext?, maxHits?)` · `code.slice(path, start, end?)` · `code.count_lines` · `code.imports` · `code.detect_lang` · `code.find_todos`
+- `workspace.replace(path, find, replace, regex?)` · `workspace.head` · `workspace.tail` · `workspace.glob(pattern, path?)` · `workspace.grep`
+- `diff.lines(a, b)` · `diff.file(pathA, pathB)`
+- `json.pretty` · `json.parse` · `json.query` · `json.merge` · `json.keys`
+- `text.regex_find` · `text.regex_replace` · `text.word_count`
+- `crypto.hash` · `exec.lang` · `exec` · `paste_box(filename)`
 
 ### Research / HTTP
 - `research.plan(topic)` → `research.web(query, maxSources?)` → `research.preview(url)` / `research.html_text(url, maxChars?)`
 - `http_request(method, url, headers?, body?)` — no browser CORS
 
 ### GitHub (requires `keys.set('github', PAT)` once; never echo the PAT)
-- Identity: `github.me()` · `github.repos()` · `github.repo(owner, repo)`
-- Files: `github.contents` / `github.pull` / `github.push_file` · `github.compare` · `github.branch_create`
-- Issues/PRs: `github.issues` · `github.issue` · `github.issue_comment` · `github.pr_create` · `github.pr_files` · `github.pr_commits` · `github.pr_reviews` · `github.search`
-- Escape hatch: `github.request(method, path, body?)` for any REST path
-Example: `return await github.pr_files('owner','repo', 12)`
+- Identity: `github.me` · `github.user(username)` · `github.repos` · `github.repo`
+- Files/tree: `github.contents` · `github.pull` · `github.push_file` · `github.tree` · `github.compare` · `github.branches` · `github.branch_create` · `github.tags`
+- Issues: `github.issues` · `github.issue` · `github.issue_create` · `github.issue_update` · `github.issue_comment` · `github.labels`
+- PRs: `github.pr_list` · `github.pr` · `github.pr_create` · `github.pr_files` · `github.pr_commits` · `github.pr_reviews` · `github.pr_comment` · `github.pr_merge`
+- Actions/releases: `github.workflows` · `github.workflow_runs` · `github.release_latest` · `github.releases` · `github.commits`
+- Extra: `github.search` · `github.forks` · `github.gist_create` · `github.request` (any REST path)
+Example: `return await github.pr_list('owner','repo','open',10)`
 
 ### Device
 `device.info` · battery · network · `geo.get` · `sensors.*` · `torch.set` · clipboard · notify · vibrate

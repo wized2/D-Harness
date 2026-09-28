@@ -1,3 +1,8 @@
+## 1.9.7
+
+- +28 coding/GitHub tools: code.search/slice/imports, workspace.replace/glob/head/tail, github.pr_list/merge, workflows, releases, tree, gist, …
+- System prompt tool map updated
+
 ## 1.9.6
 
 - **Critical:** restore shim after broken minify (tool calls were dead)
