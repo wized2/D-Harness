@@ -61,7 +61,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '8.2.0-artifacts';
+  const VERSION = '8.2.1-theme-sys';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1850,17 +1850,42 @@ async selftest() {
     return p;
   }
   function needsSystemEmbed() {
+    // Global cooldown: first message on a new chat changes the URL id — must not re-embed
+    try {
+      const ts = Number(sessionStorage.getItem('__dh_sys_embed_ts') || 0);
+      if (ts && (Date.now() - ts) < 180000) return false; // 3 minutes
+      if (sessionStorage.getItem('__dh_sys_embed_global') === '1') {
+        // Still respect cooldown window only
+        if (ts && (Date.now() - ts) < 180000) return false;
+      }
+    } catch {}
     const id = getConvId();
     if (sysEmbedDone[id]) return false;
     const map = loadSysMap();
-    return !map[id];
+    if (map[id]) return false;
+    // Mark common pre-id path segments as already handled if any were set
+    const parts = (location.pathname || '').split('/').filter(Boolean);
+    for (const p of parts) {
+      if (sysEmbedDone[p] || map[p]) return false;
+    }
+    return true;
   }
   function markSystemEmbedded() {
     const id = getConvId();
-    sysEmbedDone[id] = true;
     const map = loadSysMap();
-    map[id] = true;
+    const parts = (location.pathname || '').split('/').filter(Boolean);
+    const all = new Set([id, 'unknown', 'chat', 's', ...parts]);
+    all.forEach(k => {
+      if (!k) return;
+      sysEmbedDone[k] = true;
+      map[k] = true;
+    });
+    try {
+      sessionStorage.setItem('__dh_sys_embed_ts', String(Date.now()));
+      sessionStorage.setItem('__dh_sys_embed_global', '1');
+    } catch {}
     saveSysMap(map);
+    log('sys embed marked', id, 'parts', parts.join('/'));
   }
   function embedSystemIfNeeded(userText) {
     const text = String(userText || '');
@@ -1948,6 +1973,22 @@ async selftest() {
     if (!input || e.target !== input) return;
     if (needsSystemEmbed()) interceptFirstSend(e);
   }, true);
+
+
+  // When DeepSeek rewrites /chat → /chat/<id> after first send, copy embed flag
+  let __dhLastPath = location.pathname;
+  setInterval(() => {
+    if (location.pathname === __dhLastPath) return;
+    const prev = __dhLastPath;
+    __dhLastPath = location.pathname;
+    try {
+      const ts = Number(sessionStorage.getItem('__dh_sys_embed_ts') || 0);
+      if (ts && (Date.now() - ts) < 180000) {
+        markSystemEmbedded(); // mark new id under cooldown
+        log('sys embed transferred on nav', prev, '→', location.pathname);
+      }
+    } catch {}
+  }, 400);
 
   try {
     if (window.__DH_SYSTEM_PROMPT__) localStorage.setItem('__DH_SYSTEM_PROMPT__', window.__DH_SYSTEM_PROMPT__);

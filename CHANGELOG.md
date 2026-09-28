@@ -1,3 +1,8 @@
+## 1.9.2
+
+- **Theme**: fix Claude theme not showing — allow reinject; apply theme even when shim already live; proper remove when off
+- **System prompt**: stop double-send when new chat URL gains an id (3 min global cooldown + path-segment marks + nav transfer)
+
 ## 1.9.1
 
 - **Removed** Projects, Queue, and Research UI from the web layer

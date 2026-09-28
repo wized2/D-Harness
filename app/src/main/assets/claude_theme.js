@@ -20,7 +20,15 @@
  */
 (function () {
   'use strict';
-  if (window.__CLAUDE_DS_THEME__) { console.log('[claude-theme] already applied'); return; }
+  // Re-apply path: if theme API already exists, just reinject CSS (DeepSeek SPA drops <style>)
+  if (window.__CLAUDE_DS_THEME__ && typeof window.__CLAUDE_DS_THEME__.reinject === 'function') {
+    try { window.__CLAUDE_DS_THEME__.reinject(); console.log('[claude-theme] reinjected'); } catch (e) {}
+    return;
+  }
+  if (window.__CLAUDE_DS_THEME__ === true) {
+    // partial init — fall through after clearing
+    try { delete window.__CLAUDE_DS_THEME__; } catch (e) {}
+  }
   window.__CLAUDE_DS_THEME__ = true;
 
   // ============================================================

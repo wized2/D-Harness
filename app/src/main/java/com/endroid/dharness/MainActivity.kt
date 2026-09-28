@@ -482,8 +482,21 @@ class MainActivity : AppCompatActivity() {
                   });
                   // Skip full re-inject if same stable shim already live (avoids clearing session state)
                   var existing = window.__DS_TOOL_SHIM__;
-                  if (existing && existing.version && String(existing.version).indexOf('7.5') === 0 && !window.__DS_FORCE_REINJECT__) {
+                  if (existing && existing.version && !window.__DS_FORCE_REINJECT__) {
                     console.log('[D-Harness] shim already live', existing.version);
+                    // Still apply/remove theme without full reinject
+                    try {
+                      if ($autoTheme) {
+                        if (window.__CLAUDE_DS_THEME__ && window.__CLAUDE_DS_THEME__.reinject) {
+                          window.__CLAUDE_DS_THEME__.reinject();
+                        } else {
+                          try { delete window.__CLAUDE_DS_THEME__; } catch(e) {}
+                          (0, eval)(dec('$themeB64'));
+                        }
+                      } else if (window.__CLAUDE_DS_THEME__ && window.__CLAUDE_DS_THEME__.remove) {
+                        window.__CLAUDE_DS_THEME__.remove();
+                      }
+                    } catch(e) { console.error('theme-live', e); }
                     return 'already';
                   }
                   try {
@@ -495,17 +508,36 @@ class MainActivity : AppCompatActivity() {
                   try { (0, eval)(shim); } catch(e) { console.error('shim', e); }
                   if ($autoTheme) {
                     try {
-                      var theme = dec('$themeB64');
-                      (0, eval)(theme);
-                      console.log('[D-Harness] Claude theme injected');
+                      // Clear sticky guard so theme script can run / reinject after SPA nav
+                      try {
+                        if (window.__CLAUDE_DS_THEME__ && window.__CLAUDE_DS_THEME__.reinject) {
+                          window.__CLAUDE_DS_THEME__.reinject();
+                          console.log('[D-Harness] Claude theme reinjected');
+                        } else {
+                          try { delete window.__CLAUDE_DS_THEME__; } catch(e1) {}
+                          var theme = dec('$themeB64');
+                          (0, eval)(theme);
+                          console.log('[D-Harness] Claude theme injected');
+                        }
+                      } catch(e0) {
+                        try { delete window.__CLAUDE_DS_THEME__; } catch(e1) {}
+                        var theme2 = dec('$themeB64');
+                        (0, eval)(theme2);
+                        console.log('[D-Harness] Claude theme injected (retry)');
+                      }
                     } catch(e) { console.error('theme', e); }
                   } else {
-                    // Remove theme if previously injected and now off
+                    // Remove theme completely when off
                     try {
-                      var st = document.getElementById('claude-ds-theme-v3');
-                      if (st) st.remove();
-                      var ft = document.getElementById('claude-ds-fonts-v3');
-                      if (ft) ft.remove();
+                      if (window.__CLAUDE_DS_THEME__ && window.__CLAUDE_DS_THEME__.remove) {
+                        window.__CLAUDE_DS_THEME__.remove();
+                      } else {
+                        var st = document.getElementById('claude-ds-theme-v3');
+                        if (st) st.remove();
+                        var ft = document.getElementById('claude-ds-fonts-v3');
+                        if (ft) ft.remove();
+                        try { delete window.__CLAUDE_DS_THEME__; } catch(e2) {}
+                      }
                     } catch(e) {}
                   }
                   try {
