@@ -16,4 +16,5 @@
     <color name="md_surface_container">#EBE4D9</color>
     <color name="md_surface_container_high">#E4DCD0</color>
     <color name="md_outline">#A8A29E</color>
+    <color name="ic_launcher_background">#1C1917</color>
 </resources>
