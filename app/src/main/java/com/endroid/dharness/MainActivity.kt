@@ -717,3 +717,4 @@ Also: `artifact`, `html`, `simulation`. Pure JS only; optional `parent.postMessa
 Match the user's language. Precise. No long preamble after the first acknowledgment.
 """
 }
+}

@@ -237,6 +237,35 @@ class WorkspaceBrowserActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun promptNewFolder() {
+        val input = EditText(this).apply {
+            hint = "folder name"
+            setSingleLine()
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("New folder")
+            .setView(input)
+            .setPositiveButton("Create") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty() || name.contains('/') || name.contains("..")) {
+                    Toast.makeText(this, "Invalid name", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val f = File(current, name)
+                if (f.exists()) {
+                    Toast.makeText(this, "Already exists", Toast.LENGTH_SHORT).show()
+                } else if (f.mkdirs()) {
+                    refresh()
+                    Toast.makeText(this, "Folder created", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Create failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+
     private fun copyText(s: String) {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("workspace", s))
