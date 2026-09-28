@@ -528,9 +528,7 @@ class MainActivity : AppCompatActivity() {
                     "window.__DH_AUTO_SYS_PROMPT=true;"
                 )
                 webView.evaluateJavascript(promptJs, null)
-                // Re-assert after SPA settles
-                webView.postDelayed({ webView.evaluateJavascript(promptJs, null) }, 2000)
-                webView.postDelayed({ webView.evaluateJavascript(promptJs, null) }, 5000)
+                webView.postDelayed({ webView.evaluateJavascript(promptJs, null) }, 1500)
                 webView.postDelayed({
                     webView.evaluateJavascript(
                         """
@@ -637,7 +635,8 @@ return await (async () => {
 ```
 Conventions: (1) DHarness.method (2) run_js globals (3) flat {tool,args} (4) group {tool,args:{op}}.
 
-## Artifacts (Claude / Gemini style)
+## Artifacts (HTML embeds)
+
 When the user benefits from a runnable UI, demo, or visual, emit a fenced block:
 
 ```html-artifact
@@ -650,9 +649,6 @@ Also supported: `artifact`, `html`, `simulation`, `interactive`.
 - Charts: language `chart` with JSON `{"labels":["A"],"values":[1]}` or CSV `label,value`.
 - File trees: language `file-tree`.
 - Save durable copies under `workspace/artifacts/<name>/` when useful.
-
-## Projects
-Harness panel → Projects, or `window.__DH_PROJECTS__`. Active project instructions apply. Store files under `workspace/projects/<name>/`.
 
 ## Research
 research.plan → research.web → research.preview / html_text → workspace notes under `workspace/research/`. Cite sources; do not fabricate.

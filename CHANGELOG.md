@@ -1,3 +1,11 @@
+## 1.9.1
+
+- **Removed** Projects, Queue, and Research UI from the web layer
+- **Artifacts**: loading placeholder while model streams; blob URL load (less black/freeze); no copy button; smoother fullscreen
+- **Charts**: loading state while incomplete; faster settle
+- **System prompt**: single embed per chat (in-memory + session mark; intercept uses original send)
+- Theme tokens: Claude accent when theme on, DeepSeek-like M3 when off
+
 ## 1.9.0
 
 ### Web UI (Better DeepSeek–inspired)

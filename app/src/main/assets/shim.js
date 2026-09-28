@@ -1,6 +1,6 @@
 /*!
  * DeepSeek Tool Shim
- * @version 8.0.0-theme-projects-queue (upstream dsh.js + D-Harness native bridge tools)
+ * @version 8.2.0-artifacts (upstream dsh.js + D-Harness native bridge tools)
  * @description run_js tool bridge + draggable status dot + management panel
  *
  * 7.6.1:
@@ -61,7 +61,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '8.1.0-bds-ui';
+  const VERSION = '8.2.0-artifacts';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -358,88 +358,61 @@
       display: flex; flex-direction: column; padding: 12px;
     }
     .dh-artifact-fs iframe { flex: 1; border-radius: 12px; background: #fff; }
-    /* Queue panel above composer (BDS-style) */
-    .dh-queue-panel {
-      margin: 0 0 8px 0; border-radius: 12px; overflow: hidden;
-      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg); color: var(--dh-card-fg);
-      font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-    }
-    .dh-queue-panel[hidden] { display: none !important; }
-    .dh-queue-panel .dh-q-hdr {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 8px 12px; background: var(--dh-code-bg); border-bottom: 1px solid var(--dh-card-border);
-      font-weight: 600; font-size: 12px; color: var(--dh-accent);
-    }
-    .dh-queue-panel .dh-q-hdr .acts { display: flex; gap: 6px; align-items: center; }
-    .dh-queue-panel .dh-q-item {
-      display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px;
-      border-bottom: 1px solid var(--dh-card-border);
-    }
-    .dh-queue-panel .dh-q-item:last-child { border-bottom: none; }
-    .dh-queue-panel .dh-q-text {
-      flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word;
-      font-size: 12px; line-height: 1.4; opacity: 0.95; max-height: 4.5em; overflow: hidden;
-    }
-    .dh-queue-panel button {
-      flex-shrink: 0; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
-      border: 1px solid var(--dh-card-border); background: var(--dh-code-bg); color: var(--dh-accent);
-    }
-    .dh-queue-panel button.danger { color: #e55; }
-    /* Sidebar Projects entry */
-    .dh-sidebar-projects {
-      display: flex; align-items: center; gap: 8px; margin: 6px 10px; padding: 10px 12px;
-      border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 500;
-      color: var(--dh-card-fg, inherit); border: 1px solid transparent;
-    }
-    .dh-sidebar-projects:hover { background: rgba(127,127,127,0.12); }
-    .dh-sidebar-projects svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.85; }
-    /* Research toggle next to DeepThink / Search */
-    .dh-research-toggle {
-      display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; margin: 0 4px;
-      border-radius: 999px; cursor: pointer; user-select: none; font-size: 13px;
-      border: 1px solid var(--dh-card-border, rgba(127,127,127,0.25));
-      background: transparent; color: inherit;
-    }
-    .dh-research-toggle.on {
-      background: rgba(77,107,254,0.12); border-color: var(--dh-accent, #4d6bfe);
-      color: var(--dh-accent, #4d6bfe); font-weight: 600;
-    }
-    .dh-research-card {
-      margin: 10px 0; padding: 12px 14px; border-radius: 12px;
-      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg); color: var(--dh-card-fg);
-    }
-    .dh-research-card h4 { margin: 0 0 6px; font-size: 13px; color: var(--dh-accent); }
-    .dh-research-card .step { font-size: 12px; opacity: 0.85; margin: 2px 0; }
 
-    #dh-projects-drawer {
-      position: fixed; z-index: 2147482100; top: 0; left: 0; bottom: 0; width: min(340px, 92vw);
-      background: var(--dh-card-bg); color: var(--dh-card-fg); border-right: 1px solid var(--dh-card-border);
-      box-shadow: 8px 0 32px rgba(0,0,0,0.25); transform: translateX(-105%); transition: transform .2s ease;
-      display: flex; flex-direction: column; font-family: inherit;
+    /* Artifacts + charts (theme-aware, M3-ish) */
+    .dh-artifact {
+      margin: 12px 0; border-radius: 16px; overflow: hidden;
+      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg);
+      color: var(--dh-card-fg); box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
-    #dh-projects-drawer.open { transform: translateX(0); }
-    #dh-projects-drawer .hdr {
-      display: flex; align-items: center; justify-content: space-between; padding: 14px 16px;
-      border-bottom: 1px solid var(--dh-card-border); font-weight: 600; color: var(--dh-accent);
+    .dh-artifact-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 10px 14px; background: var(--dh-code-bg);
+      border-bottom: 1px solid var(--dh-card-border); font-size: 12px; color: var(--dh-muted);
     }
-    #dh-projects-drawer .body { padding: 12px 16px; overflow: auto; flex: 1; }
-    #dh-projects-drawer input, #dh-projects-drawer textarea {
-      width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px 10px; border-radius: 8px;
-      border: 1px solid var(--dh-card-border); background: var(--dh-code-bg); color: var(--dh-card-fg);
-      font-size: 13px; font-family: inherit;
+    .dh-artifact-bar b { color: var(--dh-accent); font-weight: 600; }
+    .dh-artifact-bar .acts { display: flex; gap: 6px; }
+    .dh-artifact-bar button {
+      font-size: 11px; padding: 4px 10px; border-radius: 20px; cursor: pointer;
+      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg); color: var(--dh-accent);
     }
-    #dh-projects-drawer button {
-      margin: 4px 4px 4px 0; padding: 6px 12px; border-radius: 8px; cursor: pointer;
-      border: 1px solid var(--dh-card-border); background: var(--dh-code-bg); color: var(--dh-accent); font-size: 12px;
+    .dh-artifact-frame-wrap { position: relative; background: #f8f9fa; min-height: 120px; }
+    html.dark .dh-artifact-frame-wrap, body.dark .dh-artifact-frame-wrap { background: #1e1f24; }
+    .dh-artifact iframe {
+      width: 100%; height: 380px; border: 0; display: block; background: #fff;
     }
-    #dh-projects-drawer .proj-row {
-      display: flex; justify-content: space-between; align-items: center; padding: 8px 0;
-      border-bottom: 1px solid var(--dh-card-border); font-size: 13px;
+    .dh-artifact.dh-artifact-tall iframe { height: 520px; }
+    .dh-artifact-loading {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; min-height: 140px; padding: 24px; color: var(--dh-muted);
+      background: var(--dh-code-bg); font-size: 13px;
     }
-    #dh-projects-backdrop {
-      position: fixed; inset: 0; z-index: 2147482050; background: rgba(0,0,0,0.35); display: none;
+    .dh-artifact-loading .spin {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 3px solid var(--dh-card-border); border-top-color: var(--dh-accent);
+      animation: dh-spin .8s linear infinite;
     }
-    #dh-projects-backdrop.show { display: block; }
+    @keyframes dh-spin { to { transform: rotate(360deg); } }
+    .dh-artifact-fs {
+      position: fixed; inset: 0; z-index: 2147483000; background: rgba(0,0,0,0.55);
+      display: flex; flex-direction: column; padding: 12px;
+    }
+    .dh-artifact-fs .dh-artifact-frame-wrap { flex: 1; border-radius: 12px; overflow: hidden; }
+    .dh-artifact-fs iframe { height: 100% !important; min-height: 0; }
+    .dh-ui-card {
+      margin: 10px 0; padding: 12px 14px; border-radius: 16px;
+      background: var(--dh-card-bg); border: 1px solid var(--dh-card-border);
+      color: var(--dh-card-fg); font-family: inherit;
+    }
+    .dh-ui-card h4 { margin: 0 0 8px; font-size: 13px; color: var(--dh-accent); font-weight: 600; }
+    .dh-chart svg { width: 100%; max-width: 420px; height: auto; display: block; }
+    .dh-chart .bar { fill: var(--dh-bar); }
+    .dh-chart .axis { stroke: var(--dh-muted); stroke-width: 1; opacity: 0.45; }
+    .dh-chart text { fill: var(--dh-muted); font-size: 10px; }
+    .dh-chart-loading {
+      padding: 16px; text-align: center; color: var(--dh-muted); font-size: 12px;
+      border-radius: 16px; border: 1px dashed var(--dh-card-border); background: var(--dh-code-bg);
+    }
 `;
   document.head.appendChild(style);
 
@@ -494,22 +467,6 @@
         <button data-act="copyLogs">Copy logs</button>
         <button data-act="stop" class="danger wide">Stop shim</button>
       </div>
-      <hr/>
-      <div class="ds-shim-section-title">Projects</div>
-      <div id="dh-proj-list" style="max-height:140px;overflow:auto;margin-bottom:8px;"></div>
-      <div class="ds-shim-row" style="gap:6px;flex-wrap:wrap;">
-        <input id="dh-proj-name" placeholder="Project name" style="flex:1;min-width:100px;background:#0d1520;border:1px solid rgba(100,140,180,0.3);color:#def;border-radius:8px;padding:6px 8px;font-size:12px;"/>
-        <button data-act="projCreate">New</button>
-        <button data-act="projActive">Set active</button>
-      </div>
-      <textarea id="dh-proj-instr" placeholder="Project instructions (sent with system prompt)" rows="3" style="width:100%;margin-top:6px;background:#0d1520;border:1px solid rgba(100,140,180,0.3);color:#def;border-radius:8px;padding:8px;font-size:12px;resize:vertical;"></textarea>
-      <button data-act="projSaveInstr" class="wide" style="margin-top:6px;">Save instructions</button>
-      <hr/>
-      <div class="ds-shim-section-title">Persona</div>
-      <textarea id="dh-persona" placeholder="Optional persona / style" rows="2" style="width:100%;background:#0d1520;border:1px solid rgba(100,140,180,0.3);color:#def;border-radius:8px;padding:8px;font-size:12px;"></textarea>
-      <button data-act="savePersona" class="wide" style="margin-top:6px;">Save persona</button>
-      <button data-act="exportChat" class="wide" style="margin-top:6px;">Export chat</button>
-      <hr/>
       <label class="ds-shim-toggle"><input type="checkbox" data-opt="uiEnhance" checked /><span>In-chat charts / code / tables</span></label>
     </div>
   `;
@@ -1848,9 +1805,8 @@ async selftest() {
       return s;
     },
     logs: () => LOGS.slice(),
-    projects: () => window.__DH_PROJECTS__,
-    enhanceUI: () => enhanceAllMessages(),
-    maybeInjectSystemPrompt: (f) => maybeInjectSystemPrompt(!!f),
+    enhanceUI: () => { try { enhanceAllMessages(); } catch(e) {} },
+    maybeInjectSystemPrompt: (f) => { try { return maybeInjectSystemPrompt(!!f); } catch(e) { return false; } },
     artifacts: true,
     inspect() {
       const out = [];
@@ -1872,383 +1828,13 @@ async selftest() {
 
 
 
+
   // ============================================================
-  // UI enhancer v8: theme-aware artifacts/charts, projects, queue,
-  // bookmarks, export, token estimate, persona — BDS-inspired
+  // Artifacts + charts only (no projects / queue / research)
   // ============================================================
-  const PROJ_KEY = '__dh_projects_v2';
-  const PROJ_ACTIVE = '__dh_project_active_v2';
-  const PROJ_FILES = '__dh_project_files_v2';
-  const PERSONA_KEY = '__dh_persona_v1';
+  const SYS_MAP_KEY = '__dh_sys_embedded_v5';
+  let sysEmbedDone = Object.create(null); // in-memory per session
 
-  function isDarkTheme() {
-    try {
-      if (document.getElementById('claude-ds-theme-v3')) {
-        return document.documentElement.classList.contains('dark') ||
-          document.body.classList.contains('dark') ||
-          matchMedia('(prefers-color-scheme: dark)').matches;
-      }
-      const bg = getComputedStyle(document.body).backgroundColor || '';
-      const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-      if (m) {
-        const lum = (0.299 * +m[1] + 0.587 * +m[2] + 0.114 * +m[3]) / 255;
-        return lum < 0.5;
-      }
-      return document.documentElement.classList.contains('dark') ||
-        document.body.classList.contains('dark') ||
-        matchMedia('(prefers-color-scheme: dark)').matches;
-    } catch { return true; }
-  }
-
-  function loadProjects() {
-    try { return JSON.parse(localStorage.getItem(PROJ_KEY) || '[]'); } catch { return []; }
-  }
-  function saveProjects(list) {
-    try { localStorage.setItem(PROJ_KEY, JSON.stringify(list)); } catch {}
-  }
-  function getActiveProjectId() {
-    try { return localStorage.getItem(PROJ_ACTIVE) || ''; } catch { return ''; }
-  }
-  function setActiveProjectId(id) {
-    try { localStorage.setItem(PROJ_ACTIVE, id || ''); } catch {}
-  }
-  function loadProjectFiles() {
-    try { return JSON.parse(localStorage.getItem(PROJ_FILES) || '{}'); } catch { return {}; }
-  }
-  function saveProjectFiles(map) {
-    try { localStorage.setItem(PROJ_FILES, JSON.stringify(map)); } catch {}
-  }
-
-  function renderProjectList() {
-    const box = document.getElementById('dh-proj-list');
-    if (!box) return;
-    const list = loadProjects();
-    const active = getActiveProjectId();
-    const files = loadProjectFiles();
-    if (!list.length) {
-      box.innerHTML = '<div style="opacity:.6;font-size:12px;">No projects — create one below</div>';
-      return;
-    }
-    box.innerHTML = list.map(p => {
-      const on = p.id === active;
-      const fc = (files[p.id] || []).length;
-      return `<div class="dh-proj-item"><span>${on ? '● ' : ''}<b>${esc(p.name)}</b> <span style="opacity:.6">(${fc} files)</span></span>
-        <span>
-          <button type="button" data-proj-act="select" data-id="${p.id}">${on ? 'Active' : 'Select'}</button>
-          <button type="button" data-proj-act="del" data-id="${p.id}">Del</button>
-        </span></div>`;
-    }).join('');
-    box.querySelectorAll('[data-proj-act]').forEach(btn => {
-      btn.onclick = () => {
-        const id = btn.getAttribute('data-id');
-        if (btn.getAttribute('data-proj-act') === 'del') {
-          saveProjects(loadProjects().filter(x => x.id !== id));
-          const fm = loadProjectFiles();
-          delete fm[id];
-          saveProjectFiles(fm);
-          if (getActiveProjectId() === id) setActiveProjectId('');
-        } else {
-          setActiveProjectId(id);
-          const pr = loadProjects().find(x => x.id === id);
-          const ta = document.getElementById('dh-proj-instr');
-          if (ta && pr) ta.value = pr.instructions || '';
-          const name = document.getElementById('dh-proj-name');
-          if (name && pr) name.value = pr.name || '';
-        }
-        renderProjectList();
-            };
-    });
-  }
-
-  function createProject(name) {
-    const n = (name || '').trim() || ('Project ' + (loadProjects().length + 1));
-    const list = loadProjects();
-    const id = 'p_' + Date.now().toString(36);
-    list.push({ id, name: n, instructions: '', description: '', updated: Date.now() });
-    saveProjects(list);
-    setActiveProjectId(id);
-    renderProjectList();
-    showToast('Project created');
-  }
-
-  panel.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-act]');
-    if (!btn) return;
-    const act = btn.getAttribute('data-act');
-    if (act === 'projCreate') createProject(document.getElementById('dh-proj-name')?.value);
-    else if (act === 'projActive') {
-      const name = document.getElementById('dh-proj-name')?.value?.trim();
-      const list = loadProjects();
-      let pr = list.find(x => x.name === name) || list.find(x => x.id === getActiveProjectId());
-      if (pr) { setActiveProjectId(pr.id); renderProjectList(); showToast('Active: ' + pr.name); }
-    } else if (act === 'projSaveInstr') {
-      const id = getActiveProjectId();
-      const list = loadProjects();
-      const pr = list.find(x => x.id === id);
-      if (!pr) { showToast('Select a project first'); return; }
-      pr.instructions = document.getElementById('dh-proj-instr')?.value || '';
-      pr.updated = Date.now();
-      saveProjects(list);
-      showToast('Instructions saved');
-    } else if (act === 'exportChat') {
-      exportChatMarkdown();
-    } else if (act === 'savePersona') {
-      try {
-        localStorage.setItem(PERSONA_KEY, document.getElementById('dh-persona')?.value || '');
-        showToast('Persona saved');
-      } catch {}
-    }
-  });
-
-  panel.querySelector('[data-opt="uiEnhance"]')?.addEventListener('change', (e) => {
-    CONFIG.uiEnhance = e.target.checked;
-    try { localStorage.setItem('__dh_ui_enhance', CONFIG.uiEnhance ? '1' : '0'); } catch {}
-  });
-  try {
-    CONFIG.uiEnhance = localStorage.getItem('__dh_ui_enhance') !== '0';
-    const cb = panel.querySelector('[data-opt="uiEnhance"]');
-    if (cb) cb.checked = !!CONFIG.uiEnhance;
-  } catch { CONFIG.uiEnhance = true; }
-
-  // Persona field load
-  try {
-    const pe = document.getElementById('dh-persona');
-    if (pe) pe.value = localStorage.getItem(PERSONA_KEY) || '';
-  } catch {}
-
-  function svgBarChart(labels, values) {
-    const w = 360, h = 160, pad = 28;
-    const max = Math.max(...values.map(Number).filter(n => !isNaN(n)), 1);
-    const bw = (w - pad * 2) / Math.max(values.length, 1);
-    let bars = '';
-    values.forEach((v, i) => {
-      const n = Number(v) || 0;
-      const bh = ((h - pad * 2) * n) / max;
-      const x = pad + i * bw + 4;
-      const y = h - pad - bh;
-      bars += `<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${Math.max(0, bh)}" rx="3"/>`;
-      bars += `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(labels[i] ?? i).slice(0, 8))}</text>`;
-    });
-    return `<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>Chart</h4><svg viewBox="0 0 ${w} ${h}" role="img">
-      <line class="axis" x1="${pad}" y1="${h - pad}" x2="${w - 8}" y2="${h - pad}"/>
-      <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}"/>
-      ${bars}</svg></div>`;
-  }
-
-  function parseChartBlock(body) {
-    try {
-      const j = JSON.parse(body);
-      if (j.labels && j.values) return svgBarChart(j.labels, j.values.map(Number));
-      if (Array.isArray(j.data)) return svgBarChart(j.data.map(d => d.label ?? d.x), j.data.map(d => Number(d.value ?? d.y)));
-    } catch {}
-    const labels = [], values = [];
-    body.split(/\n+/).forEach(line => {
-      const m = line.trim().match(/^([^,]+),\s*([0-9.]+)\s*$/);
-      if (m) { labels.push(m[1].trim()); values.push(Number(m[2])); }
-    });
-    return values.length ? svgBarChart(labels, values) : null;
-  }
-
-  function wrapArtifactHtml(html) {
-    let body = (html || '').trim();
-    // Unescape common markdown artifacts
-    body = body.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-    const dark = isDarkTheme();
-    const pageBg = dark ? '#1a1b1e' : '#ffffff';
-    const pageFg = dark ? '#e8eaed' : '#1a1a1a';
-    const bridge = `<script>
-window.dh={toast:function(t){parent.postMessage({type:'dh-artifact',action:'toast',text:String(t)},'*');},
-log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(t)},'*');}};
-</script>`;
-    if (/^<!DOCTYPE/i.test(body) || /<html[\s>]/i.test(body)) {
-      // inject bridge before </body> or at end
-      if (/<\/body>/i.test(body)) return body.replace(/<\/body>/i, bridge + '</body>');
-      return body + bridge;
-    }
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<style>html,body{margin:0;padding:12px;font-family:system-ui,-apple-system,sans-serif;background:${pageBg};color:${pageFg};}a{color:#4d6bfe;}</style></head>
-<body>${body}${bridge}</body></html>`;
-  }
-
-  function loadIframeContent(ifr, html) {
-    const srcdoc = wrapArtifactHtml(html);
-    // Prefer srcdoc; fallback blob URL for stubborn WebViews
-    try {
-      ifr.removeAttribute('src');
-      ifr.srcdoc = srcdoc;
-    } catch (e) {
-      try {
-        const blob = new Blob([srcdoc], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        ifr.src = url;
-      } catch (e2) {
-        console.warn('iframe load', e2);
-      }
-    }
-    // Force paint
-    ifr.style.background = isDarkTheme() ? '#1a1b1e' : '#fff';
-  }
-
-  function openArtifactFullscreen(html, title) {
-    const overlay = document.createElement('div');
-    overlay.className = 'dh-artifact-fs';
-    overlay.innerHTML = `<div class="dh-artifact-bar"><b>${esc(title || 'Artifact')}</b>
-      <button type="button" data-close>Close</button></div>`;
-    const ifr = document.createElement('iframe');
-    ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups allow-same-origin');
-    loadIframeContent(ifr, html);
-    overlay.appendChild(ifr);
-    overlay.querySelector('[data-close]').onclick = () => overlay.remove();
-    document.body.appendChild(overlay);
-  }
-
-  function renderArtifactCard(pre, html, kind) {
-    if (pre.getAttribute('data-dh-done') === 'artifact') return;
-    const title = kind === 'simulation' ? 'Simulation' : (kind === 'interactive' ? 'Interactive' : 'HTML artifact');
-    const card = document.createElement('div');
-    card.className = 'dh-artifact' + (kind === 'simulation' || kind === 'interactive' ? ' dh-artifact-tall' : '');
-    card.innerHTML = `<div class="dh-artifact-bar"><span><b>${title}</b></span>
-      <span class="acts">
-        <button type="button" data-act="reload">Reload</button>
-        <button type="button" data-act="fs">Fullscreen</button>
-        <button type="button" data-act="copy">Copy</button>
-      </span></div>`;
-    const ifr = document.createElement('iframe');
-    ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups allow-same-origin');
-    ifr.setAttribute('referrerpolicy', 'no-referrer');
-    loadIframeContent(ifr, html);
-    card.appendChild(ifr);
-    card.querySelector('[data-act="reload"]').onclick = () => loadIframeContent(ifr, html);
-    card.querySelector('[data-act="fs"]').onclick = () => openArtifactFullscreen(html, title);
-    card.querySelector('[data-act="copy"]').onclick = async () => {
-      try {
-        const nat = window.__DHarnessNative;
-        if (nat?.clipboard?.write) await nat.clipboard.write(html);
-        else await navigator.clipboard.writeText(html);
-        showToast('HTML copied');
-      } catch { showToast('Copy failed'); }
-    };
-    pre.setAttribute('data-dh-done', 'artifact');
-    pre.replaceWith(card);
-  }
-
-  function enhanceCodeBlocks(root) {
-    if (!CONFIG.uiEnhance || !root) return;
-    const pres = Array.from(root.querySelectorAll('pre'));
-    for (const pre of pres) {
-      if (pre.getAttribute('data-dh-done')) continue;
-      if (pre.closest('.dh-code-wrap') || pre.closest('.dh-artifact') || pre.closest('#__ds_shim_panel')) continue;
-      const codeEl = pre.querySelector('code') || pre;
-      const text = (codeEl.textContent || '').trim();
-      if (!text) continue;
-      const lang = ((codeEl.className || '') + ' ' + (pre.className || '')).toLowerCase();
-
-      // Artifacts
-      if (/html-artifact|language-html|\bhtml\b|artifact|simulation|interactive/.test(lang) ||
-          (/^\s*<(!doctype|html|div|section|canvas|svg|body)/i.test(text) && text.length > 40 && /<\/[a-z]+>/i.test(text))) {
-        const kind = /simulation/.test(lang) ? 'simulation' : (/interactive/.test(lang) ? 'interactive' : 'html');
-        try { renderArtifactCard(pre, text, kind); } catch (e) { console.warn('artifact', e); }
-        continue;
-      }
-
-      // Charts — each pre independently
-      if (/chart|dh-chart/.test(lang) || (text.startsWith('{') && /"values"\s*:/.test(text)) ||
-          (/^[^,\n]+,\s*[0-9.]+/m.test(text) && text.split('\n').filter(l => /,\s*[0-9.]+/.test(l)).length >= 2 && !text.includes('function'))) {
-        const html = parseChartBlock(text);
-        if (html) {
-          const div = document.createElement('div');
-          div.innerHTML = html;
-          const node = div.firstChild;
-          pre.setAttribute('data-dh-done', 'chart');
-          pre.replaceWith(node);
-          continue;
-        }
-      }
-
-      // File tree
-      if (/file-?tree|\btree\b/.test(lang) && /[├└│|]/.test(text)) {
-        const div = document.createElement('div');
-        div.className = 'dh-ui-card dh-file-tree';
-        div.innerHTML = '<h4>File tree</h4><pre style="margin:0;white-space:pre-wrap">' + esc(text) + '</pre>';
-        pre.setAttribute('data-dh-done', 'tree');
-        pre.replaceWith(div);
-        continue;
-      }
-
-      // Copy button for remaining code
-      pre.setAttribute('data-dh-done', 'code');
-      const wrap = document.createElement('div');
-      wrap.className = 'dh-code-wrap';
-      const btn = document.createElement('button');
-      btn.className = 'dh-code-copy';
-      btn.type = 'button';
-      btn.textContent = 'Copy';
-      btn.onclick = async () => {
-        try {
-          const nat = window.__DHarnessNative;
-          if (nat?.clipboard?.write) await nat.clipboard.write(text);
-          else await navigator.clipboard.writeText(text);
-          btn.textContent = 'Copied';
-          setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
-        } catch { btn.textContent = 'Fail'; }
-      };
-      if (pre.parentNode) {
-        pre.parentNode.insertBefore(wrap, pre);
-        wrap.appendChild(btn);
-        wrap.appendChild(pre);
-      }
-    }
-
-    root.querySelectorAll('table').forEach(table => {
-      if (table.closest('.dh-table-wrap') || table.closest('#__ds_shim_panel')) return;
-      const wrap = document.createElement('div');
-      wrap.className = 'dh-table-wrap';
-      table.parentNode?.insertBefore(wrap, table);
-      wrap.appendChild(table);
-    });
-  }
-
-  let enhanceQueued = false;
-  function enhanceAllMessages() {
-    if (!CONFIG.uiEnhance || enhanceQueued) return;
-    enhanceQueued = true;
-    requestAnimationFrame(() => {
-      enhanceQueued = false;
-      try {
-        document.querySelectorAll('div.ds-message').forEach(el => {
-          try { enhanceCodeBlocks(el); } catch {}
-        });
-        // Also scan orphan pres outside messages
-        try { enhanceCodeBlocks(document.body); } catch {}
-      } catch {}
-    });
-  }
-
-  window.__DH_PROJECTS__ = {
-    list: loadProjects,
-    active: () => loadProjects().find(p => p.id === getActiveProjectId()) || null,
-    create: createProject,
-    files: (pid) => (loadProjectFiles()[pid || getActiveProjectId()] || []),
-    addFile: (name, content) => {
-      const id = getActiveProjectId();
-      if (!id) return false;
-      const map = loadProjectFiles();
-      const arr = map[id] || [];
-      arr.push({ id: 'f_' + Date.now().toString(36), name, content, ticked: true });
-      map[id] = arr;
-      saveProjectFiles(map);
-      renderProjectList();
-      return true;
-    },
-  };
-
-
-
-
-  let researchMode = false;
-  try { researchMode = localStorage.getItem('__dh_research_mode') === '1'; } catch {}
-  // ---- System prompt embed + send intercept ----
-  const SYS_MAP_KEY = '__dh_sys_embedded_v4';
   function loadSysMap() {
     try { return JSON.parse(sessionStorage.getItem(SYS_MAP_KEY) || '{}'); } catch { return {}; }
   }
@@ -2263,23 +1849,17 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     if (p) window.__DH_SYSTEM_PROMPT__ = p;
     return p;
   }
-  function buildSystemPrefix() {
-    let p = getSystemPromptText() || '';
-    const active = window.__DH_PROJECTS__ && window.__DH_PROJECTS__.active();
-    if (active && active.instructions) p += '\n\n## Active project: ' + active.name + '\n' + active.instructions;
-    try {
-      const persona = localStorage.getItem(PERSONA_KEY);
-      if (persona && persona.trim()) p += '\n\n## Persona\n' + persona.trim();
-    } catch {}
-    return p;
-  }
   function needsSystemEmbed() {
+    const id = getConvId();
+    if (sysEmbedDone[id]) return false;
     const map = loadSysMap();
-    return !map[getConvId()];
+    return !map[id];
   }
   function markSystemEmbedded() {
+    const id = getConvId();
+    sysEmbedDone[id] = true;
     const map = loadSysMap();
-    map[getConvId()] = true;
+    map[id] = true;
     saveSysMap(map);
   }
   function embedSystemIfNeeded(userText) {
@@ -2287,73 +1867,64 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     if (!text.trim()) return text;
     if (text.startsWith('TOOL_RESULT') || text.startsWith('[D-HARNESS SYSTEM')) return text;
     if (!needsSystemEmbed()) return text;
-    const sys = buildSystemPrefix();
+    const sys = getSystemPromptText();
     if (!sys || sys.length < 40) {
-      log('sys embed skipped: no prompt loaded');
+      log('sys embed skipped: no prompt');
       return text;
     }
+    // Mark BEFORE send so concurrent paths cannot double-embed
     markSystemEmbedded();
-    log('sys embed applied', getConvId(), 'chars', sys.length);
+    log('sys embed once', getConvId());
     return (
       '[D-HARNESS SYSTEM — follow silently; do not restate]\n' +
       sys +
-      '\n[End system. First turn only: one short acknowledgment, then answer the user.]\n\n---\n\n' +
+      '\n[End system. First turn: one short acknowledgment, then answer.]\n\n---\n\n' +
       text
     );
   }
 
+  // Single send path — only embed here (intercept calls _sendMessageOriginal with already-embedded text)
   const _sendMessageOriginal = sendMessage;
+  let intercepting = false;
   sendMessage = async function(text) {
     const raw = String(text || '');
-    if (isGenerating() && raw && !raw.startsWith('TOOL_RESULT') && !raw.startsWith('[D-HARNESS SYSTEM')) {
-      enqueuePrompt(raw);
-      return true;
+    if (raw.startsWith('TOOL_RESULT') || raw.startsWith('[D-HARNESS SYSTEM')) {
+      return _sendMessageOriginal(raw);
     }
-    if (raw.startsWith('TOOL_RESULT')) return _sendMessageOriginal(raw);
-    const withResearch = (typeof researchPrefix === 'function') ? researchPrefix(raw) : raw;
-    return _sendMessageOriginal(embedSystemIfNeeded(withResearch));
+    // If intercept already handled embed, raw is user text only when not intercepting
+    if (intercepting) return _sendMessageOriginal(raw);
+    return _sendMessageOriginal(embedSystemIfNeeded(raw));
   };
   try { if (window.__DS_TOOL_SHIM__) window.__DS_TOOL_SHIM__.send = sendMessage; } catch {}
 
-  let interceptLock = false;
-  async function interceptUserSend(ev) {
-    if (interceptLock) return;
+  async function interceptFirstSend(ev) {
+    if (intercepting) return;
+    if (!needsSystemEmbed()) return;
     const input = getInput();
     if (!input) return;
     const userText = (input.value || '').trim();
     if (!userText) return;
+    const sys = getSystemPromptText();
+    if (!sys || sys.length < 40) return;
 
-    if (isGenerating()) {
-      if (ev) { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch {} }
-      enqueuePrompt(userText);
-      try {
-        setNativeValue(input, '');
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-      } catch {}
-      return;
+    if (ev) {
+      try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch {}
     }
-
-    if (!needsSystemEmbed()) return;
-    const sys = buildSystemPrefix();
-    if (!sys || sys.length < 40) {
-      log('intercept: prompt still empty');
-      return;
-    }
-    if (ev) { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch {} }
-    interceptLock = true;
+    intercepting = true;
     try {
-      const outbound = embedSystemIfNeeded(
-        (typeof researchPrefix === 'function') ? researchPrefix(userText) : userText
-      );
+      const outbound = embedSystemIfNeeded(userText); // marks done
       try {
         setNativeValue(input, '');
         input.dispatchEvent(new Event('input', { bubbles: true }));
       } catch {}
+      // Use original so sendMessage wrapper does not re-process
       const ok = await _sendMessageOriginal(outbound);
-      log('intercept send', ok ? 'ok' : 'fail');
       if (!ok) {
+        // allow retry
+        const id = getConvId();
+        delete sysEmbedDone[id];
         const map = loadSysMap();
-        delete map[getConvId()];
+        delete map[id];
         saveSysMap(map);
         try {
           setNativeValue(input, userText);
@@ -2361,23 +1932,21 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
         } catch {}
       }
     } finally {
-      interceptLock = false;
+      intercepting = false;
     }
   }
   document.addEventListener('click', (e) => {
     try {
-      const t = e.target;
-      if (!t || !t.closest) return;
-      const btn = t.closest(SEND_SELECTOR) || t.closest('div[role="button"].ds-button--primary');
+      const btn = e.target?.closest?.(SEND_SELECTOR) || e.target?.closest?.('div[role="button"].ds-button--primary');
       if (!btn) return;
-      if (isGenerating() || needsSystemEmbed()) interceptUserSend(e);
+      if (needsSystemEmbed()) interceptFirstSend(e);
     } catch {}
   }, true);
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
     const input = getInput();
     if (!input || e.target !== input) return;
-    if (isGenerating() || needsSystemEmbed()) interceptUserSend(e);
+    if (needsSystemEmbed()) interceptFirstSend(e);
   }, true);
 
   try {
@@ -2394,8 +1963,10 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
 
   async function maybeInjectSystemPrompt(force) {
     if (force) {
+      const id = getConvId();
+      delete sysEmbedDone[id];
       const map = loadSysMap();
-      delete map[getConvId()];
+      delete map[id];
       saveSysMap(map);
       showToast('System will attach on next send');
       return true;
@@ -2403,363 +1974,293 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     return false;
   }
 
-  // ---- Prompt queue (BDS-style panel above composer) ----
-  const promptQueue = []; // {id, text}
-  let queuePanelEl = null;
-  function makeQueueId() {
-    return 'q_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  // ---- Theme tokens (Claude accent vs DeepSeek M3-ish) ----
+  function applyThemeTokens() {
+    const root = document.documentElement;
+    const claude = !!document.getElementById('claude-ds-theme-v3');
+    const dark = root.classList.contains('dark') || document.body.classList.contains('dark') ||
+      (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    root.style.setProperty('--dh-card-bg', dark ? (claude ? '#2a2825' : '#1e1f24') : (claude ? '#faf8f5' : '#ffffff'));
+    root.style.setProperty('--dh-card-fg', dark ? '#e8eaed' : '#1a1a1a');
+    root.style.setProperty('--dh-card-border', dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)');
+    root.style.setProperty('--dh-accent', claude ? '#da7756' : '#4d6bfe');
+    root.style.setProperty('--dh-bar', claude ? '#da7756' : '#4d6bfe');
+    root.style.setProperty('--dh-muted', dark ? '#9aa0a6' : '#5f6368');
+    root.style.setProperty('--dh-code-bg', dark ? (claude ? '#1f1e1b' : '#2a2b30') : (claude ? '#f3f1ec' : '#f1f3f4'));
   }
+  applyThemeTokens();
+  setInterval(applyThemeTokens, 2000);
 
-  function ensureQueuePanel() {
-    if (queuePanelEl && document.body.contains(queuePanelEl)) return queuePanelEl;
-    queuePanelEl = document.createElement('div');
-    queuePanelEl.className = 'dh-queue-panel';
-    queuePanelEl.hidden = true;
-    queuePanelEl.innerHTML = `
-      <div class="dh-q-hdr">
-        <span class="dh-q-title">Queue</span>
-        <span class="acts">
-          <span class="dh-q-status" style="font-weight:400;opacity:.75;font-size:11px;"></span>
-          <button type="button" data-act="clear" class="danger" title="Clear all">Clear</button>
-        </span>
-      </div>
-      <div class="dh-q-list"></div>`;
-    queuePanelEl.querySelector('[data-act="clear"]').onclick = () => {
-      promptQueue.length = 0;
-      renderQueuePanel();
-      showToast('Queue cleared');
-    };
-    attachQueuePanel();
-    return queuePanelEl;
-  }
-
-  function findComposerMount() {
-    const input = getInput();
-    const candidates = [
-      document.querySelector('._75e1990'),
-      document.querySelector('._6f68655'),
-      document.querySelector('.ds-textarea'),
-      input && input.closest('.ds-textarea'),
-      input && getComposerRoot(input),
-      input && input.parentElement,
-    ].filter(Boolean);
-    return candidates[0] || null;
-  }
-
-  function attachQueuePanel() {
-    const panel = ensureQueuePanel();
-    const mount = findComposerMount();
-    if (mount && panel.parentElement !== mount) {
-      try { mount.prepend(panel); } catch {
-        try { document.body.appendChild(panel); } catch {}
-      }
-    }
-  }
-
-  function renderQueuePanel() {
-    const panel = ensureQueuePanel();
-    attachQueuePanel();
-    const list = panel.querySelector('.dh-q-list');
-    const status = panel.querySelector('.dh-q-status');
-    if (!promptQueue.length) {
-      panel.hidden = true;
-      list.innerHTML = '';
-      return;
-    }
-    panel.hidden = false;
-    status.textContent = isGenerating()
-      ? 'Waiting…'
-      : (promptQueue.length + ' waiting');
-    list.innerHTML = promptQueue.map((item, idx) => `
-      <div class="dh-q-item" data-id="${item.id}">
-        <div class="dh-q-text">${esc(item.text)}</div>
-        <button type="button" data-act="steer" title="Stop current and send this now">Steer</button>
-        <button type="button" data-act="del" class="danger" title="Remove">✕</button>
-      </div>`).join('');
-    list.querySelectorAll('.dh-q-item').forEach(row => {
-      const id = row.getAttribute('data-id');
-      row.querySelector('[data-act="del"]').onclick = () => {
-        const i = promptQueue.findIndex(x => x.id === id);
-        if (i >= 0) promptQueue.splice(i, 1);
-        renderQueuePanel();
-      };
-      row.querySelector('[data-act="steer"]').onclick = () => steerQueueItem(id);
+  // ---- Charts ----
+  function svgBarChart(labels, values) {
+    const w = 360, h = 160, pad = 28;
+    const nums = values.map(Number).map(n => (isNaN(n) ? 0 : n));
+    const max = Math.max(...nums, 1);
+    const bw = (w - pad * 2) / Math.max(nums.length, 1);
+    let bars = '';
+    nums.forEach((n, i) => {
+      const bh = ((h - pad * 2) * n) / max;
+      const x = pad + i * bw + 4;
+      const y = h - pad - bh;
+      bars += `<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${Math.max(0, bh)}" rx="4"/>`;
+      bars += `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(labels[i] ?? i).slice(0, 8))}</text>`;
     });
+    return `<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>Chart</h4><svg viewBox="0 0 ${w} ${h}" role="img">
+      <line class="axis" x1="${pad}" y1="${h - pad}" x2="${w - 8}" y2="${h - pad}"/>
+      <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}"/>
+      ${bars}</svg></div>`;
   }
-
-  function clickStopIfGenerating() {
-    const stop = document.querySelector(
-      ".ds-icon-stop-circle, .ds-icon-stop, div[role='button'] svg path[d*='M6 6h12v12H6z']"
-    )?.closest("div[role='button'], button");
-    if (stop) {
-      try { stop.click(); return true; } catch {}
-    }
-    // Also try primary circle when generating
-    for (const b of document.querySelectorAll(SEND_SELECTOR)) {
-      const d = (btnIcon(b) || '');
-      if (d.startsWith(STOP_ICON_PREFIX) || d.startsWith(SPINNER_ICON_PREFIX)) {
-        try { b.click(); return true; } catch {}
-      }
-    }
-    return false;
-  }
-
-  async function steerQueueItem(id) {
-    const i = promptQueue.findIndex(x => x.id === id);
-    if (i < 0) return;
-    const item = promptQueue.splice(i, 1)[0];
-    renderQueuePanel();
-    if (isGenerating()) {
-      clickStopIfGenerating();
-      await sleep(400);
-    }
-    // Send immediately (bypass queue)
-    await _sendMessageOriginal(embedSystemIfNeeded(item.text));
-  }
-
-  function enqueuePrompt(text) {
-    const t = String(text || '').trim();
-    if (!t) return false;
-    promptQueue.push({ id: makeQueueId(), text: t });
-    renderQueuePanel();
-    showToast('Queued');
-    return true;
-  }
-
-  async function drainQueue() {
-    if (!promptQueue.length || isGenerating()) return;
-    const next = promptQueue.shift();
-    renderQueuePanel();
-    if (next) await _sendMessageOriginal(embedSystemIfNeeded(next.text));
-  }
-  setInterval(() => {
+  function parseChartBlock(body) {
     try {
-      attachQueuePanel();
-      renderQueuePanel();
-      if (!isGenerating()) drainQueue();
+      const j = JSON.parse(body);
+      if (j.labels && j.values) return svgBarChart(j.labels, j.values);
+      if (Array.isArray(j.data)) return svgBarChart(j.data.map(d => d.label ?? d.x), j.data.map(d => d.value ?? d.y));
     } catch {}
-  }, 500);
-
-  // ---- Research mode toggle (near Search / DeepThink) ----
-  function ensureResearchToggle() {
-    if (document.getElementById('dh-research-toggle')) return;
-    // Find toggle row: DeepSeek uses ds-toggle-button for Search / DeepThink
-    const toggles = document.querySelectorAll('.ds-toggle-button, [class*="toggle-button"]');
-    let mount = null;
-    for (const el of toggles) {
-      const label = (el.textContent || '').toLowerCase();
-      if (label.includes('deepthink') || label.includes('search') || label.includes('思考')) {
-        mount = el.parentElement;
-        break;
-      }
-    }
-    if (!mount) {
-      const input = getInput();
-      mount = input && getComposerRoot(input);
-    }
-    if (!mount) return;
-    const btn = document.createElement('div');
-    btn.id = 'dh-research-toggle';
-    btn.className = 'dh-research-toggle' + (researchMode ? ' on' : '');
-    btn.setAttribute('role', 'button');
-    btn.tabIndex = 0;
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path d="M6.05 1.55a4.5 4.5 0 1 0 2.84 7.99l2.03 2.03a.75.75 0 0 0 1.06-1.06L9.95 8.48A4.5 4.5 0 0 0 6.05 1.55Zm0 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z"/><path d="M10.35.95v1.18h1.18a.55.55 0 0 1 0 1.1h-1.18v1.18a.55.55 0 0 1-1.1 0V3.23H8.07a.55.55 0 0 1 0-1.1h1.18V.95a.55.55 0 0 1 1.1 0Z"/></svg><span>Research</span>`;
-    btn.onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      researchMode = !researchMode;
-      try { localStorage.setItem('__dh_research_mode', researchMode ? '1' : '0'); } catch {}
-      btn.classList.toggle('on', researchMode);
-      showToast(researchMode ? 'Research on' : 'Research off');
-    };
-    try { mount.appendChild(btn); } catch {}
-  }
-
-  function researchPrefix(userText) {
-    if (!researchMode) return userText;
-    return (
-      '[Research mode] Use harness research tools (research.plan → research.web → research.preview/html_text). ' +
-      'Cite sources. Save notes under workspace/research/ when useful.\n\n' + userText
-    );
-  }
-
-  // ---- Sidebar Projects (nav bar with chats / new chat) ----
-  function ensureSidebarProjects() {
-    if (document.querySelector('.dh-sidebar-projects')) return;
-    // DeepSeek sidebar: look for "New chat" button area
-    const candidates = Array.from(document.querySelectorAll('div, button, a')).filter(el => {
-      const tx = (el.textContent || '').trim().toLowerCase();
-      return tx === 'new chat' || tx === '新对话' || tx === 'nueva conversación';
+    const labels = [], values = [];
+    body.split(/\n+/).forEach(line => {
+      const m = line.trim().match(/^([^,]+),\s*([0-9.]+)\s*$/);
+      if (m) { labels.push(m[1].trim()); values.push(Number(m[2])); }
     });
-    let anchor = candidates.find(el => el.children.length <= 3) || candidates[0];
-    let mountParent = null;
-    if (anchor) {
-      // Prefer parent that holds the new-chat control
-      mountParent = anchor.parentElement;
-      // Walk up a bit for a vertical stack
-      for (let i = 0; i < 4 && mountParent; i++) {
-        if (mountParent.childElementCount >= 1 && mountParent.offsetHeight > 40) break;
-        mountParent = mountParent.parentElement;
-      }
+    return values.length ? svgBarChart(labels, values) : null;
+  }
+  function isChartComplete(text) {
+    const s = text.trim();
+    if (!s) return false;
+    if (s.startsWith('{')) {
+      try { JSON.parse(s); return true; } catch { return false; }
     }
-    if (!mountParent) {
-      // Fallback: left sidebar column
-      mountParent = document.querySelector('aside') ||
-        document.querySelector('[class*="sidebar"]') ||
-        document.querySelector('nav');
+    return s.split('\n').filter(l => /,\s*[0-9.]+/.test(l)).length >= 1;
+  }
+
+  // ---- Artifacts ----
+  function isHtmlComplete(html) {
+    const s = (html || '').trim();
+    if (s.length < 20) return false;
+    // Prefer closed fences / balanced root tags
+    if (/^<!DOCTYPE/i.test(s) || /<html[\s>]/i.test(s)) {
+      return /<\/html>/i.test(s);
     }
-    if (!mountParent) return;
-    const el = document.createElement('div');
-    el.className = 'dh-sidebar-projects';
-    el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg><span>Projects</span>`;
-    el.onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      openProjectsDrawer();
-    };
+    // Heuristic: has opening and some closing tag
+    const opens = (s.match(/<[a-zA-Z][^>]*>/g) || []).length;
+    const closes = (s.match(/<\/[a-zA-Z]+>/g) || []).length;
+    return opens >= 1 && closes >= 1 && s.length > 40;
+  }
+
+  function wrapArtifactHtml(html) {
+    let body = (html || '').trim();
+    body = body.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    const dark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+    const pageBg = dark ? '#1e1f24' : '#ffffff';
+    const pageFg = dark ? '#e8eaed' : '#1a1a1a';
+    const bridge = `<script>window.dh={toast:function(t){parent.postMessage({type:'dh-artifact',action:'toast',text:String(t)},'*');}};</script>`;
+    if (/^<!DOCTYPE/i.test(body) || /<html[\s>]/i.test(body)) {
+      if (/<\/body>/i.test(body)) return body.replace(/<\/body>/i, bridge + '</body>');
+      return body + bridge;
+    }
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>html,body{margin:0;padding:12px;font-family:system-ui,-apple-system,sans-serif;background:${pageBg};color:${pageFg};}a{color:#4d6bfe;}</style>
+</head><body>${body}${bridge}</body></html>`;
+  }
+
+  function loadIframe(ifr, html) {
+    const srcdoc = wrapArtifactHtml(html);
+    // Blob URL is more reliable than srcdoc on some WebViews
     try {
-      if (anchor && anchor.parentElement === mountParent) {
-        anchor.insertAdjacentElement('afterend', el);
-      } else {
-        mountParent.insertBefore(el, mountParent.firstChild);
+      if (ifr._dhUrl) {
+        try { URL.revokeObjectURL(ifr._dhUrl); } catch {}
       }
+      const blob = new Blob([srcdoc], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      ifr._dhUrl = url;
+      ifr.removeAttribute('srcdoc');
+      ifr.src = url;
     } catch {
-      try { mountParent.appendChild(el); } catch {}
-    }
-  }
-
-  function openProjectsDrawer() {
-    ensureProjectsUI();
-    const drawer = document.getElementById('dh-projects-drawer');
-    const backdrop = document.getElementById('dh-projects-backdrop');
-    renderDrawerList();
-    const active = window.__DH_PROJECTS__.active();
-    const ta = document.getElementById('dh-drawer-proj-instr');
-    const name = document.getElementById('dh-drawer-proj-name');
-    if (active && ta) ta.value = active.instructions || '';
-    if (active && name) name.value = active.name || '';
-    if (backdrop) backdrop.classList.add('show');
-    if (drawer) drawer.classList.add('open');
-  }
-
-  // ---- Projects drawer (shared) ----
-  function ensureProjectsUI() {
-    if (document.getElementById('dh-projects-drawer')) return;
-    const backdrop = document.createElement('div');
-    backdrop.id = 'dh-projects-backdrop';
-    const drawer = document.createElement('div');
-    drawer.id = 'dh-projects-drawer';
-    drawer.innerHTML = `
-      <div class="hdr"><span>Projects</span><button type="button" data-close>Close</button></div>
-      <div class="body">
-        <div id="dh-drawer-proj-list"></div>
-        <input id="dh-drawer-proj-name" placeholder="New project name"/>
-        <button type="button" data-act="create">Create project</button>
-        <textarea id="dh-drawer-proj-instr" rows="5" placeholder="Project instructions"></textarea>
-        <button type="button" data-act="save">Save instructions</button>
-        <button type="button" data-act="export">Export chat</button>
-        <p style="font-size:11px;opacity:.7;margin-top:12px;">Active project instructions attach with harness system context on the first message of each chat.</p>
-      </div>`;
-    document.body.appendChild(backdrop);
-    document.body.appendChild(drawer);
-    function close() {
-      backdrop.classList.remove('show');
-      drawer.classList.remove('open');
-    }
-    backdrop.onclick = close;
-    drawer.querySelector('[data-close]').onclick = close;
-    drawer.querySelector('[data-act="create"]').onclick = () => {
-      createProject(document.getElementById('dh-drawer-proj-name')?.value);
-      renderDrawerList();
-      renderProjectList();
-    };
-    drawer.querySelector('[data-act="save"]').onclick = () => {
-      const id = getActiveProjectId();
-      const list = loadProjects();
-      let pr = list.find(x => x.id === id);
-      if (!pr) {
-        createProject(document.getElementById('dh-drawer-proj-name')?.value || 'Project');
-        pr = loadProjects().find(x => x.id === getActiveProjectId());
+      try {
+        ifr.srcdoc = srcdoc;
+      } catch (e) {
+        console.warn('artifact load', e);
       }
-      if (!pr) return;
-      pr.instructions = document.getElementById('dh-drawer-proj-instr')?.value || '';
-      pr.updated = Date.now();
-      saveProjects(list);
-      showToast('Project saved');
-      renderDrawerList();
-      renderProjectList();
-    };
-    drawer.querySelector('[data-act="export"]').onclick = () => exportChatMarkdown();
-  }
-  function renderDrawerList() {
-    const box = document.getElementById('dh-drawer-proj-list');
-    if (!box) return;
-    const list = loadProjects();
-    const active = getActiveProjectId();
-    if (!list.length) {
-      box.innerHTML = '<div style="opacity:.6;font-size:12px;margin-bottom:8px;">No projects yet</div>';
-      return;
     }
-    box.innerHTML = list.map(pr => {
-      const on = pr.id === active;
-      return `<div class="proj-row"><span>${on ? '● ' : ''}<b>${esc(pr.name)}</b></span>
-        <span>
-          <button type="button" data-id="${pr.id}" data-a="sel">${on ? 'Active' : 'Use'}</button>
-          <button type="button" data-id="${pr.id}" data-a="del">Del</button>
-        </span></div>`;
-    }).join('');
-    box.querySelectorAll('button').forEach(b => {
-      b.onclick = () => {
-        const id = b.getAttribute('data-id');
-        if (b.getAttribute('data-a') === 'del') {
-          saveProjects(loadProjects().filter(x => x.id !== id));
-          if (getActiveProjectId() === id) setActiveProjectId('');
-        } else {
-          setActiveProjectId(id);
-          const pr = loadProjects().find(x => x.id === id);
-          const ta = document.getElementById('dh-drawer-proj-instr');
-          const name = document.getElementById('dh-drawer-proj-name');
-          if (ta && pr) ta.value = pr.instructions || '';
-          if (name && pr) name.value = pr.name || '';
+  }
+
+  function openArtifactFullscreen(html, title) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dh-artifact-fs';
+    overlay.innerHTML = `<div class="dh-artifact-bar"><b>${esc(title || 'Artifact')}</b>
+      <button type="button" data-close>Close</button></div>
+      <div class="dh-artifact-frame-wrap"></div>`;
+    const wrap = overlay.querySelector('.dh-artifact-frame-wrap');
+    const ifr = document.createElement('iframe');
+    ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
+    ifr.setAttribute('referrerpolicy', 'no-referrer');
+    loadIframe(ifr, html);
+    wrap.appendChild(ifr);
+    overlay.querySelector('[data-close]').onclick = () => {
+      try { if (ifr._dhUrl) URL.revokeObjectURL(ifr._dhUrl); } catch {}
+      overlay.remove();
+    };
+    document.body.appendChild(overlay);
+  }
+
+  function showLoadingCard(pre, kind) {
+    if (pre.getAttribute('data-dh-loading') === '1') return;
+    pre.setAttribute('data-dh-loading', '1');
+    let card = pre.previousElementSibling;
+    if (card && card.getAttribute('data-dh-ph') === '1') return;
+    card = document.createElement('div');
+    card.className = kind === 'chart' ? 'dh-chart-loading' : 'dh-artifact';
+    card.setAttribute('data-dh-ph', '1');
+    if (kind === 'chart') {
+      card.textContent = 'Building chart…';
+    } else {
+      card.innerHTML = `<div class="dh-artifact-bar"><b>${kind === 'simulation' ? 'Simulation' : 'Artifact'}</b></div>
+        <div class="dh-artifact-loading"><div class="spin"></div><div>Creating…</div></div>`;
+    }
+    pre.style.display = 'none';
+    pre.parentNode?.insertBefore(card, pre);
+  }
+
+  function removeLoadingCard(pre) {
+    const card = pre.previousElementSibling;
+    if (card && card.getAttribute('data-dh-ph') === '1') card.remove();
+    pre.style.display = '';
+    pre.removeAttribute('data-dh-loading');
+  }
+
+  function renderArtifactCard(pre, html, kind) {
+    removeLoadingCard(pre);
+    if (pre.getAttribute('data-dh-done') === 'artifact') return;
+    const title = kind === 'simulation' ? 'Simulation' : (kind === 'interactive' ? 'Interactive' : 'HTML artifact');
+    const card = document.createElement('div');
+    card.className = 'dh-artifact' + (kind === 'simulation' || kind === 'interactive' ? ' dh-artifact-tall' : '');
+    card.innerHTML = `<div class="dh-artifact-bar"><span><b>${title}</b></span>
+      <span class="acts">
+        <button type="button" data-act="reload">Reload</button>
+        <button type="button" data-act="fs">Fullscreen</button>
+      </span></div>
+      <div class="dh-artifact-frame-wrap"></div>`;
+    const wrap = card.querySelector('.dh-artifact-frame-wrap');
+    const ifr = document.createElement('iframe');
+    ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
+    ifr.setAttribute('referrerpolicy', 'no-referrer');
+    // Show loading until iframe loads
+    const loading = document.createElement('div');
+    loading.className = 'dh-artifact-loading';
+    loading.innerHTML = '<div class="spin"></div><div>Loading…</div>';
+    wrap.appendChild(loading);
+    wrap.appendChild(ifr);
+    ifr.style.opacity = '0';
+    ifr.onload = () => {
+      try { loading.remove(); } catch {}
+      ifr.style.opacity = '1';
+    };
+    // Fallback if onload doesn't fire
+    setTimeout(() => {
+      try { loading.remove(); } catch {}
+      ifr.style.opacity = '1';
+    }, 1200);
+    loadIframe(ifr, html);
+    card.querySelector('[data-act="reload"]').onclick = () => {
+      ifr.style.opacity = '0';
+      loadIframe(ifr, html);
+      setTimeout(() => { ifr.style.opacity = '1'; }, 400);
+    };
+    card.querySelector('[data-act="fs"]').onclick = () => openArtifactFullscreen(html, title);
+    pre.setAttribute('data-dh-done', 'artifact');
+    pre.replaceWith(card);
+  }
+
+  function enhanceCodeBlocks(root) {
+    if (!CONFIG.uiEnhance || !root) return;
+    const pres = Array.from(root.querySelectorAll('pre'));
+    for (const pre of pres) {
+      if (pre.getAttribute('data-dh-done')) continue;
+      if (pre.closest('.dh-artifact') || pre.closest('#__ds_shim_panel')) continue;
+      const codeEl = pre.querySelector('code') || pre;
+      const text = (codeEl.textContent || '').trim();
+      if (!text) continue;
+      const lang = ((codeEl.className || '') + ' ' + (pre.className || '')).toLowerCase();
+
+      const isArtifactLang = /html-artifact|language-html|\bhtml\b|artifact|simulation|interactive/.test(lang) ||
+        (/^\s*<(!doctype|html|div|section|canvas|svg|body)/i.test(text) && text.length > 30);
+      if (isArtifactLang) {
+        const kind = /simulation/.test(lang) ? 'simulation' : (/interactive/.test(lang) ? 'interactive' : 'html');
+        if (!isHtmlComplete(text) || isGenerating()) {
+          // Still streaming — placeholder, do not freeze on empty iframe
+          if (!isHtmlComplete(text)) {
+            showLoadingCard(pre, kind);
+            continue;
+          }
         }
-        renderDrawerList();
-        renderProjectList();
-      };
+        try { renderArtifactCard(pre, text, kind); } catch (e) { console.warn('artifact', e); }
+        continue;
+      }
+
+      const isChartLang = /chart|dh-chart/.test(lang) ||
+        (text.startsWith('{') && /"values"\s*:/.test(text)) ||
+        (/^[^,\n]+,\s*[0-9.]+/m.test(text) && text.split('\n').filter(l => /,\s*[0-9.]+/.test(l)).length >= 2 && !text.includes('function'));
+      if (isChartLang) {
+        if (!isChartComplete(text)) {
+          showLoadingCard(pre, 'chart');
+          continue;
+        }
+        const html = parseChartBlock(text);
+        if (html) {
+          removeLoadingCard(pre);
+          const div = document.createElement('div');
+          div.innerHTML = html;
+          pre.setAttribute('data-dh-done', 'chart');
+          pre.replaceWith(div.firstChild);
+        }
+        continue;
+      }
+
+      // No copy button — DeepSeek already provides it
+      pre.setAttribute('data-dh-done', 'code');
+    }
+  }
+
+  let enhanceQueued = false;
+  function enhanceAllMessages() {
+    if (!CONFIG.uiEnhance || enhanceQueued) return;
+    enhanceQueued = true;
+    requestAnimationFrame(() => {
+      enhanceQueued = false;
+      applyThemeTokens();
+      try {
+        document.querySelectorAll('div.ds-message').forEach(el => {
+          try { enhanceCodeBlocks(el); } catch {}
+        });
+      } catch {}
     });
   }
-  ensureProjectsUI();
 
-  // Research status card injection for tool taglines
-  function injectResearchCard(title, steps) {
-    const card = document.createElement('div');
-    card.className = 'dh-research-card';
-    card.innerHTML = '<h4>' + esc(title || 'Research') + '</h4>' +
-      (steps || []).map(s => '<div class="step">' + esc(s) + '</div>').join('');
-    const msgs = document.querySelectorAll('div.ds-message');
-    const last = msgs[msgs.length - 1];
-    if (last && last.parentElement) last.parentElement.appendChild(card);
-    else document.body.appendChild(card);
-    return card;
-  }
-  window.__DH_RESEARCH_UI__ = { injectCard: injectResearchCard, isOn: () => researchMode };
+  window.addEventListener('message', (ev) => {
+    const d = ev && ev.data;
+    if (!d || d.type !== 'dh-artifact') return;
+    if (d.action === 'toast') showToast(String(d.text || ''), 2000);
+  });
 
-  // Mount research toggle + sidebar projects periodically (SPA)
+  // Fast while generating, slower when idle
+  let enhanceTimer = setInterval(enhanceAllMessages, 350);
   setInterval(() => {
-    try {
-      ensureResearchToggle();
-      ensureSidebarProjects();
-      attachQueuePanel();
-    } catch {}
-  }, 1200);
-  setTimeout(() => { ensureResearchToggle(); ensureSidebarProjects(); }, 800);
-
+    clearInterval(enhanceTimer);
+    enhanceTimer = setInterval(enhanceAllMessages, isGenerating() ? 300 : 1200);
+  }, 2000);
   const uiObs = new MutationObserver(() => enhanceAllMessages());
   try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
-  // Fast pass while streaming + light steady pass
-  let streamEnhance = setInterval(enhanceAllMessages, 400);
-  setTimeout(() => { clearInterval(streamEnhance); streamEnhance = setInterval(enhanceAllMessages, 1500); }, 15000);
   enhanceAllMessages();
-  renderProjectList();
+
+  // uiEnhance toggle (panel)
+  panel.querySelector('[data-opt="uiEnhance"]')?.addEventListener('change', (e) => {
+    CONFIG.uiEnhance = e.target.checked;
+    try { localStorage.setItem('__dh_ui_enhance', CONFIG.uiEnhance ? '1' : '0'); } catch {}
+  });
+  try {
+    CONFIG.uiEnhance = localStorage.getItem('__dh_ui_enhance') !== '0';
+    const cb = panel.querySelector('[data-opt="uiEnhance"]');
+    if (cb) cb.checked = !!CONFIG.uiEnhance;
+  } catch { CONFIG.uiEnhance = true; }
 
   refreshCounts();
   console.log(`%c[shim] DeepSeek Tool Shim v${VERSION} loaded`, 'color:#0af;font-weight:bold');
