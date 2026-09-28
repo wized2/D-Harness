@@ -126,9 +126,8 @@ class HarnessBridge(
     @JavascriptInterface
     fun listTools(): String {
         val tools = JSONArray()
-        fun tool(name: String, desc: String, params: JSONObject, call: String? = null) {
+        fun tool(name: String, desc: String, params: JSONObject, call: String? = null, example: String? = null) {
             val o = JSONObject().put("name", name).put("description", desc).put("params", params)
-            // Dotted names are labels; actual dispatch is via namespace methods (e.g. workspace.write(...)).
             val callForm = call ?: when {
                 name.contains('.') -> {
                     val parts = name.split('.', limit = 2)
@@ -140,15 +139,16 @@ class HarnessBridge(
             }
             o.put("call", callForm)
             o.put("via", if (name.contains('.')) "global" else "dispatch")
+            if (!example.isNullOrBlank()) o.put("example", example)
             tools.put(o)
         }
-        tool("list_tools", "List tools + schemas", JSONObject())
+        tool("list_tools", "Full tool catalog with params, call form, and examples. Call this before inventing APIs.", JSONObject(), example = "return await list_tools()")
         tool("selftest", "Probe which tools are actually bound", JSONObject())
         tool("research.web", "Multi-source web research (DDG + Wikipedia + pages)", JSONObject().put("query", "string").put("maxSources", "number?"))
         tool("research.preview", "URL title/description preview", JSONObject().put("url", "string"))
         tool("research.html_text", "Fetch URL and extract visible text", JSONObject().put("url", "string").put("maxChars", "number?"))
-        tool("workspace.grep", "Search workspace files for text/regex", JSONObject().put("query", "string").put("regex", "boolean?").put("maxHits", "number?"))
-        tool("exec.lang", "Run code: python3|node|php|ruby|lua|perl|sh if installed", JSONObject().put("lang", "string").put("code", "string").put("timeoutMs", "number?"))
+        tool("workspace.grep", "Search all workspace text files for a string or regex. Returns path+line hits.", JSONObject().put("query", "string").put("regex", "boolean?").put("maxHits", "number?"), example = "return await workspace.grep('TODO', false, 50)")
+        tool("exec.lang", "Run a short script in an on-device runtime. Check exec.langs() first. cwd=workspace.", JSONObject().put("lang", "string").put("code", "string").put("timeoutMs", "number?"), example = "return await exec.lang('node', 'console.log(1+1)')")
         tool("exec.which", "Locate binary on PATH", JSONObject().put("bin", "string"))
         tool("exec.langs", "List available script runtimes on device", JSONObject())
         tool("text.regex_find", "Regex findall", JSONObject().put("text", "string").put("pattern", "string").put("flags", "string?"))
@@ -164,7 +164,7 @@ class HarnessBridge(
         tool("audio.ringer", "Ringer mode get/set", JSONObject().put("mode", "string?"))
         tool("wakelock.acquire", "Partial wake lock (ms)", JSONObject().put("ms", "number?"))
         tool("wakelock.release", "Release wake lock", JSONObject())
-        tool("diff.lines", "Line-level text diff", JSONObject().put("a", "string").put("b", "string"))
+        tool("diff.lines", "Unified-style line diff between two strings. Good for code review in-chat.", JSONObject().put("a", "string").put("b", "string"), example = "return await diff.lines(oldSrc, newSrc)")
         tool("toybox.list", "List toybox applets", JSONObject())
         tool("toybox.run", "Run toybox applet", JSONObject().put("applet", "string").put("args", "array?"))
         tool("describe", "Describe tool or group", JSONObject().put("name", "string"))
@@ -176,7 +176,7 @@ class HarnessBridge(
         tool("github.issues", "List issues", JSONObject().put("owner", "string").put("repo", "string"))
         tool("github.issue_comment", "Comment on issue/PR", JSONObject().put("owner", "string").put("repo", "string").put("number", "number").put("body", "string"))
         tool("github.pr", "Get PR", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
-        tool("github.pr_files", "PR changed files + patches", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
+        tool("github.pr_files", "List files changed in a PR with status and patch snippets.", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"), example = "return await github.pr_files('o','r', 42)")
         tool("github.pr_reviews", "PR reviews", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
         tool("github.pr_commits", "PR commits", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
         tool("github.issue", "Get issue", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
@@ -214,7 +214,7 @@ class HarnessBridge(
         tool("workspace.stat", "Stat path in workspace", JSONObject().put("path", "string"))
         tool("workspace.tree", "Shallow tree listing", JSONObject().put("path", "string?").put("depth", "int?"))
         tool("github.pull", "Download GitHub file into workspace", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?").put("dest", "string?"))
-        tool("github.push_file", "Upload workspace file to GitHub contents API", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"))
+        tool("github.push_file", "Create/update a file on GitHub from a workspace path (Contents API). Needs PAT.", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"), example = "return await github.push_file('o','r','src/a.kt','main','msg','src/a.kt')")
         tool("file.verify_roundtrip", "Write then read-back SHA-256 of UTF-8 test bytes", JSONObject())
         tool("exec", "Allowlisted ProcessBuilder in app sandbox", JSONObject().put("argv", "string[]").put("timeout_ms", "number?").put("cwd", "string?"))
         tool("sqlite.query", "Read-only SQLite query", JSONObject().put("path", "string").put("sql", "string").put("args", "string[]?"))
@@ -265,8 +265,12 @@ class HarnessBridge(
         tool("text.trim", "Trim whitespace", JSONObject().put("text", "string"))
         tool("text.split", "Split by delimiter", JSONObject().put("text", "string").put("sep", "string").put("limit", "number?"))
         tool("text.join", "Join array with sep", JSONObject().put("parts", "string[]").put("sep", "string"))
-        tool("json.pretty", "Pretty-print JSON", JSONObject().put("json", "string").put("indent", "number?"))
-        tool("json.parse", "Parse JSON string", JSONObject().put("json", "string"))
+        tool("json.pretty", "Validate and pretty-print a JSON string. Errors if invalid.", JSONObject().put("json", "string").put("indent", "number?"), example = "return await json.pretty('{\"a\":1}', 2)")
+        tool("json.parse", "Parse JSON string → object. Throws structured error if invalid.", JSONObject().put("json", "string"), example = "return await json.parse(text)")
+        tool("code.outline", "Outline symbols in source: functions, classes, headers. Pass workspace path OR raw content.", JSONObject().put("path", "string?").put("content", "string?").put("max", "number?"), example = "return await code.outline('src/Main.kt', null, 80)")
+        tool("code.find_todos", "Find TODO/FIXME/HACK comments under a workspace path.", JSONObject().put("path", "string?").put("maxHits", "number?"), example = "return await code.find_todos('.', 40)")
+        tool("github.issue_create", "Create a GitHub issue.", JSONObject().put("owner", "string").put("repo", "string").put("title", "string").put("body", "string?").put("labels", "string?"), example = "return await github.issue_create('o','r','Bug','steps', 'bug')")
+        tool("github.commits", "List recent commits on a repo/ref.", JSONObject().put("owner", "string").put("repo", "string").put("sha", "string?").put("per_page", "number?"), example = "return await github.commits('o','r','main', 10)")
         tool("color.hex_rgb", "hex↔rgb", JSONObject().put("op", "to_rgb|to_hex").put("value", "string"))
         tool("fs.mkdir", "Create directory", JSONObject().put("path", "string"))
         tool("fs.touch", "Create empty file", JSONObject().put("path", "string"))
@@ -1431,6 +1435,76 @@ class HarnessBridge(
     }
 
     @JavascriptInterface
+    fun codeOutline(path: String?, content: String?, max: Int): String {
+        return try {
+            val src = when {
+                !content.isNullOrBlank() -> content
+                !path.isNullOrBlank() -> safeFile(path).readText()
+                else -> return JSONObject().put("ok", false).put("error", "path or content required").toString()
+            }
+            val limit = if (max <= 0) 100 else max.coerceAtMost(400)
+            val patterns = listOf(
+                Regex("""(?m)^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)"""),
+                Regex("""(?m)^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\("""),
+                Regex("""(?m)^\s*(?:export\s+)?class\s+([A-Za-z0-9_]+)"""),
+                Regex("""(?m)^\s*(?:fun|suspend\s+fun)\s+([A-Za-z0-9_]+)"""),
+                Regex("""(?m)^\s*(?:public|private|protected|internal)?\s*(?:static\s+)?(?:final\s+)?(?:\w+\s+)+([A-Za-z0-9_]+)\s*\("""),
+                Regex("""(?m)^\s*def\s+([A-Za-z0-9_]+)"""),
+                Regex("""(?m)^#{1,3}\s+(.+)$"""),
+            )
+            val out = JSONArray()
+            val lines = src.split('\n')
+            for ((li, line) in lines.withIndex()) {
+                for (re in patterns) {
+                    val m = re.find(line) ?: continue
+                    val name = m.groupValues.getOrNull(1)?.trim() ?: continue
+                    out.put(JSONObject().put("line", li + 1).put("name", name).put("text", line.trim().take(120)))
+                    if (out.length() >= limit) break
+                }
+                if (out.length() >= limit) break
+            }
+            JSONObject().put("ok", true).put("count", out.length()).put("symbols", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun codeFindTodos(path: String?, maxHits: Int): String {
+        return try {
+            val root = if (path.isNullOrBlank()) workspaceRoot else safeFile(path)
+            val limit = if (maxHits <= 0) 50 else maxHits.coerceAtMost(200)
+            val hits = JSONArray()
+            val re = Regex("""(?i)\b(TODO|FIXME|HACK|XXX)\b.*""")
+            fun walk(f: java.io.File) {
+                if (hits.length() >= limit) return
+                if (f.isDirectory) {
+                    f.listFiles()?.forEach { walk(it) }
+                    return
+                }
+                if (f.length() > 1_000_000) return
+                val name = f.name.lowercase()
+                if (!name.endsWith(".kt") && !name.endsWith(".java") && !name.endsWith(".js") &&
+                    !name.endsWith(".ts") && !name.endsWith(".py") && !name.endsWith(".md") &&
+                    !name.endsWith(".c") && !name.endsWith(".cpp") && !name.endsWith(".h") &&
+                    !name.endsWith(".go") && !name.endsWith(".rs") && !name.endsWith(".swift")) return
+                f.readLines().forEachIndexed { i, line ->
+                    if (hits.length() >= limit) return
+                    if (re.containsMatchIn(line)) {
+                        val rel = try { f.relativeTo(workspaceRoot).path } catch (_: Exception) { f.name }
+                        hits.put(JSONObject().put("path", rel).put("line", i + 1).put("text", line.trim().take(160)))
+                    }
+                }
+            }
+            walk(root)
+            JSONObject().put("ok", true).put("count", hits.length()).put("hits", hits).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+
+    @JavascriptInterface
     fun colorHexRgb(op: String, value: String): String {
         return try {
             if (op == "to_rgb") {
@@ -2225,6 +2299,63 @@ class HarnessBridge(
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
+
+    @JavascriptInterface
+    fun githubIssueCreate(owner: String, repo: String, title: String, body: String?, labels: String?): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token — keys.set('github', pat)").toString()
+            val payload = JSONObject().put("title", title).put("body", body ?: "")
+            if (!labels.isNullOrBlank()) {
+                val arr = JSONArray()
+                labels.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { arr.put(it) }
+                payload.put("labels", arr)
+            }
+            val res = githubRequestSync("POST", "/repos/$owner/$repo/issues", payload.toString(), token)
+            val data = res.optJSONObject("json")
+            if (!res.optBoolean("ok") || data == null) {
+                return JSONObject().put("ok", false).put("status", res.optInt("status"))
+                    .put("error", data?.optString("message") ?: res.optString("text").take(300)).toString()
+            }
+            JSONObject().put("ok", true)
+                .put("number", data.optInt("number"))
+                .put("html_url", data.optString("html_url"))
+                .put("title", data.optString("title"))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun githubCommits(owner: String, repo: String, sha: String?, perPage: Int): String {
+        return try {
+            val token = githubToken() ?: return JSONObject().put("ok", false).put("error", "no github token").toString()
+            val n = if (perPage <= 0) 15 else perPage.coerceAtMost(50)
+            var path = "/repos/$owner/$repo/commits?per_page=$n"
+            if (!sha.isNullOrBlank()) path += "&sha=${java.net.URLEncoder.encode(sha, "UTF-8")}"
+            val res = githubRequestSync("GET", path, null, token)
+            if (!res.optBoolean("ok")) {
+                return JSONObject().put("ok", false).put("status", res.optInt("status"))
+                    .put("error", res.optString("text").take(300)).toString()
+            }
+            val arr = res.optJSONArray("json") ?: JSONArray()
+            val out = JSONArray()
+            for (i in 0 until arr.length()) {
+                val c = arr.optJSONObject(i) ?: continue
+                val commit = c.optJSONObject("commit")
+                out.put(JSONObject()
+                    .put("sha", c.optString("sha").take(8))
+                    .put("message", commit?.optString("message")?.lineSequence()?.firstOrNull() ?: "")
+                    .put("author", commit?.optJSONObject("author")?.optString("name") ?: "")
+                    .put("date", commit?.optJSONObject("author")?.optString("date") ?: "")
+                    .put("html_url", c.optString("html_url")))
+            }
+            JSONObject().put("ok", true).put("commits", out).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
 
 
     @JavascriptInterface

@@ -16,68 +16,103 @@
         app:navigationIcon="@drawable/ic_close_m3"
         app:navigationIconTint="?attr/colorOnSurface" />
 
-    <TextView
-        android:id="@+id/pathText"
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingHorizontal="16dp"
-        android:paddingBottom="8dp"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:maxLines="2"
-        android:ellipsize="middle" />
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginBottom="8dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerHighest"
+        app:strokeWidth="0dp">
 
-    <LinearLayout
+        <TextView
+            android:id="@+id/pathText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="10dp"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:fontFamily="monospace"
+            android:maxLines="2"
+            android:ellipsize="start" />
+    </com.google.android.material.card.MaterialCardView>
+
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:scrollbars="none"
         android:paddingHorizontal="8dp"
         android:paddingBottom="8dp">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnUp"
-            style="@style/Widget.Material3.Button.TonalButton"
+        <com.google.android.material.chip.ChipGroup
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Up" />
+            app:singleLine="true">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnRefresh"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Refresh" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnUp"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Up"
+                android:textAllCaps="false" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnNewFile"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="New file" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRefresh"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Refresh"
+                android:textAllCaps="false" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnCopyPath"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Copy path" />
-    </LinearLayout>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnNewFile"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="New file"
+                android:textAllCaps="false" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/fileList"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnNewFolder"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="New folder"
+                android:textAllCaps="false" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCopyPath"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="Copy path"
+                android:textAllCaps="false" />
+        </com.google.android.material.chip.ChipGroup>
+    </HorizontalScrollView>
+
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:paddingBottom="16dp" />
+        android:layout_weight="1">
 
-    <TextView
-        android:id="@+id/emptyText"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center"
-        android:text="Empty folder"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:visibility="gone" />
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/fileList"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp"
+            android:paddingHorizontal="8dp" />
+
+        <TextView
+            android:id="@+id/emptyText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="Empty folder"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:visibility="gone" />
+    </FrameLayout>
 </LinearLayout>

@@ -134,7 +134,7 @@
     }
     [data-ds-shim-tagline="1"] .ds-shim-chip::before { content: '- '; opacity: .5; font-family: system-ui; }
     [data-ds-shim-tagline="1"] .ds-shim-chip.err { color: #f88; background: rgba(240,130,130,0.10); }
-    
+
     [data-ds-shim-tagline="1"] .ds-shim-chev {
       width: 14px; height: 14px;
       display: inline-flex; align-items: center; justify-content: center;
@@ -146,7 +146,6 @@
     [data-ds-shim-tagline="1"][data-ds-shim-expanded="1"] .ds-shim-chev { transform: rotate(180deg); }
     @media (pointer: coarse) { [data-ds-shim-tagline="1"] { height: 40px; } }
 
-    
     #__ds_shim_fab {
       position: fixed; z-index: 2147483645;
       width: 28px; height: 28px;
@@ -178,7 +177,6 @@
     #__ds_shim_fab[data-hidden="1"] { opacity: 0; width: 12px; background: linear-gradient(to left, rgba(120,150,180,0.35), transparent); }
     #__ds_shim_fab[data-hidden="1"]:hover { opacity: 1; }
 
-    
     #__ds_shim_panel {
       position: fixed; z-index: 2147483646;
       width: 280px; max-width: calc(100vw - 52px); max-height: 72vh; overflow-y: auto;
@@ -226,9 +224,7 @@
       box-shadow: 0 4px 14px rgba(0,0,0,0.35);
     }
     #__ds_shim_toast.show { opacity: 1; }
-  
 
-    
     :root {
       --dh-card-bg: rgba(255,255,255,0.92);
       --dh-card-fg: #1a1a1a;
@@ -247,7 +243,7 @@
       --dh-code-bg: #1e1e24;
       --dh-bar: #8ab4ff;
     }
-    
+
     #claude-ds-theme-v3 ~ * , body:has(#claude-ds-theme-v3) {
       --dh-accent: #da7756;
       --dh-bar: #da7756;
@@ -303,7 +299,6 @@
     }
     .dh-artifact-fs iframe { flex: 1; border-radius: 12px; background: #fff; }
 
-    
     .dh-artifact {
       margin: 12px 0; border-radius: 16px; overflow: hidden;
       border: 1px solid var(--dh-card-border); background: var(--dh-card-bg);
@@ -1874,36 +1869,118 @@ async selftest() {
   applyThemeTokens();
   setInterval(applyThemeTokens, 2000);
 
-  function svgBarChart(labels, values) {
-    const w = 360, h = 160, pad = 28;
+  function chartWrap(title, svg) {
+    return `<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>${esc(title || 'Chart')}</h4>${svg}</div>`;
+  }
+  function svgBarChart(labels, values, opts) {
+    opts = opts || {};
+    const w = 360, h = opts.hbar ? Math.max(120, labels.length * 28 + 40) : 180, pad = 28;
     const nums = values.map(Number).map(n => (isNaN(n) ? 0 : n));
     const max = Math.max(...nums, 1);
-    const bw = (w - pad * 2) / Math.max(nums.length, 1);
-    let bars = '';
-    nums.forEach((n, i) => {
-      const bh = ((h - pad * 2) * n) / max;
-      const x = pad + i * bw + 4;
-      const y = h - pad - bh;
-      bars += `<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${Math.max(0, bh)}" rx="4"/>`;
-      bars += `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(labels[i] ?? i).slice(0, 8))}</text>`;
-    });
-    return `<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>Chart</h4><svg viewBox="0 0 ${w} ${h}" role="img">
+    let body = '';
+    if (opts.hbar) {
+      const rowH = (h - pad * 2) / Math.max(nums.length, 1);
+      nums.forEach((n, i) => {
+        const bw = ((w - pad * 2 - 40) * n) / max;
+        const y = pad + i * rowH + 4;
+        body += `<text x="4" y="${y + 12}" text-anchor="start">${esc(String(labels[i] ?? i).slice(0, 10))}</text>`;
+        body += `<rect class="bar" x="${pad + 36}" y="${y}" width="${Math.max(2, bw)}" height="${Math.max(8, rowH - 10)}" rx="4"/>`;
+      });
+    } else {
+      const bw = (w - pad * 2) / Math.max(nums.length, 1);
+      nums.forEach((n, i) => {
+        const bh = ((h - pad * 2) * n) / max;
+        const x = pad + i * bw + 4;
+        const y = h - pad - bh;
+        body += `<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${Math.max(0, bh)}" rx="4"/>`;
+        body += `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(labels[i] ?? i).slice(0, 8))}</text>`;
+      });
+    }
+    return chartWrap(opts.title || 'Bar', `<svg viewBox="0 0 ${w} ${h}" role="img">
       <line class="axis" x1="${pad}" y1="${h - pad}" x2="${w - 8}" y2="${h - pad}"/>
       <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}"/>
-      ${bars}</svg></div>`;
+      ${body}</svg>`);
+  }
+  function svgLineChart(labels, values, opts) {
+    opts = opts || {};
+    const w = 360, h = 180, pad = 28;
+    const nums = values.map(Number).map(n => (isNaN(n) ? 0 : n));
+    const max = Math.max(...nums, 1);
+    const min = Math.min(...nums, 0);
+    const span = Math.max(max - min, 1);
+    const n = Math.max(nums.length, 1);
+    const pts = nums.map((v, i) => {
+      const x = pad + (i * (w - pad * 2)) / Math.max(n - 1, 1);
+      const y = h - pad - ((v - min) / span) * (h - pad * 2);
+      return [x, y];
+    });
+    const poly = pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    let area = '';
+    if (opts.area && pts.length) {
+      const base = h - pad;
+      area = `<polygon class="area" fill="var(--dh-bar)" fill-opacity="0.2" points="${pts[0][0]},${base} ${poly} ${pts[pts.length-1][0]},${base}"/>`;
+    }
+    const dots = pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="var(--dh-bar)"/>`).join('');
+    const labs = labels.map((lb, i) => {
+      const x = pad + (i * (w - pad * 2)) / Math.max(n - 1, 1);
+      return `<text x="${x}" y="${h - 8}" text-anchor="middle">${esc(String(lb ?? i).slice(0, 8))}</text>`;
+    }).join('');
+    return chartWrap(opts.title || (opts.area ? 'Area' : 'Line'), `<svg viewBox="0 0 ${w} ${h}" role="img">
+      <line class="axis" x1="${pad}" y1="${h - pad}" x2="${w - 8}" y2="${h - pad}"/>
+      <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}"/>
+      ${area}<polyline fill="none" stroke="var(--dh-bar)" stroke-width="2.5" points="${poly}"/>${dots}${labs}</svg>`);
+  }
+  function svgPieChart(labels, values, opts) {
+    opts = opts || {};
+    const nums = values.map(Number).map(n => (isNaN(n) || n < 0 ? 0 : n));
+    const sum = nums.reduce((a, b) => a + b, 0) || 1;
+    const cx = 100, cy = 100, r = 78;
+    let angle = -Math.PI / 2;
+    const colors = ['#4f46e5','#06b6d4','#22c55e','#f59e0b','#ef4444','#a855f7','#14b8a6','#f97316'];
+    let paths = '';
+    nums.forEach((n, i) => {
+      const a = (n / sum) * Math.PI * 2;
+      const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+      angle += a;
+      const x2 = cx + r * Math.cos(angle), y2 = cy + r * Math.sin(angle);
+      const large = a > Math.PI ? 1 : 0;
+      paths += `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z" fill="${colors[i % colors.length]}" opacity="0.9"/>`;
+    });
+    const legend = labels.map((lb, i) =>
+      `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:2px 0">
+        <span style="width:10px;height:10px;border-radius:2px;background:${colors[i % colors.length]}"></span>
+        ${esc(String(lb ?? i))} (${nums[i]})
+      </div>`).join('');
+    return chartWrap(opts.title || 'Pie',
+      `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <svg viewBox="0 0 200 200" width="160" height="160" role="img">${paths}</svg>
+        <div>${legend}</div>
+      </div>`);
   }
   function parseChartBlock(body) {
     try {
       const j = JSON.parse(body);
-      if (j.labels && j.values) return svgBarChart(j.labels, j.values);
-      if (Array.isArray(j.data)) return svgBarChart(j.data.map(d => d.label ?? d.x), j.data.map(d => d.value ?? d.y));
+      const type = (j.type || 'bar').toLowerCase();
+      const title = j.title || j.name || '';
+      let labels, values;
+      if (j.labels && j.values) { labels = j.labels; values = j.values; }
+      else if (Array.isArray(j.data)) {
+        labels = j.data.map(d => d.label ?? d.x ?? d.name);
+        values = j.data.map(d => d.value ?? d.y ?? d.v);
+      } else return null;
+      const opts = { title };
+      if (type === 'line') return svgLineChart(labels, values, opts);
+      if (type === 'area') return svgLineChart(labels, values, Object.assign({ area: true }, opts));
+      if (type === 'pie' || type === 'donut') return svgPieChart(labels, values, opts);
+      if (type === 'hbar' || type === 'horizontal') return svgBarChart(labels, values, Object.assign({ hbar: true }, opts));
+      return svgBarChart(labels, values, opts);
     } catch {}
     const labels = [], values = [];
     body.split(/\n+/).forEach(line => {
       const m = line.trim().match(/^([^,]+),\s*([0-9.]+)\s*$/);
       if (m) { labels.push(m[1].trim()); values.push(Number(m[2])); }
     });
-    return values.length ? svgBarChart(labels, values) : null;
+    return values.length ? svgBarChart(labels, values, {}) : null;
   }
   function isChartComplete(text) {
     const s = text.trim();

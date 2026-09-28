@@ -109,11 +109,10 @@
 
   function buildCss() {
     return `
-    
+
     body.light { ${vars(LIGHT)} }
     body.dark  { ${vars(DARK)} }
 
-    
     html, body, #root,
     ${SEL.root} {
       background: var(--claude-bg) !important;
@@ -121,7 +120,6 @@
     }
     body { font-family: ${FONT_SANS} !important; }
 
-    
     ${SEL.sidebar} {
       background: var(--claude-bg-soft) !important;
       border-right: 1px solid var(--claude-border) !important;
@@ -159,7 +157,6 @@
     }
     ${SEL.sidebarItemSub} { color: var(--claude-muted) !important; }
 
-    
     ${SEL.newChatBtn} {
       background: var(--claude-accent) !important;
       color: #FFFFFE !important;
@@ -173,13 +170,11 @@
     ${SEL.newChatBtn}:hover { background: var(--claude-accent-hover) !important; }
     ${SEL.newChatBtn} .ds-icon { color: #FFFFFE !important; }
 
-    
     ${SEL.profileRow} { color: var(--claude-text) !important; padding: 8px 12px !important; }
     ${SEL.profileName} { color: var(--claude-text) !important; font-family: ${FONT_SANS} !important; font-size: 13px !important; }
     ${SEL.profileSub} { color: var(--claude-muted) !important; }
     ${SEL.profileAvatarBg} { background: var(--claude-accent-soft) !important; }
 
-    
     ${SEL.header} {
       background: var(--claude-bg) !important;
       border-bottom: 1px solid var(--claude-border) !important;
@@ -192,7 +187,6 @@
       font-size: 14px !important;
     }
 
-    
     .ds-button {
       font-family: ${FONT_SANS} !important;
       color: var(--claude-text) !important;
@@ -211,7 +205,6 @@
     .ds-button--primary, .ds-button--filled { color: #FFFFFE !important; }
     .ds-button--disabled { opacity: 0.45 !important; }
 
-    
     ${SEL.userBubble} {
       background: var(--claude-user-bubble) !important;
       color: var(--claude-text) !important;
@@ -228,7 +221,6 @@
       color: var(--claude-text) !important;
     }
 
-    
     .ds-assistant-message-main-content {
       font-family: ${FONT_SERIF} !important;
       color: var(--claude-text) !important;
@@ -273,7 +265,6 @@
       color: var(--claude-muted) !important;
     }
 
-    
     .ds-markdown code, .ds-markdown pre, code, pre, kbd, samp {
       font-family: ${FONT_MONO} !important;
     }
@@ -300,10 +291,9 @@
       padding: 0 !important;
       color: inherit !important;
     }
-    
+
     .ds-markdown pre span { font-family: inherit !important; }
 
-    
     ${SEL.thinkContent} {
       background: transparent !important;
       font-family: ${FONT_SANS} !important;
@@ -345,7 +335,6 @@
       color: var(--claude-accent) !important;
     }
 
-    
     ${SEL.composerFade} {
       background: linear-gradient(transparent 0%, transparent 30%, var(--claude-bg) 30%, var(--claude-bg) 100%) !important;
     }
@@ -372,7 +361,6 @@
     }
     ${SEL.composerFooter} { background: transparent !important; padding: 8px 12px 10px 12px !important; }
 
-    
     .ds-toggle-button {
       background: transparent !important;
       color: var(--claude-muted) !important;
@@ -398,11 +386,9 @@
     .ds-toggle-button svg path[fill] { fill: currentColor !important; }
     .ds-toggle-button svg path[stroke] { stroke: currentColor !important; }
 
-    
     ${SEL.sendAttachBtn} { color: var(--claude-text) !important; }
     ${SEL.sendAttachBtn}:hover .ds-button__background { background: var(--claude-accent-soft) !important; }
 
-    
     ${SEL.disclaimer} {
       color: var(--claude-muted) !important;
       background: var(--claude-bg) !important;
@@ -411,7 +397,6 @@
       padding: 8px 0 12px 0 !important;
     }
 
-    
     ${SEL.actionIcons} {
       color: var(--claude-muted) !important;
       border-radius: 6px !important;
@@ -423,7 +408,6 @@
     }
     .ds-button--iconLabelTertiary { color: var(--claude-muted) !important; }
 
-    
     hr { border-color: var(--claude-border) !important; }
 
     ::-webkit-scrollbar { width: 8px; height: 8px; }

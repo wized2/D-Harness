@@ -1,3 +1,12 @@
+## 1.9.5
+
+- Accurate unified system prompt (auto-inject + Send instructions)
+- Tool catalog descriptions with examples; coding tools: `code.outline`, `code.find_todos`
+- GitHub: `github.issue_create`, `github.commits`
+- Charts: bar, hbar, line, area, pie
+- Workspace browser: path card, new folder, tighter controls
+- Asset minify for smaller APK
+
 ## 1.9.4
 
 - **Web theme**: restored original Claude.js for chat.deepseek.com (always injected)

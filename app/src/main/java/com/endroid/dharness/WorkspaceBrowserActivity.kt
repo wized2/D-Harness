@@ -54,6 +54,7 @@ class WorkspaceBrowserActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btnUp).setOnClickListener { goUp() }
         findViewById<MaterialButton>(R.id.btnRefresh).setOnClickListener { refresh() }
         findViewById<MaterialButton>(R.id.btnNewFile).setOnClickListener { promptNewFile() }
+        findViewById<MaterialButton>(R.id.btnNewFolder).setOnClickListener { promptNewFolder() }
         findViewById<MaterialButton>(R.id.btnCopyPath).setOnClickListener {
             copyText(current.absolutePath)
             Toast.makeText(this, "Path copied", Toast.LENGTH_SHORT).show()
