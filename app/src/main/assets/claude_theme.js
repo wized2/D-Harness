@@ -1,4 +1,97 @@
-(function(){'use strict';if(window.__CLAUDE_DS_THEME__&&typeof window.__CLAUDE_DS_THEME__.reinject==='function'){try{window.__CLAUDE_DS_THEME__.reinject();console.log('[claude-theme] reinjected');}catch(e){}return;}if(window.__CLAUDE_DS_THEME__===true){try{delete window.__CLAUDE_DS_THEME__;}catch(e){}}window.__CLAUDE_DS_THEME__=true;const SEL={root:'.cb86951c, .c3ecdb44, ._7780f2e, ._765a5cd, ._2bd7b35',sidebar:'.dc04ec1d, .b8812f16.a2f3d50e',sidebarBg:'.cddfb2ed, .c3ecdb44',sidebarGroup:'._3098d02',sidebarGroupHdr:'.f3d18f6a',sidebarItem:'._546d736',sidebarItemSel:'._546d736.b64fb9ae',sidebarItemTxt:'.c08e6e93',sidebarItemSub:'._254829d',newChatBtn:'._5a8ac7a',profileRow:'._2afd28d',profileName:'._9d8da05',profileSub:'._39cc453',profileAvatarBg:'.ede5bc47',header:'._2be88ba, ._1aa2651.the-header',headerText:'.d00ed9c9, ._9986c0c, .afa34042',userBubble:'.fbb737a4',collapsibleTxt:'.ds-collapsible-text',thinkContent:'.e1675d8b.ds-think-content',thinkHeader:'._5255ff8._4d41763',thinkGuideLine:'._9ecc93a',thinkDotRing:'.ddd26891._9b52f6c',thinkDotCore:'.a510c7ce._0652043',composerFade:'._871cbca',composerBox:'._77cefa5._3d616d3',composerInner:'._020ab5b, ._24fad49, .b13855df',composerTextarea:'textarea._27c9245, .d96f2d2a',composerFooter:'.ec4f5d61',toggleChipTxt:'._6dbc175',sendAttachBtn:'.f02f0e25',disclaimer:'._0fcaa63',actionIcons:'.db183363, .d4910adc',};const STYLE_ID='claude-ds-theme-v3';const FONT_ID='claude-ds-fonts-v3';const FONT_SERIF="'Source Serif 4', 'Tiempos Text', 'Iowan Old Style', Georgia, serif";const FONT_SANS="'Inter', 'Styrene B', system-ui, -apple-system, sans-serif";const FONT_MONO="'JetBrains Mono', 'SFMono-Regular', Consolas, monospace";const LIGHT={bg:'#FAF9F5',bgSoft:'#F5F3ED',text:'#1F1915',muted:'#6E6862',card:'#FFFFFE',border:'#EBE8E2',accent:'#DA7756',accentHover:'#C4553D',accentSoft:'rgba(218, 119, 86, 0.10)',userBubble:'#FFFFFE',asstBubble:'#F5F3ED',codeBg:'#1F1D1B',codeText:'#F5F3EF',};const DARK={bg:'#1F1F1E',bgSoft:'#242220',text:'#F5F3EF',muted:'#A09D96',card:'#242220',border:'#3A3937',accent:'#DA7756',accentHover:'#E88B6A',accentSoft:'rgba(218, 119, 86, 0.15)',userBubble:'#373737',asstBubble:'#242220',codeBg:'#181715',codeText:'#F5F3EF',};if(!document.getElementById(FONT_ID)){const link=document.createElement('link');link.id=FONT_ID;link.rel='stylesheet';link.href='https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&family=Inter:wght@400;500;580&family=JetBrains+Mono:wght@400;500&display=swap';document.head.appendChild(link);}const vars=(t)=>`
+(function () {
+  'use strict';
+  if (window.__CLAUDE_DS_THEME__ && typeof window.__CLAUDE_DS_THEME__.reinject === 'function') {
+    try { window.__CLAUDE_DS_THEME__.reinject(); console.log('[claude-theme] reinjected'); } catch (e) {}
+    return;
+  }
+  if (window.__CLAUDE_DS_THEME__ === true) {
+    try { delete window.__CLAUDE_DS_THEME__; } catch (e) {}
+  }
+  window.__CLAUDE_DS_THEME__ = true;
+
+  const SEL = {
+    root:            '.cb86951c, .c3ecdb44, ._7780f2e, ._765a5cd, ._2bd7b35',
+    sidebar:         '.dc04ec1d, .b8812f16.a2f3d50e',
+    sidebarBg:       '.cddfb2ed, .c3ecdb44',
+    sidebarGroup:    '._3098d02',
+    sidebarGroupHdr: '.f3d18f6a',
+    sidebarItem:     '._546d736',
+    sidebarItemSel:  '._546d736.b64fb9ae',
+    sidebarItemTxt:  '.c08e6e93',
+    sidebarItemSub:  '._254829d',
+    newChatBtn:      '._5a8ac7a',
+    profileRow:      '._2afd28d',
+    profileName:     '._9d8da05',
+    profileSub:      '._39cc453',
+    profileAvatarBg: '.ede5bc47',
+    header:          '._2be88ba, ._1aa2651.the-header',
+    headerText:      '.d00ed9c9, ._9986c0c, .afa34042',
+    userBubble:      '.fbb737a4',
+    collapsibleTxt:  '.ds-collapsible-text',
+    thinkContent:    '.e1675d8b.ds-think-content',
+    thinkHeader:     '._5255ff8._4d41763',
+    thinkGuideLine:  '._9ecc93a',
+    thinkDotRing:    '.ddd26891._9b52f6c',
+    thinkDotCore:    '.a510c7ce._0652043',
+    composerFade:    '._871cbca',
+    composerBox:     '._77cefa5._3d616d3',
+    composerInner:   '._020ab5b, ._24fad49, .b13855df',
+    composerTextarea:'textarea._27c9245, .d96f2d2a',
+    composerFooter:  '.ec4f5d61',
+    toggleChipTxt:   '._6dbc175',
+    sendAttachBtn:   '.f02f0e25',
+    disclaimer:      '._0fcaa63',
+    actionIcons:     '.db183363, .d4910adc',
+  };
+
+  const STYLE_ID = 'claude-ds-theme-v3';
+  const FONT_ID  = 'claude-ds-fonts-v3';
+
+  const FONT_SERIF = "'Source Serif 4', 'Tiempos Text', 'Iowan Old Style', Georgia, serif";
+  const FONT_SANS  = "'Inter', 'Styrene B', system-ui, -apple-system, sans-serif";
+  const FONT_MONO  = "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace";
+
+  const LIGHT = {
+    bg:         '#FAF9F5',
+    bgSoft:     '#F5F3ED',
+    text:       '#1F1915',
+    muted:      '#6E6862',
+    card:       '#FFFFFE',
+    border:     '#EBE8E2',
+    accent:     '#DA7756',
+    accentHover:'#C4553D',
+    accentSoft: 'rgba(218, 119, 86, 0.10)',
+    userBubble: '#FFFFFE',
+    asstBubble: '#F5F3ED',
+    codeBg:     '#1F1D1B',
+    codeText:   '#F5F3EF',
+  };
+
+  const DARK = {
+    bg:         '#1F1F1E',
+    bgSoft:     '#242220',
+    text:       '#F5F3EF',
+    muted:      '#A09D96',
+    card:       '#242220',
+    border:     '#3A3937',
+    accent:     '#DA7756',
+    accentHover:'#E88B6A',
+    accentSoft: 'rgba(218, 119, 86, 0.15)',
+    userBubble: '#373737',
+    asstBubble: '#242220',
+    codeBg:     '#181715',
+    codeText:   '#F5F3EF',
+  };
+
+  if (!document.getElementById(FONT_ID)) {
+    const link = document.createElement('link');
+    link.id = FONT_ID;
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&family=Inter:wght@400;500;580&family=JetBrains+Mono:wght@400;500&display=swap';
+    document.head.appendChild(link);
+  }
+
+  const vars = (t) => `
     --claude-bg: ${t.bg};
     --claude-bg-soft: ${t.bgSoft};
     --claude-text: ${t.text};
@@ -12,7 +105,10 @@
     --claude-asst-bubble: ${t.asstBubble};
     --claude-code-bg: ${t.codeBg};
     --claude-code-text: ${t.codeText};
-  `;function buildCss(){return`
+  `;
+
+  function buildCss() {
+    return `
 
     body.light { ${vars(LIGHT)} }
     body.dark  { ${vars(DARK)} }
@@ -330,4 +426,53 @@
       border-radius: 12px !important;
       font-family: ${FONT_SANS} !important;
     }
-    `;}function inject(){let style=document.getElementById(STYLE_ID);if(!style){style=document.createElement('style');style.id=STYLE_ID;document.head.appendChild(style);}style.textContent=buildCss();}inject();let lastBodyClass=document.body.className;let scheduled=false;const rescan=()=>{if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;const styleGone=!document.getElementById(STYLE_ID);const themeChanged=document.body.className!==lastBodyClass;if(styleGone||themeChanged){lastBodyClass=document.body.className;inject();}});};new MutationObserver(rescan).observe(document.body,{attributes:true,attributeFilter:['class'],childList:true,});window.__CLAUDE_DS_THEME__={version:'3.1',reinject:inject,remove(){document.getElementById(STYLE_ID)?.remove();document.getElementById(FONT_ID)?.remove();delete window.__CLAUDE_DS_THEME__;console.log('%cClaude theme removed.','color:#DA7756');},};console.log('%cClaude theme v3.1 applied to DeepSeek.','color:#DA7756;font-weight:bold;');})();
+    `;
+  }
+
+  function inject() {
+    let style = document.getElementById(STYLE_ID);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = STYLE_ID;
+      document.head.appendChild(style);
+    }
+    style.textContent = buildCss();
+  }
+
+  inject();
+
+  let lastBodyClass = document.body.className;
+  let scheduled = false;
+  const rescan = () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      const styleGone = !document.getElementById(STYLE_ID);
+      const themeChanged = document.body.className !== lastBodyClass;
+      if (styleGone || themeChanged) {
+        lastBodyClass = document.body.className;
+        inject();
+      }
+    });
+  };
+
+  new MutationObserver(rescan).observe(document.body, {
+    attributes: true,
+    attributeFilter: ['class'],
+    childList: true,
+  });
+
+  window.__CLAUDE_DS_THEME__ = {
+    version: '3.1',
+    reinject: inject,
+    remove() {
+      document.getElementById(STYLE_ID)?.remove();
+      document.getElementById(FONT_ID)?.remove();
+      delete window.__CLAUDE_DS_THEME__;
+      console.log('%cClaude theme removed.', 'color:#DA7756');
+    },
+  };
+
+  console.log('%cClaude theme v3.1 applied to DeepSeek.', 'color:#DA7756;font-weight:bold;');
+})();

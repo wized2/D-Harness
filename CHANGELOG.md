@@ -1,3 +1,10 @@
+## 1.9.6
+
+- **Critical:** restore shim after broken minify (tool calls were dead)
+- Do not mark messages handled while tool JSON is incomplete
+- Normalize smart quotes / markdown fences before JSON extract
+- Faster settle/scan; allow short trailing text after tool JSON
+
 ## 1.9.5
 
 - Accurate unified system prompt (auto-inject + Send instructions)

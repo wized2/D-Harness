@@ -1,4 +1,71 @@
-(function(){'use strict';if(window.top!==window.self)return;if(window.__DS_TOOL_SHIM__){if(!window.__DS_FORCE_REINJECT__){console.log('[shim] already loaded');return;}try{window.__DS_TOOL_SHIM__.stop&&window.__DS_TOOL_SHIM__.stop();}catch(e){}try{document.getElementById('__ds_shim_style__')?.remove();document.getElementById('__ds_shim_fab')?.remove();document.getElementById('__ds_shim_panel')?.remove();document.getElementById('__ds_shim_toast')?.remove();}catch(e){}try{delete window.__DS_TOOL_SHIM__;}catch(e){}}const VERSION='8.2.1-theme-sys';const getConvId=()=>location.pathname.split('/').filter(Boolean).pop()||'unknown';const CONFIG=Object.assign({debug:false,maxStorageKB:100,sendTimeoutMs:3000,sandboxTimeoutMs:20000,dedupe:true,confirmSensitive:true,callMustBeLast:true,maxResultChars:20000,settleMs:1200,scanThrottleMs:400,fallbackScanMs:1500,hideFlashMs:250,},window.__DS_SHIM_CONFIG__||{});const LS={done:'__ds_shim__done_v3',memory:'__ds_shim__memory_v1',fs:'__ds_shim__fs_v1',fabPos:'__ds_shim__fab_pos_v1',fabHidden:'__ds_shim__fab_hidden_v1',};const lsGet=(k,fb)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;}};const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true;}catch{return false;}};let DONE=lsGet(LS.done,{});const saveDone=()=>{const e=Object.entries(DONE);if(e.length>1000){e.sort((a,b)=>(b[1].t||0)-(a[1].t||0));DONE=Object.fromEntries(e.slice(0,1000));}lsSet(LS.done,DONE);};const collapsedByMsg=new Map();for(const v of Object.values(DONE)){if(v&&v.mk)collapsedByMsg.set(v.mk,{preview:v.preview||'',err:!v.ok});}function hashStr(s){let h1=0x811c9dc5,h2=0x01000193;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);h1=Math.imul(h1^c,0x01000193);h2=Math.imul(h2^c,0x85ebca6b);}return(h1>>>0).toString(36)+(h2>>>0).toString(36);}const LOGS=[];const MAX_LOGS=300;function pushLog(level,...a){const msg=a.map(x=>typeof x==='object'?JSON.stringify(x):String(x)).join(' ');LOGS.push({t:Date.now(),level,msg});if(LOGS.length>MAX_LOGS)LOGS.shift();}const log=(...a)=>{pushLog('info',...a);if(CONFIG.debug)console.log('%c[shim]','color:#0af;font-weight:bold',...a);};const esc=s=>String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+(function () {
+  'use strict';
+  if (window.top !== window.self) return;
+  if (window.__DS_TOOL_SHIM__) {
+    if (!window.__DS_FORCE_REINJECT__) { console.log('[shim] already loaded'); return; }
+    try { window.__DS_TOOL_SHIM__.stop && window.__DS_TOOL_SHIM__.stop(); } catch (e) {}
+    try {
+      document.getElementById('__ds_shim_style__')?.remove();
+      document.getElementById('__ds_shim_fab')?.remove();
+      document.getElementById('__ds_shim_panel')?.remove();
+      document.getElementById('__ds_shim_toast')?.remove();
+    } catch (e) {}
+    try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
+  }
+
+  const VERSION = '1.9.6';
+  const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
+  const CONFIG = Object.assign({
+    debug: false,
+    maxStorageKB: 100,
+    sendTimeoutMs: 3000,
+    sandboxTimeoutMs: 20000,
+    dedupe: true,
+    confirmSensitive: true,
+    callMustBeLast: true,
+    maxResultChars: 20000,
+    settleMs: 700,
+    scanThrottleMs: 250,
+    fallbackScanMs: 900,
+    hideFlashMs: 250,
+  }, window.__DS_SHIM_CONFIG__ || {});
+
+  const LS = {
+    done:      '__ds_shim__done_v3',
+    memory:    '__ds_shim__memory_v1',
+    fs:        '__ds_shim__fs_v1',
+    fabPos:    '__ds_shim__fab_pos_v1',
+    fabHidden: '__ds_shim__fab_hidden_v1',
+  };
+  const lsGet = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+
+  let DONE = lsGet(LS.done, {});
+  const saveDone = () => {
+    const e = Object.entries(DONE);
+    if (e.length > 1000) { e.sort((a, b) => (b[1].t || 0) - (a[1].t || 0)); DONE = Object.fromEntries(e.slice(0, 1000)); }
+    lsSet(LS.done, DONE);
+  };
+
+  const collapsedByMsg = new Map();
+  for (const v of Object.values(DONE)) {
+    if (v && v.mk) collapsedByMsg.set(v.mk, { preview: v.preview || '', err: !v.ok });
+  }
+
+  function hashStr(s) {
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h1 = Math.imul(h1 ^ c, 0x01000193); h2 = Math.imul(h2 ^ c, 0x85ebca6b); }
+    return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36);
+  }
+
+  const LOGS = []; const MAX_LOGS = 300;
+  function pushLog(level, ...a) {
+    const msg = a.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ');
+    LOGS.push({ t: Date.now(), level, msg });
+    if (LOGS.length > MAX_LOGS) LOGS.shift();
+  }
+  const log = (...a) => { pushLog('info', ...a); if (CONFIG.debug) console.log('%c[shim]', 'color:#0af;font-weight:bold', ...a); };
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const clip = (s) => {
     if (s == null) return s;
@@ -1184,11 +1251,29 @@ async selftest() {
     }
   }
 
-  function extractToolCall(text) {
+  function normalizeToolText(text) {
+    return String(text || '')
+      .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
+      .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
+      .replace(/```(?:json|JSON|javascript|js)?\s*/g, '\n')
+      .replace(/```/g, '\n');
+  }
+
+  function looksLikeToolJson(text) {
+    const t = normalizeToolText(text);
+    if (!/"tool"\s*:/.test(t)) return false;
+    // incomplete if has "tool" but no parseable object yet
+    return extractToolCall(t) == null;
+  }
+
+  function extractToolCall(raw) {
+    const text = normalizeToolText(raw);
     let idx = 0;
     while ((idx = text.indexOf('"tool"', idx)) !== -1) {
-      const start = text.lastIndexOf('{', idx);
+      // also accept "name" style? no — stick to tool
+      let start = text.lastIndexOf('{', idx);
       if (start === -1) { idx += 6; continue; }
+      // walk back over whitespace to true object start
       let depth = 0, str = false, e2 = false;
       for (let i = start; i < text.length; i++) {
         const c = text[i];
@@ -1205,8 +1290,12 @@ async selftest() {
               const cand = text.slice(start, i + 1);
               try {
                 const obj = JSON.parse(cand);
-                if (obj && typeof obj.tool === 'string' && obj.tool) {
-                  if (obj.tool === 'run_js' && !(obj.args && typeof obj.args.code === 'string')) { idx = i + 1; break; }
+                if (obj && typeof obj.tool === 'string' && obj.tool.trim()) {
+                  // run_js without code is incomplete — keep waiting
+                  if (obj.tool === 'run_js' && !(obj.args && typeof obj.args.code === 'string')) {
+                    idx = i + 1;
+                    break;
+                  }
                   return { obj, full: cand, end: i + 1 };
                 }
               } catch {}
@@ -1252,26 +1341,914 @@ async selftest() {
     return p;
   }
 
-  const TERMINAL_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http:const CHEV_SVG='<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';function createTagline(preview='',isError=false,running=false){const el=document.createElement('div');el.setAttribute('data-ds-shim-tagline','1');if(running)el.setAttribute('data-ds-shim-running','1');if(isError)el.setAttribute('data-ds-shim-err','1');const inner=document.createElement('div');inner.className='ds-shim-inner';const ico=document.createElement('span');ico.className='ds-shim-ico';ico.innerHTML=TERMINAL_SVG;inner.appendChild(ico);const txt=document.createElement('span');txt.className='ds-shim-txt';txt.textContent=running?'Running tool…':'Tool used';el._dsRunLabel='Running tool…';el._dsDoneLabel='Tool used';inner.appendChild(txt);const chev=document.createElement('span');chev.className='ds-shim-chev';chev.innerHTML=CHEV_SVG;inner.appendChild(chev);el.appendChild(inner);return el;}function updateTagline(tagline,preview,isError,running){tagline.toggleAttribute('data-ds-shim-running',!!running);tagline.toggleAttribute('data-ds-shim-err',!!isError);tagline.querySelector('.ds-shim-txt').textContent=running?(tagline._dsRunLabel||'Running tool…'):(tagline._dsDoneLabel||'Tool used');tagline.querySelectorAll('.ds-shim-chip').forEach(function(c){c.remove();});}function applyHiding(wrapper,tagline){for(const child of wrapper.children){if(child===tagline)continue;if(child.getAttribute('data-ds-shim-hidden')!=='1'){child.setAttribute('data-ds-shim-hidden','1');}}}function collapseToolMessage(dsMessage,preview,isError,running,runLabel,doneLabel){const wrapper=findWrapper(dsMessage);if(!wrapper){log('no wrapper');return null;}wrapper.setAttribute('data-ds-shim-wrapper','1');let tagline=wrapper.querySelector(':scope > [data-ds-shim-tagline="1"]');if(!tagline){tagline=createTagline(preview,isError,running);wrapper.insertBefore(tagline,wrapper.firstChild);tagline.onclick=()=>{const expanded=tagline.getAttribute('data-ds-shim-expanded')==='1';for(const c of wrapper.children){if(c===tagline)continue;if(expanded)c.setAttribute('data-ds-shim-hidden','1');else c.removeAttribute('data-ds-shim-hidden');}tagline.setAttribute('data-ds-shim-expanded',expanded?'0':'1');};}if(runLabel)tagline._dsRunLabel=runLabel;if(doneLabel)tagline._dsDoneLabel=doneLabel;updateTagline(tagline,preview,isError,running);applyHiding(wrapper,tagline);return tagline;}let busy=false;const handled=new Set();const retried=new Set();const baseline=new Map();async function processToolCall(dsMessage,tool,mk,sig){const tname=tool.obj.tool;const desc=String(tool.obj.description||tool.obj.discription||'').trim();const runLabel=desc?desc:('Running '+tname+'…');const doneLabel=desc?desc:'Tool used';log('tool call:',tname,desc||'(no description)','| msg:',mk);collapseToolMessage(dsMessage,desc||tname,false,true,runLabel,doneLabel);setStatus('running');try{const n=typeof N==='function'?N():null;if(n&&typeof n.agentBegin==='function')n.agentBegin(tname,desc||tname);}catch(e){log('agentBegin',e);}let res;if(tname==='paste_box'){try{const result=await toolHandlers.paste_box(tool.obj.args||{});res={ok:true,result};}catch(err){res={ok:false,error:String(err&&err.message||err)};}}else if(tname==='run_js'){const code=tool.obj.args&&tool.obj.args.code;const longWait=typeof code==='string'&&code.indexOf('paste_box')!==-1;res=await runInSandbox(code,longWait?0:undefined);}else{const h=toolHandlers[tname];if(!h){res={ok:false,error:'unknown tool: '+tname+' — try run_js with list_tools()'};}else{try{const result=await h(tool.obj.args||{});res={ok:true,result};}catch(err){res={ok:false,error:String(err&&err.message||err)};}}}log('result:',res);let resultPayload=res.result;if(typeof resultPayload==='string'){const s=resultPayload.trim();if((s.startsWith('{')&&s.endsWith('}'))||(s.startsWith('[')&&s.endsWith(']'))){try{resultPayload=JSON.parse(s);}catch(_){}}}const preview=doneLabel||(res.ok?tname:'error');const t1=Date.now();let payloadObj={ok:res.ok,data:resultPayload,result:resultPayload,meta:{ms:0,tool:tname}};if(res.error!=null)payloadObj.error={message:String(res.error)};let payload='TOOL_RESULT: '+JSON.stringify(payloadObj);if(payload.length>CONFIG.maxResultChars+20){payload='TOOL_RESULT: '+JSON.stringify({ok:res.ok,result:clip(resultPayload),error:res.error!=null?clip(res.error):undefined,truncated:true});}DONE[sig]={ok:res.ok,preview,mk,sent:false,payload,t:Date.now(),desc:doneLabel};collapsedByMsg.set(mk,{preview,err:!res.ok,desc:doneLabel});saveDone();refreshCounts();collapseToolMessage(dsMessage,preview,!res.ok,false,runLabel,doneLabel);setStatus(res.ok?'idle':'error');try{const n=typeof N==='function'?N():null;if(n&&typeof n.agentEnd==='function')n.agentEnd();}catch(e){log('agentEnd',e);}const sent=await sendMessage(payload);if(sent&&DONE[sig]){DONE[sig].sent=true;delete DONE[sig].payload;saveDone();}}function hideUserToolResults(msgs){for(const el of msgs){const wrapper=el.parentElement;if(!wrapper)continue;const isHidden=wrapper.getAttribute('data-ds-shim-hidden')==='1';if(isHidden&&!CONFIG.debug)continue;if(!firstText(el).startsWith('TOOL_RESULT:'))continue;if(CONFIG.debug)wrapper.removeAttribute('data-ds-shim-hidden');else wrapper.setAttribute('data-ds-shim-hidden','1');}}function reapplyHiding(){const wrappers=document.querySelectorAll('[data-ds-shim-wrapper="1"]');if(!wrappers.length)return;for(const wrapper of wrappers){const tagline=wrapper.firstElementChild;if(!tagline||tagline.getAttribute('data-ds-shim-tagline')!=='1')continue;if(tagline.getAttribute('data-ds-shim-expanded')==='1')continue;for(const c of wrapper.children){if(c===tagline)continue;if(c.getAttribute('data-ds-shim-hidden')!=='1'){c.setAttribute('data-ds-shim-hidden','1');}}}}function restoreCollapsed(msgs){if(!collapsedByMsg.size)return;for(const el of msgs){const wrapper=el.parentElement;if(!wrapper||wrapper.firstElementChild?.getAttribute('data-ds-shim-tagline')==='1')continue;const info=msgInfo(el);if(!info||!isRealId(info.id))continue;const c=collapsedByMsg.get(mkOf(info));if(c)collapseToolMessage(el,c.preview,c.err,false);}}let settle={el:null,len:-1,at:0};function isSettled(el){const len=(el.textContent||'').length;const now=performance.now();if(settle.el!==el||settle.len!==len){settle={el,len,at:now};return false;}return now-settle.at>=CONFIG.settleMs;}function scanForToolCalls(msgs){if(busy||!msgs.length)return;const el=msgs[msgs.length-1];const info=msgInfo(el);if(!info||!isRealId(info.id))return;const sid=info.sessionId||getConvId();if(!baseline.has(sid))baseline.set(sid,maxRealId(msgs));const mk=sid+':'+info.id;if(handled.has(mk))return;if(isGenerating()||!isSettled(el))return;const main=el.querySelector('div.ds-markdown.ds-assistant-message-main-content');if(!main)return;const text=(main.textContent||'').trim();const tool=text?extractToolCall(text):null;if(!tool){handled.add(mk);return;}if(CONFIG.callMustBeLast&&text.slice(text.lastIndexOf(tool.full)+tool.full.length).trim()){handled.add(mk);log('ignored: text after tool call',mk);return;}const sig=mk+':'+hashStr(tool.full);handled.add(mk);const prev=DONE[sig];if(CONFIG.dedupe&&prev){log('deduped:',sig);collapseToolMessage(el,prev.preview||'',!prev.ok,false);setStatus(prev.ok?'idle':'warn');if(prev.sent===false&&prev.payload&&!retried.has(sig)){retried.add(sig);busy=true;log('resending unsent result',sig);sendMessage(prev.payload).then(ok=>{if(ok&&DONE[sig]){DONE[sig].sent=true;delete DONE[sig].payload;saveDone();}}).finally(()=>{busy=false;});}return;}if(+info.id<=baseline.get(sid)){log('skipped (was already on screen at load):',mk);return;}busy=true;processToolCall(el,tool,mk,sig).catch(e=>{log('error:',e);setStatus('error');}).finally(()=>{busy=false;});}let lastTickAt=0;let tickScheduled=false;function runTick(){tickScheduled=false;lastTickAt=performance.now();try{const msgs=document.querySelectorAll('div.ds-message');hideUserToolResults(msgs);restoreCollapsed(msgs);reapplyHiding();scanForToolCalls(msgs);}catch(e){log('tick error:',e);setStatus('error');}}function scheduleTick(urgent=false){if(tickScheduled)return;tickScheduled=true;const now=performance.now();const wait=urgent?0:Math.max(0,CONFIG.scanThrottleMs-(now-lastTickAt));if(wait===0){requestAnimationFrame(runTick);}else{setTimeout(()=>requestAnimationFrame(runTick),wait);}}const observer=new MutationObserver(()=>scheduleTick(false));observer.observe(document.body,{childList:true,subtree:true});const fallbackTimer=setInterval(()=>scheduleTick(false),CONFIG.fallbackScanMs);document.addEventListener('visibilitychange',()=>{scheduleTick(true);});setTimeout(()=>scheduleTick(true),600);window.__DS_TOOL_SHIM__={version:VERSION,stop(){observer.disconnect();clearInterval(fallbackTimer);setStatus('off');style.remove();document.querySelectorAll('[data-ds-shim-tagline]').forEach(el=>el.remove());document.querySelectorAll('[data-ds-shim-hidden]').forEach(el=>el.removeAttribute('data-ds-shim-hidden'));document.querySelectorAll('[data-ds-shim-wrapper]').forEach(el=>el.removeAttribute('data-ds-shim-wrapper'));fab.remove();panel.remove();toast.remove();if(iframe)iframe.remove();delete window.__DS_TOOL_SHIM__;console.log('%c[shim] stopped','color:#0af');},tick:()=>scheduleTick(true),send:sendMessage,run:runInSandbox,resetSandbox:()=>resetSandbox('manual'),showPanel:()=>togglePanel(true),hidePanel:()=>togglePanel(false),resetFab:()=>{lsSet(LS.fabPos,null);applyPos(null);},showFab:()=>{lsSet(LS.fabHidden,false);fab.removeAttribute('data-hidden');},stats(){const s={version:VERSION,convId:getConvId(),done:Object.keys(DONE).length,unsent:Object.values(DONE).filter(v=>v.sent===false).length,memoryKeys:Object.keys(lsGet(LS.memory,{})).length,fsFiles:Object.keys(lsGet(LS.fs,{})).length,generating:isGenerating(),baseline:Object.fromEntries(baseline),logs:LOGS.length,};console.log('[shim] stats:',s);return s;},logs:()=>LOGS.slice(),enhanceUI:()=>{try{enhanceAllMessages();}catch(e){}},maybeInjectSystemPrompt:(f)=>{try{return maybeInjectSystemPrompt(!!f);}catch(e){return false;}},artifacts:true,inspect(){const out=[];document.querySelectorAll('div.ds-message').forEach((el,i)=>{const wrapper=el.parentElement;const info=msgInfo(el);out.push({i,id:info?info.id:null,textPreview:firstText(el).slice(0,40),wrapperChildren:wrapper?wrapper.children.length:0,hasTagline:wrapper?.firstElementChild?.getAttribute('data-ds-shim-tagline')==='1',});});console.table(out);return out;},};const SYS_MAP_KEY='__dh_sys_embedded_v5';let sysEmbedDone=Object.create(null);function loadSysMap(){try{return JSON.parse(sessionStorage.getItem(SYS_MAP_KEY)||'{}');}catch{return{};}}function saveSysMap(m){try{sessionStorage.setItem(SYS_MAP_KEY,JSON.stringify(m));}catch{}}function getSystemPromptText(){let p=window.__DH_SYSTEM_PROMPT__||'';if(!p){try{p=localStorage.getItem('__DH_SYSTEM_PROMPT__')||'';}catch{}}if(p)window.__DH_SYSTEM_PROMPT__=p;return p;}function needsSystemEmbed(){try{const ts=Number(sessionStorage.getItem('__dh_sys_embed_ts')||0);if(ts&&(Date.now()-ts)<180000)return false;if(sessionStorage.getItem('__dh_sys_embed_global')==='1'){if(ts&&(Date.now()-ts)<180000)return false;}}catch{}const id=getConvId();if(sysEmbedDone[id])return false;const map=loadSysMap();if(map[id])return false;const parts=(location.pathname||'').split('/').filter(Boolean);for(const p of parts){if(sysEmbedDone[p]||map[p])return false;}return true;}function markSystemEmbedded(){const id=getConvId();const map=loadSysMap();const parts=(location.pathname||'').split('/').filter(Boolean);const all=new Set([id,'unknown','chat','s',...parts]);all.forEach(k=>{if(!k)return;sysEmbedDone[k]=true;map[k]=true;});try{sessionStorage.setItem('__dh_sys_embed_ts',String(Date.now()));sessionStorage.setItem('__dh_sys_embed_global','1');}catch{}saveSysMap(map);log('sys embed marked',id,'parts',parts.join('/'));}function embedSystemIfNeeded(userText){const text=String(userText||'');if(!text.trim())return text;if(text.startsWith('TOOL_RESULT')||text.startsWith('[D-HARNESS SYSTEM'))return text;if(!needsSystemEmbed())return text;const sys=getSystemPromptText();if(!sys||sys.length<40){log('sys embed skipped: no prompt');return text;}markSystemEmbedded();log('sys embed once',getConvId());return('[D-HARNESS SYSTEM — follow silently; do not restate]\n'+sys+'\n[End system. First turn: one short acknowledgment, then answer.]\n\n---\n\n'+text);}const _sendMessageOriginal=sendMessage;let intercepting=false;sendMessage=async function(text){const raw=String(text||'');if(raw.startsWith('TOOL_RESULT')||raw.startsWith('[D-HARNESS SYSTEM')){return _sendMessageOriginal(raw);}if(intercepting)return _sendMessageOriginal(raw);return _sendMessageOriginal(embedSystemIfNeeded(raw));};try{if(window.__DS_TOOL_SHIM__)window.__DS_TOOL_SHIM__.send=sendMessage;}catch{}async function interceptFirstSend(ev){if(intercepting)return;if(!needsSystemEmbed())return;const input=getInput();if(!input)return;const userText=(input.value||'').trim();if(!userText)return;const sys=getSystemPromptText();if(!sys||sys.length<40)return;if(ev){try{ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();}catch{}}intercepting=true;try{const outbound=embedSystemIfNeeded(userText);try{setNativeValue(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));}catch{}const ok=await _sendMessageOriginal(outbound);if(!ok){const id=getConvId();delete sysEmbedDone[id];const map=loadSysMap();delete map[id];saveSysMap(map);try{setNativeValue(input,userText);input.dispatchEvent(new Event('input',{bubbles:true}));}catch{}}}finally{intercepting=false;}}document.addEventListener('click',(e)=>{try{const btn=e.target?.closest?.(SEND_SELECTOR)||e.target?.closest?.('div[role="button"].ds-button--primary');if(!btn)return;if(needsSystemEmbed())interceptFirstSend(e);}catch{}},true);document.addEventListener('keydown',(e)=>{if(e.key!=='Enter'||e.shiftKey||e.isComposing)return;const input=getInput();if(!input||e.target!==input)return;if(needsSystemEmbed())interceptFirstSend(e);},true);let __dhLastPath=location.pathname;setInterval(()=>{if(location.pathname===__dhLastPath)return;const prev=__dhLastPath;__dhLastPath=location.pathname;try{const ts=Number(sessionStorage.getItem('__dh_sys_embed_ts')||0);if(ts&&(Date.now()-ts)<180000){markSystemEmbedded();log('sys embed transferred on nav',prev,'→',location.pathname);}}catch{}},400);try{if(window.__DH_SYSTEM_PROMPT__)localStorage.setItem('__DH_SYSTEM_PROMPT__',window.__DH_SYSTEM_PROMPT__);}catch{}let promptPoll=0;const promptTimer=setInterval(()=>{promptPoll++;if(window.__DH_SYSTEM_PROMPT__&&window.__DH_SYSTEM_PROMPT__.length>40){try{localStorage.setItem('__DH_SYSTEM_PROMPT__',window.__DH_SYSTEM_PROMPT__);}catch{}clearInterval(promptTimer);}else if(promptPoll>20)clearInterval(promptTimer);},500);async function maybeInjectSystemPrompt(force){if(force){const id=getConvId();delete sysEmbedDone[id];const map=loadSysMap();delete map[id];saveSysMap(map);showToast('System will attach on next send');return true;}return false;}function applyThemeTokens(){const root=document.documentElement;const claude=!!document.getElementById('claude-ds-theme-v3');const dark=root.classList.contains('dark')||document.body.classList.contains('dark')||(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);root.style.setProperty('--dh-card-bg',dark?(claude?'#2a2825':'#1e1f24'):(claude?'#faf8f5':'#ffffff'));root.style.setProperty('--dh-card-fg',dark?'#e8eaed':'#1a1a1a');root.style.setProperty('--dh-card-border',dark?'rgba(255,255,255,0.12)':'rgba(0,0,0,0.10)');root.style.setProperty('--dh-accent',claude?'#da7756':'#4d6bfe');root.style.setProperty('--dh-bar',claude?'#da7756':'#4d6bfe');root.style.setProperty('--dh-muted',dark?'#9aa0a6':'#5f6368');root.style.setProperty('--dh-code-bg',dark?(claude?'#1f1e1b':'#2a2b30'):(claude?'#f3f1ec':'#f1f3f4'));}applyThemeTokens();setInterval(applyThemeTokens,2000);function chartWrap(title,svg){return`<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>${esc(title || 'Chart')}</h4>${svg}</div>`;}function svgBarChart(labels,values,opts){opts=opts||{};const w=360,h=opts.hbar?Math.max(120,labels.length*28+40):180,pad=28;const nums=values.map(Number).map(n=>(isNaN(n)?0:n));const max=Math.max(...nums,1);let body='';if(opts.hbar){const rowH=(h-pad*2)/Math.max(nums.length,1);nums.forEach((n,i)=>{const bw=((w-pad*2-40)*n)/max;const y=pad+i*rowH+4;body+=`<text x="4" y="${y + 12}" text-anchor="start">${esc(String(labels[i] ?? i).slice(0, 10))}</text>`;body+=`<rect class="bar" x="${pad + 36}" y="${y}" width="${Math.max(2, bw)}" height="${Math.max(8, rowH - 10)}" rx="4"/>`;});}else{const bw=(w-pad*2)/Math.max(nums.length,1);nums.forEach((n,i)=>{const bh=((h-pad*2)*n)/max;const x=pad+i*bw+4;const y=h-pad-bh;body+=`<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${Math.max(0, bh)}" rx="4"/>`;body+=`<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(labels[i] ?? i).slice(0, 8))}</text>`;});}return chartWrap(opts.title||'Bar',`<svg viewBox="0 0 ${w} ${h}" role="img">
+  const TERMINAL_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 6.3L6.5 8.8L4 11.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.3H11.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  const CHEV_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function createTagline(preview = '', isError = false, running = false) {
+    const el = document.createElement('div');
+    el.setAttribute('data-ds-shim-tagline', '1');
+    if (running) el.setAttribute('data-ds-shim-running', '1');
+    if (isError) el.setAttribute('data-ds-shim-err', '1');
+
+    const inner = document.createElement('div');
+    inner.className = 'ds-shim-inner';
+
+    const ico = document.createElement('span');
+    ico.className = 'ds-shim-ico';
+    ico.innerHTML = TERMINAL_SVG;
+    inner.appendChild(ico);
+
+    const txt = document.createElement('span');
+    txt.className = 'ds-shim-txt';
+    txt.textContent = running ? 'Running tool…' : 'Tool used';
+    el._dsRunLabel = 'Running tool…';
+    el._dsDoneLabel = 'Tool used';
+    inner.appendChild(txt);
+
+    const chev = document.createElement('span');
+    chev.className = 'ds-shim-chev';
+    chev.innerHTML = CHEV_SVG;
+    inner.appendChild(chev);
+
+    el.appendChild(inner);
+    return el;
+  }
+
+  function updateTagline(tagline, preview, isError, running) {
+    tagline.toggleAttribute('data-ds-shim-running', !!running);
+    tagline.toggleAttribute('data-ds-shim-err', !!isError);
+    tagline.querySelector('.ds-shim-txt').textContent = running
+      ? (tagline._dsRunLabel || 'Running tool…')
+      : (tagline._dsDoneLabel || 'Tool used');
+    tagline.querySelectorAll('.ds-shim-chip').forEach(function (c) { c.remove(); });
+  }
+
+  function applyHiding(wrapper, tagline) {
+    for (const child of wrapper.children) {
+      if (child === tagline) continue;
+      if (child.getAttribute('data-ds-shim-hidden') !== '1') {
+        child.setAttribute('data-ds-shim-hidden', '1');
+      }
+    }
+  }
+
+  function collapseToolMessage(dsMessage, preview, isError, running, runLabel, doneLabel) {
+    const wrapper = findWrapper(dsMessage);
+    if (!wrapper) { log('no wrapper'); return null; }
+    wrapper.setAttribute('data-ds-shim-wrapper', '1');
+
+    let tagline = wrapper.querySelector(':scope > [data-ds-shim-tagline="1"]');
+    if (!tagline) {
+      tagline = createTagline(preview, isError, running);
+      wrapper.insertBefore(tagline, wrapper.firstChild);
+      tagline.onclick = () => {
+        const expanded = tagline.getAttribute('data-ds-shim-expanded') === '1';
+        for (const c of wrapper.children) {
+          if (c === tagline) continue;
+          if (expanded) c.setAttribute('data-ds-shim-hidden', '1');
+          else c.removeAttribute('data-ds-shim-hidden');
+        }
+        tagline.setAttribute('data-ds-shim-expanded', expanded ? '0' : '1');
+      };
+    }
+    if (runLabel) tagline._dsRunLabel = runLabel;
+    if (doneLabel) tagline._dsDoneLabel = doneLabel;
+    updateTagline(tagline, preview, isError, running);
+
+    applyHiding(wrapper, tagline);
+    return tagline;
+  }
+
+  let busy = false;
+  const handled = new Set();
+  const retried = new Set();
+  const baseline = new Map();
+
+  async function processToolCall(dsMessage, tool, mk, sig) {
+    const tname = tool.obj.tool;
+    const desc = String(tool.obj.description || tool.obj.discription || '').trim();
+    const runLabel = desc ? desc : ('Running ' + tname + '…');
+    const doneLabel = desc ? desc : 'Tool used';
+    log('tool call:', tname, desc || '(no description)', '| msg:', mk);
+    collapseToolMessage(dsMessage, desc || tname, false, true, runLabel, doneLabel);
+    setStatus('running');
+    try {
+      const n = typeof N === 'function' ? N() : null;
+      if (n && typeof n.agentBegin === 'function') n.agentBegin(tname, desc || tname);
+    } catch (e) { log('agentBegin', e); }
+
+    let res;
+    if (tname === 'paste_box') {
+      try {
+        const result = await toolHandlers.paste_box(tool.obj.args || {});
+        res = { ok: true, result };
+      } catch (err) {
+        res = { ok: false, error: String(err && err.message || err) };
+      }
+    } else if (tname === 'run_js') {
+      const code = tool.obj.args && tool.obj.args.code;
+      const longWait = typeof code === 'string' && code.indexOf('paste_box') !== -1;
+      res = await runInSandbox(code, longWait ? 0 : undefined);
+    } else {
+      const h = toolHandlers[tname];
+      if (!h) {
+        res = { ok: false, error: 'unknown tool: ' + tname + ' — try run_js with list_tools()' };
+      } else {
+        try {
+          const result = await h(tool.obj.args || {});
+          res = { ok: true, result };
+        } catch (err) {
+          res = { ok: false, error: String(err && err.message || err) };
+        }
+      }
+    }
+    log('result:', res);
+
+    let resultPayload = res.result;
+    if (typeof resultPayload === 'string') {
+      const s = resultPayload.trim();
+      if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) {
+        try { resultPayload = JSON.parse(s); } catch (_) {}
+      }
+    }
+    const preview = doneLabel || (res.ok ? tname : 'error');
+    const t1 = Date.now();
+    let payloadObj = {
+      ok: res.ok,
+      data: resultPayload,
+      result: resultPayload,
+      meta: { ms: 0, tool: tname }
+    };
+    if (res.error != null) payloadObj.error = { message: String(res.error) };
+    let payload = 'TOOL_RESULT: ' + JSON.stringify(payloadObj);
+    if (payload.length > CONFIG.maxResultChars + 20) {
+      payload = 'TOOL_RESULT: ' + JSON.stringify({
+        ok: res.ok,
+        result: clip(resultPayload),
+        error: res.error != null ? clip(res.error) : undefined,
+        truncated: true
+      });
+    }
+    DONE[sig] = { ok: res.ok, preview, mk, sent: false, payload, t: Date.now(), desc: doneLabel };
+    collapsedByMsg.set(mk, { preview, err: !res.ok, desc: doneLabel });
+    saveDone(); refreshCounts();
+
+    collapseToolMessage(dsMessage, preview, !res.ok, false, runLabel, doneLabel);
+    setStatus(res.ok ? 'idle' : 'error');
+    try {
+      const n = typeof N === 'function' ? N() : null;
+      if (n && typeof n.agentEnd === 'function') n.agentEnd();
+    } catch (e) { log('agentEnd', e); }
+
+    const sent = await sendMessage(payload);
+    if (sent && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); }
+  }
+
+  function hideUserToolResults(msgs) {
+    for (const el of msgs) {
+      const wrapper = el.parentElement;
+      if (!wrapper) continue;
+      const isHidden = wrapper.getAttribute('data-ds-shim-hidden') === '1';
+      if (isHidden && !CONFIG.debug) continue;
+      if (!firstText(el).startsWith('TOOL_RESULT:')) continue;
+      if (CONFIG.debug) wrapper.removeAttribute('data-ds-shim-hidden');
+      else wrapper.setAttribute('data-ds-shim-hidden', '1');
+    }
+  }
+
+  function reapplyHiding() {
+    const wrappers = document.querySelectorAll('[data-ds-shim-wrapper="1"]');
+    if (!wrappers.length) return;
+    for (const wrapper of wrappers) {
+      const tagline = wrapper.firstElementChild;
+      if (!tagline || tagline.getAttribute('data-ds-shim-tagline') !== '1') continue;
+      if (tagline.getAttribute('data-ds-shim-expanded') === '1') continue;
+      for (const c of wrapper.children) {
+        if (c === tagline) continue;
+        if (c.getAttribute('data-ds-shim-hidden') !== '1') {
+          c.setAttribute('data-ds-shim-hidden', '1');
+        }
+      }
+    }
+  }
+
+  function restoreCollapsed(msgs) {
+    if (!collapsedByMsg.size) return;
+    for (const el of msgs) {
+      const wrapper = el.parentElement;
+      if (!wrapper || wrapper.firstElementChild?.getAttribute('data-ds-shim-tagline') === '1') continue;
+      const info = msgInfo(el);
+      if (!info || !isRealId(info.id)) continue;
+      const c = collapsedByMsg.get(mkOf(info));
+      if (c) collapseToolMessage(el, c.preview, c.err, false);
+    }
+  }
+
+  let settle = { el: null, len: -1, at: 0 };
+  function isSettled(el) {
+    const len = (el.textContent || '').length;
+    const now = performance.now();
+    if (settle.el !== el || settle.len !== len) { settle = { el, len, at: now }; return false; }
+    return now - settle.at >= CONFIG.settleMs;
+  }
+
+  function scanForToolCalls(msgs) {
+    if (busy || !msgs.length) return;
+    const el = msgs[msgs.length - 1];
+    const info = msgInfo(el);
+    if (!info || !isRealId(info.id)) return;
+
+    const sid = info.sessionId || getConvId();
+    if (!baseline.has(sid)) baseline.set(sid, maxRealId(msgs));
+    const mk = sid + ':' + info.id;
+    if (handled.has(mk)) return;
+
+    if (isGenerating() || !isSettled(el)) return;
+
+    const main = el.querySelector('div.ds-markdown.ds-assistant-message-main-content')
+      || el.querySelector('div.ds-markdown')
+      || el;
+    if (!main) return;
+    const text = (main.textContent || '').trim();
+    if (!text) return;
+    const tool = extractToolCall(text);
+    if (!tool) {
+      // Critical: do NOT mark handled while JSON is still incomplete or not present yet
+      if (/"tool"\s*:/.test(normalizeToolText(text))) {
+        log('waiting for complete tool JSON', mk);
+        return;
+      }
+      // No tool payload — only mark handled once generation finished (already settled)
+      handled.add(mk);
+      return;
+    }
+    // Allow short trailing text (model chatter); only ignore if large tail after JSON
+    const tail = text.slice(text.lastIndexOf(tool.full) + tool.full.length).trim();
+    if (CONFIG.callMustBeLast && tail.length > 80) {
+      log('ignored: long text after tool call', mk, tail.slice(0, 40));
+      // still execute — model often adds a short note; only skip if huge
+    }
+
+    const sig = mk + ':' + hashStr(tool.full);
+    handled.add(mk);
+    const prev = DONE[sig];
+
+    if (CONFIG.dedupe && prev) {
+      log('deduped:', sig);
+      collapseToolMessage(el, prev.preview || '', !prev.ok, false);
+      setStatus(prev.ok ? 'idle' : 'warn');
+      if (prev.sent === false && prev.payload && !retried.has(sig)) {
+        retried.add(sig);
+        busy = true;
+        log('resending unsent result', sig);
+        sendMessage(prev.payload)
+          .then(ok => { if (ok && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); } })
+          .finally(() => { busy = false; });
+      }
+      return;
+    }
+
+    if (+info.id <= baseline.get(sid)) { log('skipped (was already on screen at load):', mk); return; }
+
+    busy = true;
+    processToolCall(el, tool, mk, sig)
+      .catch(e => { log('error:', e); setStatus('error'); })
+      .finally(() => { busy = false; });
+  }
+
+  let lastTickAt = 0;
+  let tickScheduled = false;
+
+  function runTick() {
+    tickScheduled = false;
+    lastTickAt = performance.now();
+    try {
+      const msgs = document.querySelectorAll('div.ds-message');
+      hideUserToolResults(msgs);
+      restoreCollapsed(msgs);
+      reapplyHiding();
+      scanForToolCalls(msgs);
+    } catch (e) {
+      log('tick error:', e);
+      setStatus('error');
+    }
+  }
+
+  function scheduleTick(urgent = false) {
+    if (tickScheduled) return;
+    tickScheduled = true;
+    const now = performance.now();
+    const wait = urgent ? 0 : Math.max(0, CONFIG.scanThrottleMs - (now - lastTickAt));
+    if (wait === 0) {
+      requestAnimationFrame(runTick);
+    } else {
+      setTimeout(() => requestAnimationFrame(runTick), wait);
+    }
+  }
+
+  const observer = new MutationObserver(() => scheduleTick(false));
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  const fallbackTimer = setInterval(() => scheduleTick(false), CONFIG.fallbackScanMs);
+
+  document.addEventListener('visibilitychange', () => {
+    scheduleTick(true);
+  });
+
+  setTimeout(() => scheduleTick(true), 600);
+
+  window.__DS_TOOL_SHIM__ = {
+    version: VERSION,
+    stop() {
+      observer.disconnect();
+      clearInterval(fallbackTimer);
+      setStatus('off');
+      style.remove();
+      document.querySelectorAll('[data-ds-shim-tagline]').forEach(el => el.remove());
+      document.querySelectorAll('[data-ds-shim-hidden]').forEach(el => el.removeAttribute('data-ds-shim-hidden'));
+      document.querySelectorAll('[data-ds-shim-wrapper]').forEach(el => el.removeAttribute('data-ds-shim-wrapper'));
+      fab.remove(); panel.remove(); toast.remove();
+      if (iframe) iframe.remove();
+      delete window.__DS_TOOL_SHIM__;
+      console.log('%c[shim] stopped', 'color:#0af');
+    },
+    tick: () => scheduleTick(true),
+    send: sendMessage,
+    run: runInSandbox,
+    resetSandbox: () => resetSandbox('manual'),
+    showPanel: () => togglePanel(true),
+    hidePanel: () => togglePanel(false),
+    resetFab: () => { lsSet(LS.fabPos, null); applyPos(null); },
+    showFab: () => { lsSet(LS.fabHidden, false); fab.removeAttribute('data-hidden'); },
+    stats() {
+      const s = {
+        version: VERSION,
+        convId: getConvId(),
+        done: Object.keys(DONE).length,
+        unsent: Object.values(DONE).filter(v => v.sent === false).length,
+        memoryKeys: Object.keys(lsGet(LS.memory, {})).length,
+        fsFiles: Object.keys(lsGet(LS.fs, {})).length,
+        generating: isGenerating(),
+        baseline: Object.fromEntries(baseline),
+        logs: LOGS.length,
+      };
+      console.log('[shim] stats:', s);
+      return s;
+    },
+    logs: () => LOGS.slice(),
+    enhanceUI: () => { try { enhanceAllMessages(); } catch(e) {} },
+    maybeInjectSystemPrompt: (f) => { try { return maybeInjectSystemPrompt(!!f); } catch(e) { return false; } },
+    artifacts: true,
+    inspect() {
+      const out = [];
+      document.querySelectorAll('div.ds-message').forEach((el, i) => {
+        const wrapper = el.parentElement;
+        const info = msgInfo(el);
+        out.push({
+          i,
+          id: info ? info.id : null,
+          textPreview: firstText(el).slice(0, 40),
+          wrapperChildren: wrapper ? wrapper.children.length : 0,
+          hasTagline: wrapper?.firstElementChild?.getAttribute('data-ds-shim-tagline') === '1',
+        });
+      });
+      console.table(out);
+      return out;
+    },
+  };
+
+  const SYS_MAP_KEY = '__dh_sys_embedded_v5';
+  let sysEmbedDone = Object.create(null);
+
+  function loadSysMap() {
+    try { return JSON.parse(sessionStorage.getItem(SYS_MAP_KEY) || '{}'); } catch { return {}; }
+  }
+  function saveSysMap(m) {
+    try { sessionStorage.setItem(SYS_MAP_KEY, JSON.stringify(m)); } catch {}
+  }
+  function getSystemPromptText() {
+    let p = window.__DH_SYSTEM_PROMPT__ || '';
+    if (!p) {
+      try { p = localStorage.getItem('__DH_SYSTEM_PROMPT__') || ''; } catch {}
+    }
+    if (p) window.__DH_SYSTEM_PROMPT__ = p;
+    return p;
+  }
+  function needsSystemEmbed() {
+    try {
+      const ts = Number(sessionStorage.getItem('__dh_sys_embed_ts') || 0);
+      if (ts && (Date.now() - ts) < 180000) return false;
+      if (sessionStorage.getItem('__dh_sys_embed_global') === '1') {
+        if (ts && (Date.now() - ts) < 180000) return false;
+      }
+    } catch {}
+    const id = getConvId();
+    if (sysEmbedDone[id]) return false;
+    const map = loadSysMap();
+    if (map[id]) return false;
+    const parts = (location.pathname || '').split('/').filter(Boolean);
+    for (const p of parts) {
+      if (sysEmbedDone[p] || map[p]) return false;
+    }
+    return true;
+  }
+  function markSystemEmbedded() {
+    const id = getConvId();
+    const map = loadSysMap();
+    const parts = (location.pathname || '').split('/').filter(Boolean);
+    const all = new Set([id, 'unknown', 'chat', 's', ...parts]);
+    all.forEach(k => {
+      if (!k) return;
+      sysEmbedDone[k] = true;
+      map[k] = true;
+    });
+    try {
+      sessionStorage.setItem('__dh_sys_embed_ts', String(Date.now()));
+      sessionStorage.setItem('__dh_sys_embed_global', '1');
+    } catch {}
+    saveSysMap(map);
+    log('sys embed marked', id, 'parts', parts.join('/'));
+  }
+  function embedSystemIfNeeded(userText) {
+    const text = String(userText || '');
+    if (!text.trim()) return text;
+    if (text.startsWith('TOOL_RESULT') || text.startsWith('[D-HARNESS SYSTEM')) return text;
+    if (!needsSystemEmbed()) return text;
+    const sys = getSystemPromptText();
+    if (!sys || sys.length < 40) {
+      log('sys embed skipped: no prompt');
+      return text;
+    }
+    markSystemEmbedded();
+    log('sys embed once', getConvId());
+    return (
+      '[D-HARNESS SYSTEM — follow silently; do not restate]\n' +
+      sys +
+      '\n[End system. First turn: one short acknowledgment, then answer.]\n\n---\n\n' +
+      text
+    );
+  }
+
+  const _sendMessageOriginal = sendMessage;
+  let intercepting = false;
+  sendMessage = async function(text) {
+    const raw = String(text || '');
+    if (raw.startsWith('TOOL_RESULT') || raw.startsWith('[D-HARNESS SYSTEM')) {
+      return _sendMessageOriginal(raw);
+    }
+    if (intercepting) return _sendMessageOriginal(raw);
+    return _sendMessageOriginal(embedSystemIfNeeded(raw));
+  };
+  try { if (window.__DS_TOOL_SHIM__) window.__DS_TOOL_SHIM__.send = sendMessage; } catch {}
+
+  async function interceptFirstSend(ev) {
+    if (intercepting) return;
+    if (!needsSystemEmbed()) return;
+    const input = getInput();
+    if (!input) return;
+    const userText = (input.value || '').trim();
+    if (!userText) return;
+    const sys = getSystemPromptText();
+    if (!sys || sys.length < 40) return;
+
+    if (ev) {
+      try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch {}
+    }
+    intercepting = true;
+    try {
+      const outbound = embedSystemIfNeeded(userText);
+      try {
+        setNativeValue(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      } catch {}
+      const ok = await _sendMessageOriginal(outbound);
+      if (!ok) {
+        const id = getConvId();
+        delete sysEmbedDone[id];
+        const map = loadSysMap();
+        delete map[id];
+        saveSysMap(map);
+        try {
+          setNativeValue(input, userText);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        } catch {}
+      }
+    } finally {
+      intercepting = false;
+    }
+  }
+  document.addEventListener('click', (e) => {
+    try {
+      const btn = e.target?.closest?.(SEND_SELECTOR) || e.target?.closest?.('div[role="button"].ds-button--primary');
+      if (!btn) return;
+      if (needsSystemEmbed()) interceptFirstSend(e);
+    } catch {}
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    const input = getInput();
+    if (!input || e.target !== input) return;
+    if (needsSystemEmbed()) interceptFirstSend(e);
+  }, true);
+
+  let __dhLastPath = location.pathname;
+  setInterval(() => {
+    if (location.pathname === __dhLastPath) return;
+    const prev = __dhLastPath;
+    __dhLastPath = location.pathname;
+    try {
+      const ts = Number(sessionStorage.getItem('__dh_sys_embed_ts') || 0);
+      if (ts && (Date.now() - ts) < 180000) {
+        markSystemEmbedded();
+        log('sys embed transferred on nav', prev, '→', location.pathname);
+      }
+    } catch {}
+  }, 400);
+
+  try {
+    if (window.__DH_SYSTEM_PROMPT__) localStorage.setItem('__DH_SYSTEM_PROMPT__', window.__DH_SYSTEM_PROMPT__);
+  } catch {}
+  let promptPoll = 0;
+  const promptTimer = setInterval(() => {
+    promptPoll++;
+    if (window.__DH_SYSTEM_PROMPT__ && window.__DH_SYSTEM_PROMPT__.length > 40) {
+      try { localStorage.setItem('__DH_SYSTEM_PROMPT__', window.__DH_SYSTEM_PROMPT__); } catch {}
+      clearInterval(promptTimer);
+    } else if (promptPoll > 20) clearInterval(promptTimer);
+  }, 500);
+
+  async function maybeInjectSystemPrompt(force) {
+    if (force) {
+      const id = getConvId();
+      delete sysEmbedDone[id];
+      const map = loadSysMap();
+      delete map[id];
+      saveSysMap(map);
+      showToast('System will attach on next send');
+      return true;
+    }
+    return false;
+  }
+
+  function applyThemeTokens() {
+    const root = document.documentElement;
+    const claude = !!document.getElementById('claude-ds-theme-v3');
+    const dark = root.classList.contains('dark') || document.body.classList.contains('dark') ||
+      (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    root.style.setProperty('--dh-card-bg', dark ? (claude ? '#2a2825' : '#1e1f24') : (claude ? '#faf8f5' : '#ffffff'));
+    root.style.setProperty('--dh-card-fg', dark ? '#e8eaed' : '#1a1a1a');
+    root.style.setProperty('--dh-card-border', dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)');
+    root.style.setProperty('--dh-accent', claude ? '#da7756' : '#4d6bfe');
+    root.style.setProperty('--dh-bar', claude ? '#da7756' : '#4d6bfe');
+    root.style.setProperty('--dh-muted', dark ? '#9aa0a6' : '#5f6368');
+    root.style.setProperty('--dh-code-bg', dark ? (claude ? '#1f1e1b' : '#2a2b30') : (claude ? '#f3f1ec' : '#f1f3f4'));
+  }
+  applyThemeTokens();
+  setInterval(applyThemeTokens, 2000);
+
+  function chartWrap(title, svg) {
+    return `<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>${esc(title || 'Chart')}</h4>${svg}</div>`;
+  }
+  function svgBarChart(labels, values, opts) {
+    opts = opts || {};
+    const w = 360, h = opts.hbar ? Math.max(120, labels.length * 28 + 40) : 180, pad = 28;
+    const nums = values.map(Number).map(n => (isNaN(n) ? 0 : n));
+    const max = Math.max(...nums, 1);
+    let body = '';
+    if (opts.hbar) {
+      const rowH = (h - pad * 2) / Math.max(nums.length, 1);
+      nums.forEach((n, i) => {
+        const bw = ((w - pad * 2 - 40) * n) / max;
+        const y = pad + i * rowH + 4;
+        body += `<text x="4" y="${y + 12}" text-anchor="start">${esc(String(labels[i] ?? i).slice(0, 10))}</text>`;
+        body += `<rect class="bar" x="${pad + 36}" y="${y}" width="${Math.max(2, bw)}" height="${Math.max(8, rowH - 10)}" rx="4"/>`;
+      });
+    } else {
+      const bw = (w - pad * 2) / Math.max(nums.length, 1);
+      nums.forEach((n, i) => {
+        const bh = ((h - pad * 2) * n) / max;
+        const x = pad + i * bw + 4;
+        const y = h - pad - bh;
+        body += `<rect class="bar" x="${x}" y="${y}" width="${Math.max(4, bw - 8)}" height="${Math.max(0, bh)}" rx="4"/>`;
+        body += `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(labels[i] ?? i).slice(0, 8))}</text>`;
+      });
+    }
+    return chartWrap(opts.title || 'Bar', `<svg viewBox="0 0 ${w} ${h}" role="img">
       <line class="axis" x1="${pad}" y1="${h - pad}" x2="${w - 8}" y2="${h - pad}"/>
       <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}"/>
-      ${body}</svg>`);}function svgLineChart(labels,values,opts){opts=opts||{};const w=360,h=180,pad=28;const nums=values.map(Number).map(n=>(isNaN(n)?0:n));const max=Math.max(...nums,1);const min=Math.min(...nums,0);const span=Math.max(max-min,1);const n=Math.max(nums.length,1);const pts=nums.map((v,i)=>{const x=pad+(i*(w-pad*2))/Math.max(n-1,1);const y=h-pad-((v-min)/span)*(h-pad*2);return[x,y];});const poly=pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');let area='';if(opts.area&&pts.length){const base=h-pad;area=`<polygon class="area" fill="var(--dh-bar)" fill-opacity="0.2" points="${pts[0][0]},${base} ${poly} ${pts[pts.length-1][0]},${base}"/>`;}const dots=pts.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="var(--dh-bar)"/>`).join('');const labs=labels.map((lb,i)=>{const x=pad+(i*(w-pad*2))/Math.max(n-1,1);return`<text x="${x}" y="${h - 8}" text-anchor="middle">${esc(String(lb ?? i).slice(0, 8))}</text>`;}).join('');return chartWrap(opts.title||(opts.area?'Area':'Line'),`<svg viewBox="0 0 ${w} ${h}" role="img">
+      ${body}</svg>`);
+  }
+  function svgLineChart(labels, values, opts) {
+    opts = opts || {};
+    const w = 360, h = 180, pad = 28;
+    const nums = values.map(Number).map(n => (isNaN(n) ? 0 : n));
+    const max = Math.max(...nums, 1);
+    const min = Math.min(...nums, 0);
+    const span = Math.max(max - min, 1);
+    const n = Math.max(nums.length, 1);
+    const pts = nums.map((v, i) => {
+      const x = pad + (i * (w - pad * 2)) / Math.max(n - 1, 1);
+      const y = h - pad - ((v - min) / span) * (h - pad * 2);
+      return [x, y];
+    });
+    const poly = pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    let area = '';
+    if (opts.area && pts.length) {
+      const base = h - pad;
+      area = `<polygon class="area" fill="var(--dh-bar)" fill-opacity="0.2" points="${pts[0][0]},${base} ${poly} ${pts[pts.length-1][0]},${base}"/>`;
+    }
+    const dots = pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="var(--dh-bar)"/>`).join('');
+    const labs = labels.map((lb, i) => {
+      const x = pad + (i * (w - pad * 2)) / Math.max(n - 1, 1);
+      return `<text x="${x}" y="${h - 8}" text-anchor="middle">${esc(String(lb ?? i).slice(0, 8))}</text>`;
+    }).join('');
+    return chartWrap(opts.title || (opts.area ? 'Area' : 'Line'), `<svg viewBox="0 0 ${w} ${h}" role="img">
       <line class="axis" x1="${pad}" y1="${h - pad}" x2="${w - 8}" y2="${h - pad}"/>
       <line class="axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}"/>
-      ${area}<polyline fill="none" stroke="var(--dh-bar)" stroke-width="2.5" points="${poly}"/>${dots}${labs}</svg>`);}function svgPieChart(labels,values,opts){opts=opts||{};const nums=values.map(Number).map(n=>(isNaN(n)||n<0?0:n));const sum=nums.reduce((a,b)=>a+b,0)||1;const cx=100,cy=100,r=78;let angle=-Math.PI/2;const colors=['#4f46e5','#06b6d4','#22c55e','#f59e0b','#ef4444','#a855f7','#14b8a6','#f97316'];let paths='';nums.forEach((n,i)=>{const a=(n/sum)*Math.PI*2;const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);angle+=a;const x2=cx+r*Math.cos(angle),y2=cy+r*Math.sin(angle);const large=a>Math.PI?1:0;paths+=`<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z" fill="${colors[i % colors.length]}" opacity="0.9"/>`;});const legend=labels.map((lb,i)=>`<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:2px 0">
+      ${area}<polyline fill="none" stroke="var(--dh-bar)" stroke-width="2.5" points="${poly}"/>${dots}${labs}</svg>`);
+  }
+  function svgPieChart(labels, values, opts) {
+    opts = opts || {};
+    const nums = values.map(Number).map(n => (isNaN(n) || n < 0 ? 0 : n));
+    const sum = nums.reduce((a, b) => a + b, 0) || 1;
+    const cx = 100, cy = 100, r = 78;
+    let angle = -Math.PI / 2;
+    const colors = ['#4f46e5','#06b6d4','#22c55e','#f59e0b','#ef4444','#a855f7','#14b8a6','#f97316'];
+    let paths = '';
+    nums.forEach((n, i) => {
+      const a = (n / sum) * Math.PI * 2;
+      const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+      angle += a;
+      const x2 = cx + r * Math.cos(angle), y2 = cy + r * Math.sin(angle);
+      const large = a > Math.PI ? 1 : 0;
+      paths += `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z" fill="${colors[i % colors.length]}" opacity="0.9"/>`;
+    });
+    const legend = labels.map((lb, i) =>
+      `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:2px 0">
         <span style="width:10px;height:10px;border-radius:2px;background:${colors[i % colors.length]}"></span>
         ${esc(String(lb ?? i))} (${nums[i]})
-      </div>`).join('');return chartWrap(opts.title||'Pie',`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      </div>`).join('');
+    return chartWrap(opts.title || 'Pie',
+      `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <svg viewBox="0 0 200 200" width="160" height="160" role="img">${paths}</svg>
         <div>${legend}</div>
-      </div>`);}function parseChartBlock(body){try{const j=JSON.parse(body);const type=(j.type||'bar').toLowerCase();const title=j.title||j.name||'';let labels,values;if(j.labels&&j.values){labels=j.labels;values=j.values;}else if(Array.isArray(j.data)){labels=j.data.map(d=>d.label??d.x??d.name);values=j.data.map(d=>d.value??d.y??d.v);}else return null;const opts={title};if(type==='line')return svgLineChart(labels,values,opts);if(type==='area')return svgLineChart(labels,values,Object.assign({area:true},opts));if(type==='pie'||type==='donut')return svgPieChart(labels,values,opts);if(type==='hbar'||type==='horizontal')return svgBarChart(labels,values,Object.assign({hbar:true},opts));return svgBarChart(labels,values,opts);}catch{}const labels=[],values=[];body.split(/\n+/).forEach(line=>{const m=line.trim().match(/^([^,]+),\s*([0-9.]+)\s*$/);if(m){labels.push(m[1].trim());values.push(Number(m[2]));}});return values.length?svgBarChart(labels,values,{}):null;}function isChartComplete(text){const s=text.trim();if(!s)return false;if(s.startsWith('{')){try{JSON.parse(s);return true;}catch{return false;}}return s.split('\n').filter(l=>/,\s*[0-9.]+/.test(l)).length>=1;}function isHtmlComplete(html){const s=(html||'').trim();if(s.length<20)return false;if(/^<!DOCTYPE/i.test(s)||/<html[\s>]/i.test(s)){return/<\/html>/i.test(s);}const opens=(s.match(/<[a-zA-Z][^>]*>/g)||[]).length;const closes=(s.match(/<\/[a-zA-Z]+>/g)||[]).length;return opens>=1&&closes>=1&&s.length>40;}function wrapArtifactHtml(html){let body=(html||'').trim();body=body.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');const dark=document.documentElement.classList.contains('dark')||document.body.classList.contains('dark');const pageBg=dark?'#1e1f24':'#ffffff';const pageFg=dark?'#e8eaed':'#1a1a1a';const bridge=`<script>window.dh={toast:function(t){parent.postMessage({type:'dh-artifact',action:'toast',text:String(t)},'*');}};</script>`;if(/^<!DOCTYPE/i.test(body)||/<html[\s>]/i.test(body)){if(/<\/body>/i.test(body))return body.replace(/<\/body>/i,bridge+'</body>');return body+bridge;}return`<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+      </div>`);
+  }
+  function parseChartBlock(body) {
+    try {
+      const j = JSON.parse(body);
+      const type = (j.type || 'bar').toLowerCase();
+      const title = j.title || j.name || '';
+      let labels, values;
+      if (j.labels && j.values) { labels = j.labels; values = j.values; }
+      else if (Array.isArray(j.data)) {
+        labels = j.data.map(d => d.label ?? d.x ?? d.name);
+        values = j.data.map(d => d.value ?? d.y ?? d.v);
+      } else return null;
+      const opts = { title };
+      if (type === 'line') return svgLineChart(labels, values, opts);
+      if (type === 'area') return svgLineChart(labels, values, Object.assign({ area: true }, opts));
+      if (type === 'pie' || type === 'donut') return svgPieChart(labels, values, opts);
+      if (type === 'hbar' || type === 'horizontal') return svgBarChart(labels, values, Object.assign({ hbar: true }, opts));
+      return svgBarChart(labels, values, opts);
+    } catch {}
+    const labels = [], values = [];
+    body.split(/\n+/).forEach(line => {
+      const m = line.trim().match(/^([^,]+),\s*([0-9.]+)\s*$/);
+      if (m) { labels.push(m[1].trim()); values.push(Number(m[2])); }
+    });
+    return values.length ? svgBarChart(labels, values, {}) : null;
+  }
+  function isChartComplete(text) {
+    const s = text.trim();
+    if (!s) return false;
+    if (s.startsWith('{')) {
+      try { JSON.parse(s); return true; } catch { return false; }
+    }
+    return s.split('\n').filter(l => /,\s*[0-9.]+/.test(l)).length >= 1;
+  }
+
+  function isHtmlComplete(html) {
+    const s = (html || '').trim();
+    if (s.length < 20) return false;
+    if (/^<!DOCTYPE/i.test(s) || /<html[\s>]/i.test(s)) {
+      return /<\/html>/i.test(s);
+    }
+    const opens = (s.match(/<[a-zA-Z][^>]*>/g) || []).length;
+    const closes = (s.match(/<\/[a-zA-Z]+>/g) || []).length;
+    return opens >= 1 && closes >= 1 && s.length > 40;
+  }
+
+  function wrapArtifactHtml(html) {
+    let body = (html || '').trim();
+    body = body.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    const dark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+    const pageBg = dark ? '#1e1f24' : '#ffffff';
+    const pageFg = dark ? '#e8eaed' : '#1a1a1a';
+    const bridge = `<script>window.dh={toast:function(t){parent.postMessage({type:'dh-artifact',action:'toast',text:String(t)},'*');}};</script>`;
+    if (/^<!DOCTYPE/i.test(body) || /<html[\s>]/i.test(body)) {
+      if (/<\/body>/i.test(body)) return body.replace(/<\/body>/i, bridge + '</body>');
+      return body + bridge;
+    }
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>html,body{margin:0;padding:12px;font-family:system-ui,-apple-system,sans-serif;background:${pageBg};color:${pageFg};}a{color:#4d6bfe;}</style>
-</head><body>${body}${bridge}</body></html>`;}function loadIframe(ifr,html){const srcdoc=wrapArtifactHtml(html);try{if(ifr._dhUrl){try{URL.revokeObjectURL(ifr._dhUrl);}catch{}}const blob=new Blob([srcdoc],{type:'text/html;charset=utf-8'});const url=URL.createObjectURL(blob);ifr._dhUrl=url;ifr.removeAttribute('srcdoc');ifr.src=url;}catch{try{ifr.srcdoc=srcdoc;}catch(e){console.warn('artifact load',e);}}}function openArtifactFullscreen(html,title){const overlay=document.createElement('div');overlay.className='dh-artifact-fs';overlay.innerHTML=`<div class="dh-artifact-bar"><b>${esc(title || 'Artifact')}</b>
+</head><body>${body}${bridge}</body></html>`;
+  }
+
+  function loadIframe(ifr, html) {
+    const srcdoc = wrapArtifactHtml(html);
+    try {
+      if (ifr._dhUrl) {
+        try { URL.revokeObjectURL(ifr._dhUrl); } catch {}
+      }
+      const blob = new Blob([srcdoc], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      ifr._dhUrl = url;
+      ifr.removeAttribute('srcdoc');
+      ifr.src = url;
+    } catch {
+      try {
+        ifr.srcdoc = srcdoc;
+      } catch (e) {
+        console.warn('artifact load', e);
+      }
+    }
+  }
+
+  function openArtifactFullscreen(html, title) {
+    const overlay = document.createElement('div');
+    overlay.className = 'dh-artifact-fs';
+    overlay.innerHTML = `<div class="dh-artifact-bar"><b>${esc(title || 'Artifact')}</b>
       <button type="button" data-close>Close</button></div>
-      <div class="dh-artifact-frame-wrap"></div>`;const wrap=overlay.querySelector('.dh-artifact-frame-wrap');const ifr=document.createElement('iframe');ifr.setAttribute('sandbox','allow-scripts allow-forms allow-modals allow-popups');ifr.setAttribute('referrerpolicy','no-referrer');loadIframe(ifr,html);wrap.appendChild(ifr);overlay.querySelector('[data-close]').onclick=()=>{try{if(ifr._dhUrl)URL.revokeObjectURL(ifr._dhUrl);}catch{}overlay.remove();};document.body.appendChild(overlay);}function showLoadingCard(pre,kind){if(pre.getAttribute('data-dh-loading')==='1')return;pre.setAttribute('data-dh-loading','1');let card=pre.previousElementSibling;if(card&&card.getAttribute('data-dh-ph')==='1')return;card=document.createElement('div');card.className=kind==='chart'?'dh-chart-loading':'dh-artifact';card.setAttribute('data-dh-ph','1');if(kind==='chart'){card.textContent='Building chart…';}else{card.innerHTML=`<div class="dh-artifact-bar"><b>${kind === 'simulation' ? 'Simulation' : 'Artifact'}</b></div>
-        <div class="dh-artifact-loading"><div class="spin"></div><div>Creating…</div></div>`;}pre.style.display='none';pre.parentNode?.insertBefore(card,pre);}function removeLoadingCard(pre){const card=pre.previousElementSibling;if(card&&card.getAttribute('data-dh-ph')==='1')card.remove();pre.style.display='';pre.removeAttribute('data-dh-loading');}function renderArtifactCard(pre,html,kind){removeLoadingCard(pre);if(pre.getAttribute('data-dh-done')==='artifact')return;const title=kind==='simulation'?'Simulation':(kind==='interactive'?'Interactive':'HTML artifact');const card=document.createElement('div');card.className='dh-artifact'+(kind==='simulation'||kind==='interactive'?' dh-artifact-tall':'');card.innerHTML=`<div class="dh-artifact-bar"><span><b>${title}</b></span>
+      <div class="dh-artifact-frame-wrap"></div>`;
+    const wrap = overlay.querySelector('.dh-artifact-frame-wrap');
+    const ifr = document.createElement('iframe');
+    ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
+    ifr.setAttribute('referrerpolicy', 'no-referrer');
+    loadIframe(ifr, html);
+    wrap.appendChild(ifr);
+    overlay.querySelector('[data-close]').onclick = () => {
+      try { if (ifr._dhUrl) URL.revokeObjectURL(ifr._dhUrl); } catch {}
+      overlay.remove();
+    };
+    document.body.appendChild(overlay);
+  }
+
+  function showLoadingCard(pre, kind) {
+    if (pre.getAttribute('data-dh-loading') === '1') return;
+    pre.setAttribute('data-dh-loading', '1');
+    let card = pre.previousElementSibling;
+    if (card && card.getAttribute('data-dh-ph') === '1') return;
+    card = document.createElement('div');
+    card.className = kind === 'chart' ? 'dh-chart-loading' : 'dh-artifact';
+    card.setAttribute('data-dh-ph', '1');
+    if (kind === 'chart') {
+      card.textContent = 'Building chart…';
+    } else {
+      card.innerHTML = `<div class="dh-artifact-bar"><b>${kind === 'simulation' ? 'Simulation' : 'Artifact'}</b></div>
+        <div class="dh-artifact-loading"><div class="spin"></div><div>Creating…</div></div>`;
+    }
+    pre.style.display = 'none';
+    pre.parentNode?.insertBefore(card, pre);
+  }
+
+  function removeLoadingCard(pre) {
+    const card = pre.previousElementSibling;
+    if (card && card.getAttribute('data-dh-ph') === '1') card.remove();
+    pre.style.display = '';
+    pre.removeAttribute('data-dh-loading');
+  }
+
+  function renderArtifactCard(pre, html, kind) {
+    removeLoadingCard(pre);
+    if (pre.getAttribute('data-dh-done') === 'artifact') return;
+    const title = kind === 'simulation' ? 'Simulation' : (kind === 'interactive' ? 'Interactive' : 'HTML artifact');
+    const card = document.createElement('div');
+    card.className = 'dh-artifact' + (kind === 'simulation' || kind === 'interactive' ? ' dh-artifact-tall' : '');
+    card.innerHTML = `<div class="dh-artifact-bar"><span><b>${title}</b></span>
       <span class="acts">
         <button type="button" data-act="reload">Reload</button>
         <button type="button" data-act="fs">Fullscreen</button>
       </span></div>
-      <div class="dh-artifact-frame-wrap"></div>`;const wrap=card.querySelector('.dh-artifact-frame-wrap');const ifr=document.createElement('iframe');ifr.setAttribute('sandbox','allow-scripts allow-forms allow-modals allow-popups');ifr.setAttribute('referrerpolicy','no-referrer');const loading=document.createElement('div');loading.className='dh-artifact-loading';loading.innerHTML='<div class="spin"></div><div>Loading…</div>';wrap.appendChild(loading);wrap.appendChild(ifr);ifr.style.opacity='0';ifr.onload=()=>{try{loading.remove();}catch{}ifr.style.opacity='1';};setTimeout(()=>{try{loading.remove();}catch{}ifr.style.opacity='1';},1200);loadIframe(ifr,html);card.querySelector('[data-act="reload"]').onclick=()=>{ifr.style.opacity='0';loadIframe(ifr,html);setTimeout(()=>{ifr.style.opacity='1';},400);};card.querySelector('[data-act="fs"]').onclick=()=>openArtifactFullscreen(html,title);pre.setAttribute('data-dh-done','artifact');pre.replaceWith(card);}function enhanceCodeBlocks(root){if(!CONFIG.uiEnhance||!root)return;const pres=Array.from(root.querySelectorAll('pre'));for(const pre of pres){if(pre.getAttribute('data-dh-done'))continue;if(pre.closest('.dh-artifact')||pre.closest('#__ds_shim_panel'))continue;const codeEl=pre.querySelector('code')||pre;const text=(codeEl.textContent||'').trim();if(!text)continue;const lang=((codeEl.className||'')+' '+(pre.className||'')).toLowerCase();const isArtifactLang=/html-artifact|language-html|\bhtml\b|artifact|simulation|interactive/.test(lang)||(/^\s*<(!doctype|html|div|section|canvas|svg|body)/i.test(text)&&text.length>30);if(isArtifactLang){const kind=/simulation/.test(lang)?'simulation':(/interactive/.test(lang)?'interactive':'html');if(!isHtmlComplete(text)||isGenerating()){if(!isHtmlComplete(text)){showLoadingCard(pre,kind);continue;}}try{renderArtifactCard(pre,text,kind);}catch(e){console.warn('artifact',e);}continue;}const isChartLang=/chart|dh-chart/.test(lang)||(text.startsWith('{')&&/"values"\s*:/.test(text))||(/^[^,\n]+,\s*[0-9.]+/m.test(text)&&text.split('\n').filter(l=>/,\s*[0-9.]+/.test(l)).length>=2&&!text.includes('function'));if(isChartLang){if(!isChartComplete(text)){showLoadingCard(pre,'chart');continue;}const html=parseChartBlock(text);if(html){removeLoadingCard(pre);const div=document.createElement('div');div.innerHTML=html;pre.setAttribute('data-dh-done','chart');pre.replaceWith(div.firstChild);}continue;}pre.setAttribute('data-dh-done','code');}}let enhanceQueued=false;function enhanceAllMessages(){if(!CONFIG.uiEnhance||enhanceQueued)return;enhanceQueued=true;requestAnimationFrame(()=>{enhanceQueued=false;applyThemeTokens();try{document.querySelectorAll('div.ds-message').forEach(el=>{try{enhanceCodeBlocks(el);}catch{}});}catch{}});}window.addEventListener('message',(ev)=>{const d=ev&&ev.data;if(!d||d.type!=='dh-artifact')return;if(d.action==='toast')showToast(String(d.text||''),2000);});let enhanceTimer=setInterval(enhanceAllMessages,350);setInterval(()=>{clearInterval(enhanceTimer);enhanceTimer=setInterval(enhanceAllMessages,isGenerating()?300:1200);},2000);const uiObs=new MutationObserver(()=>enhanceAllMessages());try{uiObs.observe(document.body,{childList:true,subtree:true});}catch{}enhanceAllMessages();panel.querySelector('[data-opt="uiEnhance"]')?.addEventListener('change',(e)=>{CONFIG.uiEnhance=e.target.checked;try{localStorage.setItem('__dh_ui_enhance',CONFIG.uiEnhance?'1':'0');}catch{}});try{CONFIG.uiEnhance=localStorage.getItem('__dh_ui_enhance')!=='0';const cb=panel.querySelector('[data-opt="uiEnhance"]');if(cb)cb.checked=!!CONFIG.uiEnhance;}catch{CONFIG.uiEnhance=true;}refreshCounts();console.log(`%c[shim] DeepSeek Tool Shim v${VERSION} loaded`,'color:#0af;font-weight:bold');console.log('API: __DS_TOOL_SHIM__.stats() | .inspect() | .showPanel()');})();
+      <div class="dh-artifact-frame-wrap"></div>`;
+    const wrap = card.querySelector('.dh-artifact-frame-wrap');
+    const ifr = document.createElement('iframe');
+    ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
+    ifr.setAttribute('referrerpolicy', 'no-referrer');
+    const loading = document.createElement('div');
+    loading.className = 'dh-artifact-loading';
+    loading.innerHTML = '<div class="spin"></div><div>Loading…</div>';
+    wrap.appendChild(loading);
+    wrap.appendChild(ifr);
+    ifr.style.opacity = '0';
+    ifr.onload = () => {
+      try { loading.remove(); } catch {}
+      ifr.style.opacity = '1';
+    };
+    setTimeout(() => {
+      try { loading.remove(); } catch {}
+      ifr.style.opacity = '1';
+    }, 1200);
+    loadIframe(ifr, html);
+    card.querySelector('[data-act="reload"]').onclick = () => {
+      ifr.style.opacity = '0';
+      loadIframe(ifr, html);
+      setTimeout(() => { ifr.style.opacity = '1'; }, 400);
+    };
+    card.querySelector('[data-act="fs"]').onclick = () => openArtifactFullscreen(html, title);
+    pre.setAttribute('data-dh-done', 'artifact');
+    pre.replaceWith(card);
+  }
+
+  function enhanceCodeBlocks(root) {
+    if (!CONFIG.uiEnhance || !root) return;
+    const pres = Array.from(root.querySelectorAll('pre'));
+    for (const pre of pres) {
+      if (pre.getAttribute('data-dh-done')) continue;
+      if (pre.closest('.dh-artifact') || pre.closest('#__ds_shim_panel')) continue;
+      const codeEl = pre.querySelector('code') || pre;
+      const text = (codeEl.textContent || '').trim();
+      if (!text) continue;
+      const lang = ((codeEl.className || '') + ' ' + (pre.className || '')).toLowerCase();
+
+      const isArtifactLang = /html-artifact|language-html|\bhtml\b|artifact|simulation|interactive/.test(lang) ||
+        (/^\s*<(!doctype|html|div|section|canvas|svg|body)/i.test(text) && text.length > 30);
+      if (isArtifactLang) {
+        const kind = /simulation/.test(lang) ? 'simulation' : (/interactive/.test(lang) ? 'interactive' : 'html');
+        if (!isHtmlComplete(text) || isGenerating()) {
+          if (!isHtmlComplete(text)) {
+            showLoadingCard(pre, kind);
+            continue;
+          }
+        }
+        try { renderArtifactCard(pre, text, kind); } catch (e) { console.warn('artifact', e); }
+        continue;
+      }
+
+      const isChartLang = /chart|dh-chart/.test(lang) ||
+        (text.startsWith('{') && /"values"\s*:/.test(text)) ||
+        (/^[^,\n]+,\s*[0-9.]+/m.test(text) && text.split('\n').filter(l => /,\s*[0-9.]+/.test(l)).length >= 2 && !text.includes('function'));
+      if (isChartLang) {
+        if (!isChartComplete(text)) {
+          showLoadingCard(pre, 'chart');
+          continue;
+        }
+        const html = parseChartBlock(text);
+        if (html) {
+          removeLoadingCard(pre);
+          const div = document.createElement('div');
+          div.innerHTML = html;
+          pre.setAttribute('data-dh-done', 'chart');
+          pre.replaceWith(div.firstChild);
+        }
+        continue;
+      }
+
+      pre.setAttribute('data-dh-done', 'code');
+    }
+  }
+
+  let enhanceQueued = false;
+  function enhanceAllMessages() {
+    if (!CONFIG.uiEnhance || enhanceQueued) return;
+    enhanceQueued = true;
+    requestAnimationFrame(() => {
+      enhanceQueued = false;
+      applyThemeTokens();
+      try {
+        document.querySelectorAll('div.ds-message').forEach(el => {
+          try { enhanceCodeBlocks(el); } catch {}
+        });
+      } catch {}
+    });
+  }
+
+  window.addEventListener('message', (ev) => {
+    const d = ev && ev.data;
+    if (!d || d.type !== 'dh-artifact') return;
+    if (d.action === 'toast') showToast(String(d.text || ''), 2000);
+  });
+
+  let enhanceTimer = setInterval(enhanceAllMessages, 350);
+  setInterval(() => {
+    clearInterval(enhanceTimer);
+    enhanceTimer = setInterval(enhanceAllMessages, isGenerating() ? 300 : 1200);
+  }, 2000);
+  const uiObs = new MutationObserver(() => enhanceAllMessages());
+  try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
+  enhanceAllMessages();
+
+  panel.querySelector('[data-opt="uiEnhance"]')?.addEventListener('change', (e) => {
+    CONFIG.uiEnhance = e.target.checked;
+    try { localStorage.setItem('__dh_ui_enhance', CONFIG.uiEnhance ? '1' : '0'); } catch {}
+  });
+  try {
+    CONFIG.uiEnhance = localStorage.getItem('__dh_ui_enhance') !== '0';
+    const cb = panel.querySelector('[data-opt="uiEnhance"]');
+    if (cb) cb.checked = !!CONFIG.uiEnhance;
+  } catch { CONFIG.uiEnhance = true; }
+
+  refreshCounts();
+  console.log(`%c[shim] DeepSeek Tool Shim v${VERSION} loaded`, 'color:#0af;font-weight:bold');
+  console.log('API: __DS_TOOL_SHIM__.stats() | .inspect() | .showPanel()');
+})();
