@@ -238,15 +238,6 @@
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"
                         android:text="Dedupe tool calls" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchTheme"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:minHeight="56dp"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="16dp"
-                        android:text="Claude theme" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

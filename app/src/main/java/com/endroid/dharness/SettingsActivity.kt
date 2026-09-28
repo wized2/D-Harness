@@ -96,26 +96,19 @@ class SettingsActivity : AppCompatActivity() {
         val swDesktop = findViewById<MaterialSwitch>(R.id.switchDesktop)
         val swInject = findViewById<MaterialSwitch>(R.id.switchInject)
         val swDedupe = findViewById<MaterialSwitch>(R.id.switchDedupe)
-        val swTheme = findViewById<MaterialSwitch>(R.id.switchTheme)
         swDesktop.isChecked = prefs.getBoolean("desktop", false)
         swInject.isChecked = prefs.getBoolean("auto_inject", true)
         swDedupe.isChecked = prefs.getBoolean("dedupe", true)
-        swTheme.isChecked = prefs.getBoolean("auto_theme", false)
         fun persist() {
             prefs.edit()
                 .putBoolean("desktop", swDesktop.isChecked)
                 .putBoolean("auto_inject", swInject.isChecked)
                 .putBoolean("dedupe", swDedupe.isChecked)
-                .putBoolean("auto_theme", swTheme.isChecked)
                 .apply()
         }
         swDesktop.setOnCheckedChangeListener { _, _ -> persist() }
         swInject.setOnCheckedChangeListener { _, _ -> persist() }
         swDedupe.setOnCheckedChangeListener { _, _ -> persist() }
-        swTheme.setOnCheckedChangeListener { _, _ ->
-            persist()
-            prefs.edit().putBoolean("pending_inject", true).apply()
-        }
 
         val larger = findViewById<MaterialSwitch>(R.id.switchLargerText)
         larger.isChecked = prefs.getInt("text_zoom", 100) >= 110

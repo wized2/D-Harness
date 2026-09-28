@@ -15,6 +15,8 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -147,6 +149,23 @@ class MainActivity : AppCompatActivity() {
         }
 
 
+        // Follow system dark/light inside WebView when supported
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+                val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+                WebSettingsCompat.setForceDark(
+                    webView.settings,
+                    if (night) WebSettingsCompat.FORCE_DARK_ON else WebSettingsCompat.FORCE_DARK_OFF
+                )
+            }
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK_STRATEGY)) {
+                WebSettingsCompat.setForceDarkStrategy(
+                    webView.settings,
+                    WebSettingsCompat.DARK_STRATEGY_WEB_THEME_DARKENING_ONLY
+                )
+            }
+        } catch (_: Exception) { }
         webView.addJavascriptInterface(HarnessBridge(this, webView), "DHarness")
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
@@ -456,7 +475,6 @@ class MainActivity : AppCompatActivity() {
             val themeB64 = android.util.Base64.encodeToString(
                 assets.open("claude_theme.js").readBytes(), android.util.Base64.NO_WRAP
             )
-            val autoTheme = prefs.getBoolean("auto_theme", false)
             val js = """
                 (function(){
                   function dec(b){
@@ -484,17 +502,11 @@ class MainActivity : AppCompatActivity() {
                   var existing = window.__DS_TOOL_SHIM__;
                   if (existing && existing.version && !window.__DS_FORCE_REINJECT__) {
                     console.log('[D-Harness] shim already live', existing.version);
-                    // Still apply/remove theme without full reinject
                     try {
-                      if ($autoTheme) {
-                        if (window.__CLAUDE_DS_THEME__ && window.__CLAUDE_DS_THEME__.reinject) {
-                          window.__CLAUDE_DS_THEME__.reinject();
-                        } else {
-                          try { delete window.__CLAUDE_DS_THEME__; } catch(e) {}
-                          (0, eval)(dec('$themeB64'));
-                        }
-                      } else if (window.__CLAUDE_DS_THEME__ && window.__CLAUDE_DS_THEME__.remove) {
-                        window.__CLAUDE_DS_THEME__.remove();
+                      if (window.__DH_M3_THEME__ && window.__DH_M3_THEME__.reinject) {
+                        window.__DH_M3_THEME__.reinject();
+                      } else {
+                        (0, eval)(dec('$themeB64'));
                       }
                     } catch(e) { console.error('theme-live', e); }
                     return 'already';
@@ -506,40 +518,14 @@ class MainActivity : AppCompatActivity() {
                   var shim = dec('$shimB64');
                   try { (0, eval)(bridge); } catch(e) { console.error('bridge', e); }
                   try { (0, eval)(shim); } catch(e) { console.error('shim', e); }
-                  if ($autoTheme) {
-                    try {
-                      // Clear sticky guard so theme script can run / reinject after SPA nav
-                      try {
-                        if (window.__CLAUDE_DS_THEME__ && window.__CLAUDE_DS_THEME__.reinject) {
-                          window.__CLAUDE_DS_THEME__.reinject();
-                          console.log('[D-Harness] Claude theme reinjected');
-                        } else {
-                          try { delete window.__CLAUDE_DS_THEME__; } catch(e1) {}
-                          var theme = dec('$themeB64');
-                          (0, eval)(theme);
-                          console.log('[D-Harness] Claude theme injected');
-                        }
-                      } catch(e0) {
-                        try { delete window.__CLAUDE_DS_THEME__; } catch(e1) {}
-                        var theme2 = dec('$themeB64');
-                        (0, eval)(theme2);
-                        console.log('[D-Harness] Claude theme injected (retry)');
-                      }
-                    } catch(e) { console.error('theme', e); }
-                  } else {
-                    // Remove theme completely when off
-                    try {
-                      if (window.__CLAUDE_DS_THEME__ && window.__CLAUDE_DS_THEME__.remove) {
-                        window.__CLAUDE_DS_THEME__.remove();
-                      } else {
-                        var st = document.getElementById('claude-ds-theme-v3');
-                        if (st) st.remove();
-                        var ft = document.getElementById('claude-ds-fonts-v3');
-                        if (ft) ft.remove();
-                        try { delete window.__CLAUDE_DS_THEME__; } catch(e2) {}
-                      }
-                    } catch(e) {}
-                  }
+                  try {
+                    if (window.__DH_M3_THEME__ && window.__DH_M3_THEME__.reinject) {
+                      window.__DH_M3_THEME__.reinject();
+                    } else {
+                      (0, eval)(dec('$themeB64'));
+                    }
+                    console.log('[D-Harness] M3 theme applied');
+                  } catch(e) { console.error('theme', e); }
                   try {
                     var f = document.getElementById('__ds_shim_fab'); if (f) f.style.display='none';
                     var p = document.getElementById('__ds_shim_panel'); if (p) p.hidden = true;
@@ -547,7 +533,7 @@ class MainActivity : AppCompatActivity() {
                   try { delete window.__DS_FORCE_REINJECT__; } catch(e) {}
                   try { window.__DH_AUTO_SYS_PROMPT = true; } catch(e) {}
                   var ok = !!(window.__DS_TOOL_SHIM__);
-                  console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'v=', window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.version, 'theme=', $autoTheme);
+                  console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'v=', window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.version, 'theme=m3');
                   return ok ? 'ok' : 'fail';
                 })();
             """.trimIndent()

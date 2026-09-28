@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#000000</color>
-    <color name="black">#000000</color>
-    <color name="white">#FFFFFF</color>
-    <color name="md_primary">#7C9CFF</color>
-    <color name="md_on_primary">#001A41</color>
-    <color name="md_primary_container">#2A3F7A</color>
-    <color name="md_secondary">#C4C0FF</color>
-    <color name="md_tertiary">#FFB77C</color>
-    <color name="md_on_tertiary">#4A2800</color>
-    <color name="md_surface">#0C0E13</color>
-    <color name="md_surface_container">#161A22</color>
-    <color name="md_surface_container_high">#1E2430</color>
-    <color name="md_outline">#3E4759</color>
+    <!-- Claude-inspired M3 seed (warm stone + terracotta) -->
+    <color name="md_primary">#C2410C</color>
+    <color name="md_on_primary">#FFFFFF</color>
+    <color name="md_primary_container">#FFDBCB</color>
+    <color name="md_on_primary_container">#3A0F00</color>
+    <color name="md_secondary">#78716C</color>
+    <color name="md_on_secondary">#FFFFFF</color>
+    <color name="md_secondary_container">#F5F0E8</color>
+    <color name="md_on_secondary_container">#1C1917</color>
+    <color name="md_tertiary">#A16207</color>
+    <color name="md_on_tertiary">#FFFFFF</color>
+    <color name="md_surface">#F3EEE6</color>
+    <color name="md_on_surface">#1C1917</color>
+    <color name="md_surface_container">#EBE4D9</color>
+    <color name="md_surface_container_high">#E4DCD0</color>
+    <color name="md_outline">#A8A29E</color>
 </resources>

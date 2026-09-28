@@ -1,3 +1,10 @@
+## 1.9.3
+
+- **One M3 theme only** (Claude-inspired), always on, follows phone light/dark
+- Removed Claude theme toggle from settings
+- Theme uses broad selectors so it actually paints DeepSeek UI
+- Size: removed unused logo asset, smaller theme script, tighter packaging/ProGuard
+
 ## 1.9.2
 
 - **Theme**: fix Claude theme not showing — allow reinject; apply theme even when shim already live; proper remove when off
