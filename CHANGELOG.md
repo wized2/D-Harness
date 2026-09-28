@@ -1,3 +1,15 @@
+## 1.9.0
+
+### Web UI (Better DeepSeek–inspired)
+- **Queue panel** above the composer: queued messages with **delete** and **Steer** (stop current + send now)
+- **Projects** entry in the chat sidebar (near New chat), opens projects drawer
+- **Research** toggle next to Search / DeepThink (prefixes research workflow)
+- Research status cards helper for in-chat progress
+
+### Behavior
+- While generating/tool-chain busy, Send/Enter queues instead of dropping
+- System prompt still embeds once on first message of each chat
+
 ## 1.8.2
 
 - Remove token badge and message star bookmarks

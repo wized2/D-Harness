@@ -61,7 +61,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '8.0.1-sys-projects';
+  const VERSION = '8.1.0-bds-ui';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -358,18 +358,59 @@
       display: flex; flex-direction: column; padding: 12px;
     }
     .dh-artifact-fs iframe { flex: 1; border-radius: 12px; background: #fff; }
-    .dh-queue-badge {
-      position: fixed; z-index: 2147482000; bottom: 72px; right: 12px;
-      background: var(--dh-card-bg); color: var(--dh-card-fg); border: 1px solid var(--dh-card-border);
-      border-radius: 20px; padding: 6px 12px; font-size: 11px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-      cursor: pointer;
+    /* Queue panel above composer (BDS-style) */
+    .dh-queue-panel {
+      margin: 0 0 8px 0; border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg); color: var(--dh-card-fg);
+      font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.08);
     }
-    #dh-projects-btn {
-      position: fixed; z-index: 2147482000; bottom: 72px; left: 12px;
-      background: var(--dh-card-bg); color: var(--dh-accent); border: 1px solid var(--dh-card-border);
-      border-radius: 20px; padding: 8px 14px; font-size: 12px; font-weight: 600;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.15); cursor: pointer;
+    .dh-queue-panel[hidden] { display: none !important; }
+    .dh-queue-panel .dh-q-hdr {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 12px; background: var(--dh-code-bg); border-bottom: 1px solid var(--dh-card-border);
+      font-weight: 600; font-size: 12px; color: var(--dh-accent);
     }
+    .dh-queue-panel .dh-q-hdr .acts { display: flex; gap: 6px; align-items: center; }
+    .dh-queue-panel .dh-q-item {
+      display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px;
+      border-bottom: 1px solid var(--dh-card-border);
+    }
+    .dh-queue-panel .dh-q-item:last-child { border-bottom: none; }
+    .dh-queue-panel .dh-q-text {
+      flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word;
+      font-size: 12px; line-height: 1.4; opacity: 0.95; max-height: 4.5em; overflow: hidden;
+    }
+    .dh-queue-panel button {
+      flex-shrink: 0; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--dh-card-border); background: var(--dh-code-bg); color: var(--dh-accent);
+    }
+    .dh-queue-panel button.danger { color: #e55; }
+    /* Sidebar Projects entry */
+    .dh-sidebar-projects {
+      display: flex; align-items: center; gap: 8px; margin: 6px 10px; padding: 10px 12px;
+      border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 500;
+      color: var(--dh-card-fg, inherit); border: 1px solid transparent;
+    }
+    .dh-sidebar-projects:hover { background: rgba(127,127,127,0.12); }
+    .dh-sidebar-projects svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.85; }
+    /* Research toggle next to DeepThink / Search */
+    .dh-research-toggle {
+      display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; margin: 0 4px;
+      border-radius: 999px; cursor: pointer; user-select: none; font-size: 13px;
+      border: 1px solid var(--dh-card-border, rgba(127,127,127,0.25));
+      background: transparent; color: inherit;
+    }
+    .dh-research-toggle.on {
+      background: rgba(77,107,254,0.12); border-color: var(--dh-accent, #4d6bfe);
+      color: var(--dh-accent, #4d6bfe); font-weight: 600;
+    }
+    .dh-research-card {
+      margin: 10px 0; padding: 12px 14px; border-radius: 12px;
+      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg); color: var(--dh-card-fg);
+    }
+    .dh-research-card h4 { margin: 0 0 6px; font-size: 13px; color: var(--dh-accent); }
+    .dh-research-card .step { font-size: 12px; opacity: 0.85; margin: 2px 0; }
+
     #dh-projects-drawer {
       position: fixed; z-index: 2147482100; top: 0; left: 0; bottom: 0; width: min(340px, 92vw);
       background: var(--dh-card-bg); color: var(--dh-card-fg); border-right: 1px solid var(--dh-card-border);
@@ -2201,58 +2242,12 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     },
   };
 
-  // ---- Prompt queue (BDS-inspired) ----
-  const promptQueue = [];
-  let queueBadge = null;
-  function ensureQueueBadge() {
-    if (queueBadge) return queueBadge;
-    queueBadge = document.createElement('div');
-    queueBadge.className = 'dh-queue-badge';
-    queueBadge.hidden = true;
-    queueBadge.onclick = () => { showToast(promptQueue.length + ' queued'); };
-    document.body.appendChild(queueBadge);
-    return queueBadge;
-  }
-  function updateQueueBadge() {
-    const b = ensureQueueBadge();
-    if (!promptQueue.length) { b.hidden = true; return; }
-    b.hidden = false;
-    b.textContent = 'Queue: ' + promptQueue.length;
-  }
-  async function drainQueue() {
-    if (!promptQueue.length || isGenerating()) return;
-    const next = promptQueue.shift();
-    updateQueueBadge();
-    if (next) await sendMessage(next);
-  }
-  setInterval(() => { if (!isGenerating()) drainQueue(); }, 1200);
 
 
-  function exportChatMarkdown() {
-    const lines = ['# Chat export', ''];
-    document.querySelectorAll('div.ds-message').forEach((el, i) => {
-      lines.push('### Message ' + (i + 1), '', (el.innerText || '').trim(), '');
-    });
-    const md = lines.join('\n');
-    (async () => {
-      try {
-        const nat = window.__DHarnessNative;
-        if (nat?.workspace?.write) {
-          await nat.workspace.write('exports/chat_' + Date.now() + '.md', md);
-          showToast('Exported to workspace/exports');
-        } else if (nat?.clipboard?.write) {
-          await nat.clipboard.write(md);
-          showToast('Copied export');
-        } else {
-          await navigator.clipboard.writeText(md);
-          showToast('Copied export');
-        }
-      } catch { showToast('Export failed'); }
-    })();
-  }
 
-
-  // ---- System prompt: embed once into first USER send (native intercept) ----
+  let researchMode = false;
+  try { researchMode = localStorage.getItem('__dh_research_mode') === '1'; } catch {}
+  // ---- System prompt embed + send intercept ----
   const SYS_MAP_KEY = '__dh_sys_embedded_v4';
   function loadSysMap() {
     try { return JSON.parse(sessionStorage.getItem(SYS_MAP_KEY) || '{}'); } catch { return {}; }
@@ -2279,14 +2274,12 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     return p;
   }
   function needsSystemEmbed() {
-    const conv = getConvId();
     const map = loadSysMap();
-    return !map[conv];
+    return !map[getConvId()];
   }
   function markSystemEmbedded() {
-    const conv = getConvId();
     const map = loadSysMap();
-    map[conv] = true;
+    map[getConvId()] = true;
     saveSysMap(map);
   }
   function embedSystemIfNeeded(userText) {
@@ -2309,47 +2302,49 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     );
   }
 
-  // Patch programmatic sendMessage (tool results + queue drain)
   const _sendMessageOriginal = sendMessage;
   sendMessage = async function(text) {
     const raw = String(text || '');
-    // Queue non-tool messages while generating
     if (isGenerating() && raw && !raw.startsWith('TOOL_RESULT') && !raw.startsWith('[D-HARNESS SYSTEM')) {
-      promptQueue.push(raw);
-      updateQueueBadge();
-      showToast('Queued (' + promptQueue.length + ')');
+      enqueuePrompt(raw);
       return true;
     }
-    // Only embed for normal user-like payloads (not tool results)
-    const outbound = raw.startsWith('TOOL_RESULT') ? raw : embedSystemIfNeeded(raw);
-    return _sendMessageOriginal(outbound);
+    if (raw.startsWith('TOOL_RESULT')) return _sendMessageOriginal(raw);
+    const withResearch = (typeof researchPrefix === 'function') ? researchPrefix(raw) : raw;
+    return _sendMessageOriginal(embedSystemIfNeeded(withResearch));
   };
-  try {
-    if (window.__DS_TOOL_SHIM__) window.__DS_TOOL_SHIM__.send = sendMessage;
-  } catch {}
+  try { if (window.__DS_TOOL_SHIM__) window.__DS_TOOL_SHIM__.send = sendMessage; } catch {}
 
-  // Intercept DeepSeek's own Send button / Enter so first user message carries system context
   let interceptLock = false;
   async function interceptUserSend(ev) {
     if (interceptLock) return;
-    if (!needsSystemEmbed()) return; // already done for this chat
-    const sys = buildSystemPrefix();
-    if (!sys || sys.length < 40) {
-      log('intercept: prompt still empty — will retry next send');
-      return;
-    }
     const input = getInput();
     if (!input) return;
     const userText = (input.value || '').trim();
     if (!userText) return;
-    // Take over send path so composer can be hidden (same as tool send)
-    if (ev) {
-      try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch {}
+
+    if (isGenerating()) {
+      if (ev) { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch {} }
+      enqueuePrompt(userText);
+      try {
+        setNativeValue(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      } catch {}
+      return;
     }
+
+    if (!needsSystemEmbed()) return;
+    const sys = buildSystemPrefix();
+    if (!sys || sys.length < 40) {
+      log('intercept: prompt still empty');
+      return;
+    }
+    if (ev) { try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch {} }
     interceptLock = true;
     try {
-      const outbound = embedSystemIfNeeded(userText);
-      // Clear visible box first so user doesn't stare at system dump
+      const outbound = embedSystemIfNeeded(
+        (typeof researchPrefix === 'function') ? researchPrefix(userText) : userText
+      );
       try {
         setNativeValue(input, '');
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2357,7 +2352,6 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
       const ok = await _sendMessageOriginal(outbound);
       log('intercept send', ok ? 'ok' : 'fail');
       if (!ok) {
-        // Restore user text if failed; allow retry embed
         const map = loadSysMap();
         delete map[getConvId()];
         saveSysMap(map);
@@ -2376,24 +2370,18 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
       if (!t || !t.closest) return;
       const btn = t.closest(SEND_SELECTOR) || t.closest('div[role="button"].ds-button--primary');
       if (!btn) return;
-      // Only when prompt still needs embedding
-      if (!needsSystemEmbed()) return;
-      interceptUserSend(e);
+      if (isGenerating() || needsSystemEmbed()) interceptUserSend(e);
     } catch {}
   }, true);
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
     const input = getInput();
     if (!input || e.target !== input) return;
-    if (!needsSystemEmbed()) return;
-    interceptUserSend(e);
+    if (isGenerating() || needsSystemEmbed()) interceptUserSend(e);
   }, true);
 
-  // Persist prompt when native sets it; poll briefly after inject
   try {
-    if (window.__DH_SYSTEM_PROMPT__) {
-      localStorage.setItem('__DH_SYSTEM_PROMPT__', window.__DH_SYSTEM_PROMPT__);
-    }
+    if (window.__DH_SYSTEM_PROMPT__) localStorage.setItem('__DH_SYSTEM_PROMPT__', window.__DH_SYSTEM_PROMPT__);
   } catch {}
   let promptPoll = 0;
   const promptTimer = setInterval(() => {
@@ -2405,7 +2393,6 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
   }, 500);
 
   async function maybeInjectSystemPrompt(force) {
-    // No standalone auto-message. force = reset embed flag for this chat.
     if (force) {
       const map = loadSysMap();
       delete map[getConvId()];
@@ -2416,21 +2403,248 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     return false;
   }
 
-  window.addEventListener('message', (ev) => {
-    const d = ev && ev.data;
-    if (!d || d.type !== 'dh-artifact') return;
-    if (d.action === 'toast') showToast(String(d.text || ''), 2000);
-    if (d.action === 'log') log('[artifact]', d.text);
-  });
+  // ---- Prompt queue (BDS-style panel above composer) ----
+  const promptQueue = []; // {id, text}
+  let queuePanelEl = null;
+  function makeQueueId() {
+    return 'q_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
 
+  function ensureQueuePanel() {
+    if (queuePanelEl && document.body.contains(queuePanelEl)) return queuePanelEl;
+    queuePanelEl = document.createElement('div');
+    queuePanelEl.className = 'dh-queue-panel';
+    queuePanelEl.hidden = true;
+    queuePanelEl.innerHTML = `
+      <div class="dh-q-hdr">
+        <span class="dh-q-title">Queue</span>
+        <span class="acts">
+          <span class="dh-q-status" style="font-weight:400;opacity:.75;font-size:11px;"></span>
+          <button type="button" data-act="clear" class="danger" title="Clear all">Clear</button>
+        </span>
+      </div>
+      <div class="dh-q-list"></div>`;
+    queuePanelEl.querySelector('[data-act="clear"]').onclick = () => {
+      promptQueue.length = 0;
+      renderQueuePanel();
+      showToast('Queue cleared');
+    };
+    attachQueuePanel();
+    return queuePanelEl;
+  }
 
-  // ---- Visible Projects drawer (web UI) ----
+  function findComposerMount() {
+    const input = getInput();
+    const candidates = [
+      document.querySelector('._75e1990'),
+      document.querySelector('._6f68655'),
+      document.querySelector('.ds-textarea'),
+      input && input.closest('.ds-textarea'),
+      input && getComposerRoot(input),
+      input && input.parentElement,
+    ].filter(Boolean);
+    return candidates[0] || null;
+  }
+
+  function attachQueuePanel() {
+    const panel = ensureQueuePanel();
+    const mount = findComposerMount();
+    if (mount && panel.parentElement !== mount) {
+      try { mount.prepend(panel); } catch {
+        try { document.body.appendChild(panel); } catch {}
+      }
+    }
+  }
+
+  function renderQueuePanel() {
+    const panel = ensureQueuePanel();
+    attachQueuePanel();
+    const list = panel.querySelector('.dh-q-list');
+    const status = panel.querySelector('.dh-q-status');
+    if (!promptQueue.length) {
+      panel.hidden = true;
+      list.innerHTML = '';
+      return;
+    }
+    panel.hidden = false;
+    status.textContent = isGenerating()
+      ? 'Waiting…'
+      : (promptQueue.length + ' waiting');
+    list.innerHTML = promptQueue.map((item, idx) => `
+      <div class="dh-q-item" data-id="${item.id}">
+        <div class="dh-q-text">${esc(item.text)}</div>
+        <button type="button" data-act="steer" title="Stop current and send this now">Steer</button>
+        <button type="button" data-act="del" class="danger" title="Remove">✕</button>
+      </div>`).join('');
+    list.querySelectorAll('.dh-q-item').forEach(row => {
+      const id = row.getAttribute('data-id');
+      row.querySelector('[data-act="del"]').onclick = () => {
+        const i = promptQueue.findIndex(x => x.id === id);
+        if (i >= 0) promptQueue.splice(i, 1);
+        renderQueuePanel();
+      };
+      row.querySelector('[data-act="steer"]').onclick = () => steerQueueItem(id);
+    });
+  }
+
+  function clickStopIfGenerating() {
+    const stop = document.querySelector(
+      ".ds-icon-stop-circle, .ds-icon-stop, div[role='button'] svg path[d*='M6 6h12v12H6z']"
+    )?.closest("div[role='button'], button");
+    if (stop) {
+      try { stop.click(); return true; } catch {}
+    }
+    // Also try primary circle when generating
+    for (const b of document.querySelectorAll(SEND_SELECTOR)) {
+      const d = (btnIcon(b) || '');
+      if (d.startsWith(STOP_ICON_PREFIX) || d.startsWith(SPINNER_ICON_PREFIX)) {
+        try { b.click(); return true; } catch {}
+      }
+    }
+    return false;
+  }
+
+  async function steerQueueItem(id) {
+    const i = promptQueue.findIndex(x => x.id === id);
+    if (i < 0) return;
+    const item = promptQueue.splice(i, 1)[0];
+    renderQueuePanel();
+    if (isGenerating()) {
+      clickStopIfGenerating();
+      await sleep(400);
+    }
+    // Send immediately (bypass queue)
+    await _sendMessageOriginal(embedSystemIfNeeded(item.text));
+  }
+
+  function enqueuePrompt(text) {
+    const t = String(text || '').trim();
+    if (!t) return false;
+    promptQueue.push({ id: makeQueueId(), text: t });
+    renderQueuePanel();
+    showToast('Queued');
+    return true;
+  }
+
+  async function drainQueue() {
+    if (!promptQueue.length || isGenerating()) return;
+    const next = promptQueue.shift();
+    renderQueuePanel();
+    if (next) await _sendMessageOriginal(embedSystemIfNeeded(next.text));
+  }
+  setInterval(() => {
+    try {
+      attachQueuePanel();
+      renderQueuePanel();
+      if (!isGenerating()) drainQueue();
+    } catch {}
+  }, 500);
+
+  // ---- Research mode toggle (near Search / DeepThink) ----
+  function ensureResearchToggle() {
+    if (document.getElementById('dh-research-toggle')) return;
+    // Find toggle row: DeepSeek uses ds-toggle-button for Search / DeepThink
+    const toggles = document.querySelectorAll('.ds-toggle-button, [class*="toggle-button"]');
+    let mount = null;
+    for (const el of toggles) {
+      const label = (el.textContent || '').toLowerCase();
+      if (label.includes('deepthink') || label.includes('search') || label.includes('思考')) {
+        mount = el.parentElement;
+        break;
+      }
+    }
+    if (!mount) {
+      const input = getInput();
+      mount = input && getComposerRoot(input);
+    }
+    if (!mount) return;
+    const btn = document.createElement('div');
+    btn.id = 'dh-research-toggle';
+    btn.className = 'dh-research-toggle' + (researchMode ? ' on' : '');
+    btn.setAttribute('role', 'button');
+    btn.tabIndex = 0;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path d="M6.05 1.55a4.5 4.5 0 1 0 2.84 7.99l2.03 2.03a.75.75 0 0 0 1.06-1.06L9.95 8.48A4.5 4.5 0 0 0 6.05 1.55Zm0 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z"/><path d="M10.35.95v1.18h1.18a.55.55 0 0 1 0 1.1h-1.18v1.18a.55.55 0 0 1-1.1 0V3.23H8.07a.55.55 0 0 1 0-1.1h1.18V.95a.55.55 0 0 1 1.1 0Z"/></svg><span>Research</span>`;
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      researchMode = !researchMode;
+      try { localStorage.setItem('__dh_research_mode', researchMode ? '1' : '0'); } catch {}
+      btn.classList.toggle('on', researchMode);
+      showToast(researchMode ? 'Research on' : 'Research off');
+    };
+    try { mount.appendChild(btn); } catch {}
+  }
+
+  function researchPrefix(userText) {
+    if (!researchMode) return userText;
+    return (
+      '[Research mode] Use harness research tools (research.plan → research.web → research.preview/html_text). ' +
+      'Cite sources. Save notes under workspace/research/ when useful.\n\n' + userText
+    );
+  }
+
+  // ---- Sidebar Projects (nav bar with chats / new chat) ----
+  function ensureSidebarProjects() {
+    if (document.querySelector('.dh-sidebar-projects')) return;
+    // DeepSeek sidebar: look for "New chat" button area
+    const candidates = Array.from(document.querySelectorAll('div, button, a')).filter(el => {
+      const tx = (el.textContent || '').trim().toLowerCase();
+      return tx === 'new chat' || tx === '新对话' || tx === 'nueva conversación';
+    });
+    let anchor = candidates.find(el => el.children.length <= 3) || candidates[0];
+    let mountParent = null;
+    if (anchor) {
+      // Prefer parent that holds the new-chat control
+      mountParent = anchor.parentElement;
+      // Walk up a bit for a vertical stack
+      for (let i = 0; i < 4 && mountParent; i++) {
+        if (mountParent.childElementCount >= 1 && mountParent.offsetHeight > 40) break;
+        mountParent = mountParent.parentElement;
+      }
+    }
+    if (!mountParent) {
+      // Fallback: left sidebar column
+      mountParent = document.querySelector('aside') ||
+        document.querySelector('[class*="sidebar"]') ||
+        document.querySelector('nav');
+    }
+    if (!mountParent) return;
+    const el = document.createElement('div');
+    el.className = 'dh-sidebar-projects';
+    el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg><span>Projects</span>`;
+    el.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openProjectsDrawer();
+    };
+    try {
+      if (anchor && anchor.parentElement === mountParent) {
+        anchor.insertAdjacentElement('afterend', el);
+      } else {
+        mountParent.insertBefore(el, mountParent.firstChild);
+      }
+    } catch {
+      try { mountParent.appendChild(el); } catch {}
+    }
+  }
+
+  function openProjectsDrawer() {
+    ensureProjectsUI();
+    const drawer = document.getElementById('dh-projects-drawer');
+    const backdrop = document.getElementById('dh-projects-backdrop');
+    renderDrawerList();
+    const active = window.__DH_PROJECTS__.active();
+    const ta = document.getElementById('dh-drawer-proj-instr');
+    const name = document.getElementById('dh-drawer-proj-name');
+    if (active && ta) ta.value = active.instructions || '';
+    if (active && name) name.value = active.name || '';
+    if (backdrop) backdrop.classList.add('show');
+    if (drawer) drawer.classList.add('open');
+  }
+
+  // ---- Projects drawer (shared) ----
   function ensureProjectsUI() {
-    if (document.getElementById('dh-projects-btn')) return;
-    const btn = document.createElement('button');
-    btn.id = 'dh-projects-btn';
-    btn.type = 'button';
-    btn.textContent = 'Projects';
+    if (document.getElementById('dh-projects-drawer')) return;
     const backdrop = document.createElement('div');
     backdrop.id = 'dh-projects-backdrop';
     const drawer = document.createElement('div');
@@ -2441,29 +2655,17 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
         <div id="dh-drawer-proj-list"></div>
         <input id="dh-drawer-proj-name" placeholder="New project name"/>
         <button type="button" data-act="create">Create project</button>
-        <textarea id="dh-drawer-proj-instr" rows="5" placeholder="Project instructions (included on first message)"></textarea>
+        <textarea id="dh-drawer-proj-instr" rows="5" placeholder="Project instructions"></textarea>
         <button type="button" data-act="save">Save instructions</button>
         <button type="button" data-act="export">Export chat</button>
-        <p style="font-size:11px;opacity:.7;margin-top:12px;">Active project instructions are attached with harness system context on the first message of each chat.</p>
+        <p style="font-size:11px;opacity:.7;margin-top:12px;">Active project instructions attach with harness system context on the first message of each chat.</p>
       </div>`;
-    document.body.appendChild(btn);
     document.body.appendChild(backdrop);
     document.body.appendChild(drawer);
-    function open() {
-      renderDrawerList();
-      const active = window.__DH_PROJECTS__.active();
-      const ta = document.getElementById('dh-drawer-proj-instr');
-      const name = document.getElementById('dh-drawer-proj-name');
-      if (active && ta) ta.value = active.instructions || '';
-      if (active && name) name.value = active.name || '';
-      backdrop.classList.add('show');
-      drawer.classList.add('open');
-    }
     function close() {
       backdrop.classList.remove('show');
       drawer.classList.remove('open');
     }
-    btn.onclick = open;
     backdrop.onclick = close;
     drawer.querySelector('[data-close]').onclick = close;
     drawer.querySelector('[data-act="create"]').onclick = () => {
@@ -2526,6 +2728,30 @@ log:function(t){parent.postMessage({type:'dh-artifact',action:'log',text:String(
     });
   }
   ensureProjectsUI();
+
+  // Research status card injection for tool taglines
+  function injectResearchCard(title, steps) {
+    const card = document.createElement('div');
+    card.className = 'dh-research-card';
+    card.innerHTML = '<h4>' + esc(title || 'Research') + '</h4>' +
+      (steps || []).map(s => '<div class="step">' + esc(s) + '</div>').join('');
+    const msgs = document.querySelectorAll('div.ds-message');
+    const last = msgs[msgs.length - 1];
+    if (last && last.parentElement) last.parentElement.appendChild(card);
+    else document.body.appendChild(card);
+    return card;
+  }
+  window.__DH_RESEARCH_UI__ = { injectCard: injectResearchCard, isOn: () => researchMode };
+
+  // Mount research toggle + sidebar projects periodically (SPA)
+  setInterval(() => {
+    try {
+      ensureResearchToggle();
+      ensureSidebarProjects();
+      attachQueuePanel();
+    } catch {}
+  }, 1200);
+  setTimeout(() => { ensureResearchToggle(); ensureSidebarProjects(); }, 800);
 
   const uiObs = new MutationObserver(() => enhanceAllMessages());
   try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
