@@ -1,3 +1,9 @@
+## 1.9.4
+
+- **Web theme**: restored original Claude.js for chat.deepseek.com (always injected)
+- **Native UI only**: M3 DayNight stays for Settings / app chrome (not WebView)
+- **Size**: minified assets, disabled viewBinding, R8 fullMode, nonTransitive R, broader packaging excludes
+
 ## 1.9.3
 
 - **One M3 theme only** (Claude-inspired), always on, follows phone light/dark

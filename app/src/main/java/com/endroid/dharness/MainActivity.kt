@@ -524,7 +524,7 @@ class MainActivity : AppCompatActivity() {
                     } else {
                       (0, eval)(dec('$themeB64'));
                     }
-                    console.log('[D-Harness] M3 theme applied');
+                    console.log('[D-Harness] Claude theme applied');
                   } catch(e) { console.error('theme', e); }
                   try {
                     var f = document.getElementById('__ds_shim_fab'); if (f) f.style.display='none';

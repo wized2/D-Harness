@@ -1,51 +1,3 @@
-/*!
- * DeepSeek Tool Shim
- * @version 8.2.0-artifacts (upstream dsh.js + D-Harness native bridge tools)
- * @description run_js tool bridge + draggable status dot + management panel
- *
- * 7.6.1:
- *  - tagline shows only description (no result JSON chip)
- * 7.6.0:
- *  - background agent: scan continues when document.hidden; native FGS + wake lock
- *  - optional tool JSON field "description" (alias "discription") for tagline + notification
- * 7.5.0:
- *  - full re-audit for stray symbols: removed the checkmark from the console load banner
- *    and the decorative arrow character from the result chip (now a plain "- "). Nothing
- *    rendered in the UI (tagline, FAB, panel, toasts) uses emoji or pictographic
- *    characters; the only glyphs are the custom terminal SVG icon and a plain arrow SVG
- *    used for expand/collapse.
- *
- * 7.4.1:
- *  - leading icon is a custom terminal glyph (own SVG) instead of trying to clone
- *    DeepSeek's own chevron; it pulses in place while a tool call runs. The small arrow
- *    at the end goes back to being purely an expand/collapse control.
- *
- * 7.4.0:
- *  - tagline no longer uses emoji glyphs; the collapse chevron is now the only status
- *    icon — it spins while a tool runs and rotates on expand/collapse otherwise, the same
- *    two jobs DeepSeek's own "Thought for Ns" header uses its chevron for. When that
- *    native header is present on the page, its actual SVG is cloned so the icon matches
- *    pixel-for-pixel; otherwise a plain fallback chevron is used
- *
- * 7.3.0:
- *  - sendMessage no longer fades the textarea's opacity with a CSS transition; it hides
- *    the whole composer bar (textarea + send button + toggles) with a single, un-animated
- *    visibility:hidden, and pins its height, so no partial paint, button-state flicker,
- *    or layout reflow is visible while a TOOL_RESULT is sent — and no rAF chain on restore
- *
- * 7.2.0 (verified against a live capture, DeepSeek build main.84ce94ca1f):
- *  - stable per-message ID (React fiber messageId / data-virtual-list-item-key) replaces
- *    occurrenceIndex dedupe, so the virtual list recycling nodes can't re-run or skip calls
- *  - only the LAST message is scanned; runs only when generation is finished (stop/spinner
- *    icon gone + text settled) and only for messages newer than what was on screen at load
- *  - tool JSON is read from the ANSWER only (not the thinking block) and must end the message
- *  - result is marked sent only after the send succeeds (unsent ones retry once)
- *  - user's composer draft is preserved while sending TOOL_RESULT
- *  - sandbox iframe is rebuilt on timeout (infinite loops no longer wedge it)
- *  - confirm prompts for clipboard_read / geo_get / non-GET fetch_url; private hosts blocked
- *  - TOOL_RESULT payload is truncated; memory.set reports quota failures
- *  - cheaper scanning (no textContent over every message on every tick)
- */
 (function () {
   'use strict';
   if (window.top !== window.self) return;
@@ -69,17 +21,15 @@
     sendTimeoutMs: 3000,
     sandboxTimeoutMs: 20000,
     dedupe: true,
-    confirmSensitive: true,    // ask before clipboard_read / geo_get / non-GET fetch_url
-    callMustBeLast: true,      // tool JSON must end the assistant answer (ignores quoted examples)
-    maxResultChars: 20000,     // truncate TOOL_RESULT payload
-    settleMs: 1200,            // last message must be unchanged this long before we act
-    // perf knobs
-    scanThrottleMs: 400,       // min interval between DOM scans
-    fallbackScanMs: 1500,      // periodic scan when observer is quiet
-    hideFlashMs: 250,          // max time input stays invisible
+    confirmSensitive: true,
+    callMustBeLast: true,
+    maxResultChars: 20000,
+    settleMs: 1200,
+    scanThrottleMs: 400,
+    fallbackScanMs: 1500,
+    hideFlashMs: 250,
   }, window.__DS_SHIM_CONFIG__ || {});
 
-  // ---------- Storage ----------
   const LS = {
     done:      '__ds_shim__done_v3',
     memory:    '__ds_shim__memory_v1',
@@ -97,8 +47,6 @@
     lsSet(LS.done, DONE);
   };
 
-  // message key ("sessionId:messageId") -> tagline info, so collapsed tool calls survive
-  // virtual-list re-mounts and page reloads
   const collapsedByMsg = new Map();
   for (const v of Object.values(DONE)) {
     if (v && v.mk) collapsedByMsg.set(v.mk, { preview: v.preview || '', err: !v.ok });
@@ -110,7 +58,6 @@
     return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36);
   }
 
-  // ---------- Logs ----------
   const LOGS = []; const MAX_LOGS = 300;
   function pushLog(level, ...a) {
     const msg = a.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ');
@@ -122,7 +69,6 @@
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const clip = (s) => {
     if (s == null) return s;
-    // CRITICAL: never String(object) → "[object Object]"; always JSON for objects
     let str;
     if (typeof s === 'string') str = s;
     else {
@@ -134,7 +80,6 @@
       : str;
   };
 
-  // ---------- Styles ----------
   const style = document.createElement('style');
   style.id = '__ds_shim_style__';
   style.textContent = `
@@ -189,8 +134,7 @@
     }
     [data-ds-shim-tagline="1"] .ds-shim-chip::before { content: '- '; opacity: .5; font-family: system-ui; }
     [data-ds-shim-tagline="1"] .ds-shim-chip.err { color: #f88; background: rgba(240,130,130,0.10); }
-    /* Collapse arrow: expand/collapse only (no longer doubles as a busy spinner —
-       the terminal icon's pulse handles that instead). */
+    
     [data-ds-shim-tagline="1"] .ds-shim-chev {
       width: 14px; height: 14px;
       display: inline-flex; align-items: center; justify-content: center;
@@ -202,7 +146,7 @@
     [data-ds-shim-tagline="1"][data-ds-shim-expanded="1"] .ds-shim-chev { transform: rotate(180deg); }
     @media (pointer: coarse) { [data-ds-shim-tagline="1"] { height: 40px; } }
 
-    /* FAB */
+    
     #__ds_shim_fab {
       position: fixed; z-index: 2147483645;
       width: 28px; height: 28px;
@@ -234,7 +178,7 @@
     #__ds_shim_fab[data-hidden="1"] { opacity: 0; width: 12px; background: linear-gradient(to left, rgba(120,150,180,0.35), transparent); }
     #__ds_shim_fab[data-hidden="1"]:hover { opacity: 1; }
 
-    /* Panel */
+    
     #__ds_shim_panel {
       position: fixed; z-index: 2147483646;
       width: 280px; max-width: calc(100vw - 52px); max-height: 72vh; overflow-y: auto;
@@ -284,7 +228,7 @@
     #__ds_shim_toast.show { opacity: 1; }
   
 
-    /* —— Chat UI (theme-aware: DeepSeek / Claude) —— */
+    
     :root {
       --dh-card-bg: rgba(255,255,255,0.92);
       --dh-card-fg: #1a1a1a;
@@ -303,7 +247,7 @@
       --dh-code-bg: #1e1e24;
       --dh-bar: #8ab4ff;
     }
-    /* Claude theme present */
+    
     #claude-ds-theme-v3 ~ * , body:has(#claude-ds-theme-v3) {
       --dh-accent: #da7756;
       --dh-bar: #da7756;
@@ -359,7 +303,7 @@
     }
     .dh-artifact-fs iframe { flex: 1; border-radius: 12px; background: #fff; }
 
-    /* Artifacts + charts (theme-aware, M3-ish) */
+    
     .dh-artifact {
       margin: 12px 0; border-radius: 16px; overflow: hidden;
       border: 1px solid var(--dh-card-border); background: var(--dh-card-bg);
@@ -416,7 +360,6 @@
 `;
   document.head.appendChild(style);
 
-  // ---------- FAB ----------
   const fab = document.createElement('div');
   fab.id = '__ds_shim_fab';
   fab.setAttribute('data-status', 'idle');
@@ -437,7 +380,6 @@
   };
   applyPos(savedPos);
 
-  // ---------- Panel ----------
   const panel = document.createElement('div');
   panel.id = '__ds_shim_panel';
   panel.hidden = true;
@@ -495,7 +437,6 @@
     toast.style.left = x + 'px'; toast.style.top = y + 'px';
   }
 
-  // ---------- Drag ----------
   let dragState = null;
   const DRAG_THRESHOLD = 5;
   const SNAP_DISTANCE = 24;
@@ -574,7 +515,6 @@
     lsSet(LS.fabPos, { x, y });
   });
 
-  // ---------- Status / counts ----------
   let statusResetTimer = null;
   function setStatus(s) {
     fab.setAttribute('data-status', s);
@@ -592,7 +532,6 @@
     panel.querySelector('.ds-shim-fs-count').textContent = Object.keys(lsGet(LS.fs, {})).length;
   }
 
-  // ---------- Panel open/close ----------
   function positionPanel() {
     const r = fab.getBoundingClientRect();
     const pw = 280;
@@ -627,7 +566,6 @@
     if (e.key === 'Escape' && !panel.hidden) togglePanel(false);
   });
 
-  // first visible text of an element, without building the whole textContent
   function firstText(el) {
     const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     let n;
@@ -680,7 +618,6 @@
   };
   if (lsGet(LS.fabHidden, false)) fab.setAttribute('data-hidden', '1');
 
-  // ---------- Sandbox ----------
   const SANDBOX_HTML = `<!doctype html><html><body><script>
     const pendingTool = new Map();
     let toolId = 0;
@@ -792,7 +729,6 @@
   }
   mountSandbox();
 
-  // ---------- Tool handlers ----------
   const sizeGuard = (s) => {
     const kb = (String(s).length * 2) / 1024;
     if (kb > CONFIG.maxStorageKB) throw new Error(`payload too large: ${kb.toFixed(1)}KB > ${CONFIG.maxStorageKB}KB`);
@@ -803,7 +739,6 @@
     if (!window.confirm('DeepSeek tool wants to ' + what + '.\nAllow?')) throw new Error('denied by user');
   }
 
-  // Blocks same-host and private/loopback/link-local targets (cannot stop redirects to them).
   const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local|.*\.internal|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[::1?\]|\[f[cd][0-9a-f]{2}:|\[fe80:)/i;
   function assertSafeUrl(url) {
     let u;
@@ -897,13 +832,11 @@
     },
   };
 
-  // --- D-Harness native bridge tools (preserves HarnessBridge) ---
   const N = () => window.__DHarnessNative;
 
   async function nativeCall(path, args) {
     const nat = N();
     if (!nat || !nat.available) throw new Error('native bridge unavailable');
-    // path like "github.pr" or "list_tools"
     const parts = path.split('.');
     let cur = nat;
     for (const p of parts) {
@@ -914,12 +847,10 @@
     return cur;
   }
 
-  // Extend toolHandlers with native-backed tools (and list_tools / describe)
   Object.assign(toolHandlers, {
     async list_tools() {
       const nat = N();
       if (nat && nat.available && nat.list_tools) return await nat.list_tools();
-      // fallback: enumerate JS handlers
       return { tools: Object.keys(toolHandlers).sort(), source: 'shim-js' };
     },
     async describe({ name }) {
@@ -939,7 +870,6 @@
       if (!op) throw new Error('github requires op');
       const g = nat.github;
       if (typeof g[op] === 'function') {
-        // map common ops
         if (op === 'request') return await g.request(args.method || 'GET', args.path, args.body);
         if (op === 'me') return await g.me();
         if (op === 'repos') return await g.repos(args.limit);
@@ -973,7 +903,6 @@
     async exec(args) {
       const nat = N();
       if (!nat || !nat.exec) throw new Error('exec requires native bridge');
-      // argv array, or shell string via {shell:true,cmd:"..."} / {sh:"..."}
       if (args && args.shell && (args.cmd || args.command || args.sh)) {
         const cmd = args.cmd || args.command || args.sh;
         return await nat.exec(['sh', '-c', String(cmd)], args.timeout_ms || args.timeoutMs, args.cwd);
@@ -1123,7 +1052,6 @@
     async diff(args) {
       const nat = N();
       if (nat && nat.diff_lines) return await nat.diff_lines(args.a || '', args.b || '');
-      // JS fallback
       const la = String(args.a || '').split('\n');
       const lb = String(args.b || '').split('\n');
       const changes = [];
@@ -1177,7 +1105,6 @@ async selftest() {
     },
   });
 
-
   window.addEventListener('message', async (e) => {
     if (!iframe || e.source !== iframe.contentWindow) return;
     const d = e.data; if (!d) return;
@@ -1192,7 +1119,6 @@ async selftest() {
       } catch (err) {
         payload = { __dsShimToolResult: true, id: d.id, ok: false, error: String(err && err.message || err) };
       }
-      // sandbox may have been rebuilt while the handler ran
       if (iframe && iframe.contentWindow === source) source.postMessage(payload, '*');
       return;
     }
@@ -1206,7 +1132,6 @@ async selftest() {
     if (!(await waitSandboxReady(3000))) return { ok: false, error: 'sandbox not ready' };
     return new Promise((resolve) => {
       const id = ++msgId;
-      // timeoutMs === 0 → unlimited (paste_box waits on user Done/Cancel)
       let timer = null;
       if (timeoutMs !== 0 && timeoutMs !== false) {
         const ms = (timeoutMs == null || timeoutMs === undefined) ? CONFIG.sandboxTimeoutMs : timeoutMs;
@@ -1223,24 +1148,6 @@ async selftest() {
     });
   }
 
-  // ============================================================
-  // INPUT / SEND
-  //
-  // Nothing on screen should change while a TOOL_RESULT is sent: no textarea flash,
-  // no send-button icon flicker, no composer resize/reflow.
-  //
-  // v7.2's opacity fade on the textarea alone left two things visible: the send button
-  // (outside the faded element) flipping enabled/disabled, and — because the fade used a
-  // CSS transition plus two nested requestAnimationFrame steps to restore it — several
-  // extra paints stretched over multiple frames, which is what showed up as "lag".
-  //
-  // v7.3 instead:
-  //  - hides the WHOLE composer (textarea + buttons) with visibility:hidden, a single
-  //    style write with no transition, so nothing animates and nothing partial paints
-  //  - freezes the composer's height for the duration, so the autosize logic reacting to
-  //    a large JSON payload can't resize the box and reflow the page underneath it
-  //  - restores the draft and un-hides in one synchronous step, not spread across frames
-  // ============================================================
   const getInput = () =>
     document.querySelector('textarea[placeholder="Message DeepSeek"]') ||
     document.querySelector('textarea[name="search"]') ||
@@ -1252,9 +1159,9 @@ async selftest() {
   }
 
   const SEND_SELECTOR = 'div[role="button"].ds-button--primary.ds-button--circle.ds-button--filled';
-  const SEND_ICON_PREFIX = 'M8.3125';       // arrow (idle / ready to send)
-  const STOP_ICON_PREFIX = 'M2 4.88';       // rounded square (generating)
-  const SPINNER_ICON_PREFIX = 'M34,18';     // ring (request sent, waiting for first token)
+  const SEND_ICON_PREFIX = 'M8.3125';
+  const STOP_ICON_PREFIX = 'M2 4.88';
+  const SPINNER_ICON_PREFIX = 'M34,18';
   const btnIcon = (b) => b.querySelector('svg path')?.getAttribute('d') || '';
 
   function findEnabledSendButton() {
@@ -1275,9 +1182,6 @@ async selftest() {
     return false;
   }
 
-  // Smallest ancestor of the textarea that also contains the send button, i.e. the whole
-  // composer bar. Hiding this (not just the textarea) also hides the send button's
-  // enabled/disabled flicker and the toggle chips.
   function getComposerRoot(input) {
     let node = input;
     for (let i = 0; i < 8 && node && node !== document.body; i++, node = node.parentElement) {
@@ -1296,12 +1200,8 @@ async selftest() {
     if (!input) { sendingLock = false; log('no input'); setStatus('error'); return false; }
 
     const root = getComposerRoot(input);
-    const draft = input.value;   // user's unsent text, restored afterwards
+    const draft = input.value;
 
-    // One style write, no transition: visibility:hidden removes the element from paint
-    // entirely (unlike opacity, nothing partially shows through) while keeping its layout
-    // box, so surrounding content doesn't jump. Height is pinned so the textarea's own
-    // autosize logic can't grow/shrink the composer while the payload sits in it.
     const prevVisibility = root.style.visibility;
     const prevPointerEvents = root.style.pointerEvents;
     const rect = root.getBoundingClientRect();
@@ -1317,7 +1217,7 @@ async selftest() {
       setNativeValue(input, text);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(60);   // let React process onChange (enables the send button)
+      await sleep(60);
 
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
       input.dispatchEvent(new KeyboardEvent('keyup',   { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
@@ -1344,7 +1244,6 @@ async selftest() {
       log('sent');
       return true;
     } finally {
-      // Put the draft back and reveal everything in one go — no intermediate state to see.
       if (draft) {
         setNativeValue(input, draft);
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1357,9 +1256,6 @@ async selftest() {
     }
   }
 
-  // ============================================================
-  // PARSING
-  // ============================================================
   function extractToolCall(text) {
     let idx = 0;
     while ((idx = text.indexOf('"tool"', idx)) !== -1) {
@@ -1396,11 +1292,6 @@ async selftest() {
     return null;
   }
 
-  // ============================================================
-  // MESSAGE IDENTITY (stable across virtual-list recycling)
-  // ============================================================
-  // DeepSeek renders each message under a React component with props {sessionId, messageId}.
-  // Optimistic messages have NEGATIVE ids until the server confirms; only positive ids are real.
   function msgInfo(el) {
     try {
       const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
@@ -1423,9 +1314,6 @@ async selftest() {
     return m;
   }
 
-  // ============================================================
-  // DOM HELPERS
-  // ============================================================
   function findWrapper(dsMessage) {
     const p = dsMessage.parentElement;
     if (!p) return null;
@@ -1436,11 +1324,6 @@ async selftest() {
     return p;
   }
 
-  // ============================================================
-  // TAGLINE
-  // No emoji/text glyphs. A custom terminal icon identifies "tool call" (it pulses while
-  // running), and a separate small arrow handles expand/collapse.
-  // ============================================================
   const TERMINAL_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 6.3L6.5 8.8L4 11.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.3H11.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
   const CHEV_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -1460,7 +1343,6 @@ async selftest() {
 
     const txt = document.createElement('span');
     txt.className = 'ds-shim-txt';
-    // Tagline text = human description only (never raw TOOL_RESULT JSON)
     txt.textContent = running ? 'Running tool…' : 'Tool used';
     el._dsRunLabel = 'Running tool…';
     el._dsDoneLabel = 'Tool used';
@@ -1478,17 +1360,12 @@ async selftest() {
   function updateTagline(tagline, preview, isError, running) {
     tagline.toggleAttribute('data-ds-shim-running', !!running);
     tagline.toggleAttribute('data-ds-shim-err', !!isError);
-    // Only description labels — never show result JSON chips
     tagline.querySelector('.ds-shim-txt').textContent = running
       ? (tagline._dsRunLabel || 'Running tool…')
       : (tagline._dsDoneLabel || 'Tool used');
-    // Remove legacy result chips if present
     tagline.querySelectorAll('.ds-shim-chip').forEach(function (c) { c.remove(); });
   }
 
-  // ============================================================
-  // COLLAPSE
-  // ============================================================
   function applyHiding(wrapper, tagline) {
     for (const child of wrapper.children) {
       if (child === tagline) continue;
@@ -1525,13 +1402,10 @@ async selftest() {
     return tagline;
   }
 
-  // ============================================================
-  // PROCESS
-  // ============================================================
   let busy = false;
-  const handled = new Set();   // message keys already examined this page load
+  const handled = new Set();
   const retried = new Set();
-  const baseline = new Map();  // sessionId -> highest real message id on screen when first seen
+  const baseline = new Map();
 
   async function processToolCall(dsMessage, tool, mk, sig) {
     const tname = tool.obj.tool;
@@ -1585,7 +1459,7 @@ async selftest() {
     let payloadObj = {
       ok: res.ok,
       data: resultPayload,
-      result: resultPayload, // back-compat
+      result: resultPayload,
       meta: { ms: 0, tool: tname }
     };
     if (res.error != null) payloadObj.error = { message: String(res.error) };
@@ -1613,9 +1487,6 @@ async selftest() {
     if (sent && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); }
   }
 
-  // ============================================================
-  // OPTIMIZED SCAN LOOP
-  // ============================================================
   function hideUserToolResults(msgs) {
     for (const el of msgs) {
       const wrapper = el.parentElement;
@@ -1644,7 +1515,6 @@ async selftest() {
     }
   }
 
-  // Re-collapse tool-call messages after the virtual list re-mounts them or the page reloads.
   function restoreCollapsed(msgs) {
     if (!collapsedByMsg.size) return;
     for (const el of msgs) {
@@ -1657,7 +1527,6 @@ async selftest() {
     }
   }
 
-  // The last message must stop changing for CONFIG.settleMs before we act on it.
   let settle = { el: null, len: -1, at: 0 };
   function isSettled(el) {
     const len = (el.textContent || '').length;
@@ -1668,9 +1537,9 @@ async selftest() {
 
   function scanForToolCalls(msgs) {
     if (busy || !msgs.length) return;
-    const el = msgs[msgs.length - 1];              // tool calls only ever matter on the newest message
+    const el = msgs[msgs.length - 1];
     const info = msgInfo(el);
-    if (!info || !isRealId(info.id)) return;       // optimistic / unknown: wait for the real id
+    if (!info || !isRealId(info.id)) return;
 
     const sid = info.sessionId || getConvId();
     if (!baseline.has(sid)) baseline.set(sid, maxRealId(msgs));
@@ -1679,7 +1548,6 @@ async selftest() {
 
     if (isGenerating() || !isSettled(el)) return;
 
-    // Read the ANSWER only (the thinking block is a separate .ds-markdown without this class).
     const main = el.querySelector('div.ds-markdown.ds-assistant-message-main-content');
     if (!main) return;
     const text = (main.textContent || '').trim();
@@ -1716,14 +1584,12 @@ async selftest() {
       .finally(() => { busy = false; });
   }
 
-  // ---------- Throttled scheduler ----------
   let lastTickAt = 0;
   let tickScheduled = false;
 
   function runTick() {
     tickScheduled = false;
     lastTickAt = performance.now();
-    // Continue while backgrounded so multi-step tool chains keep running
     try {
       const msgs = document.querySelectorAll('div.ds-message');
       hideUserToolResults(msgs);
@@ -1748,24 +1614,17 @@ async selftest() {
     }
   }
 
-  // Observer: only structural changes (no characterData -> quieter)
   const observer = new MutationObserver(() => scheduleTick(false));
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // Fallback periodic scan (also drives the "settled" timer when the DOM is quiet)
   const fallbackTimer = setInterval(() => scheduleTick(false), CONFIG.fallbackScanMs);
 
   document.addEventListener('visibilitychange', () => {
-    // Keep agent loop alive in background
     scheduleTick(true);
   });
 
-  // Initial
   setTimeout(() => scheduleTick(true), 600);
 
-  // ============================================================
-  // PUBLIC API
-  // ============================================================
   window.__DS_TOOL_SHIM__ = {
     version: VERSION,
     stop() {
@@ -1826,14 +1685,8 @@ async selftest() {
     },
   };
 
-
-
-
-  // ============================================================
-  // Artifacts + charts only (no projects / queue / research)
-  // ============================================================
   const SYS_MAP_KEY = '__dh_sys_embedded_v5';
-  let sysEmbedDone = Object.create(null); // in-memory per session
+  let sysEmbedDone = Object.create(null);
 
   function loadSysMap() {
     try { return JSON.parse(sessionStorage.getItem(SYS_MAP_KEY) || '{}'); } catch { return {}; }
@@ -1850,12 +1703,10 @@ async selftest() {
     return p;
   }
   function needsSystemEmbed() {
-    // Global cooldown: first message on a new chat changes the URL id — must not re-embed
     try {
       const ts = Number(sessionStorage.getItem('__dh_sys_embed_ts') || 0);
-      if (ts && (Date.now() - ts) < 180000) return false; // 3 minutes
+      if (ts && (Date.now() - ts) < 180000) return false;
       if (sessionStorage.getItem('__dh_sys_embed_global') === '1') {
-        // Still respect cooldown window only
         if (ts && (Date.now() - ts) < 180000) return false;
       }
     } catch {}
@@ -1863,7 +1714,6 @@ async selftest() {
     if (sysEmbedDone[id]) return false;
     const map = loadSysMap();
     if (map[id]) return false;
-    // Mark common pre-id path segments as already handled if any were set
     const parts = (location.pathname || '').split('/').filter(Boolean);
     for (const p of parts) {
       if (sysEmbedDone[p] || map[p]) return false;
@@ -1897,7 +1747,6 @@ async selftest() {
       log('sys embed skipped: no prompt');
       return text;
     }
-    // Mark BEFORE send so concurrent paths cannot double-embed
     markSystemEmbedded();
     log('sys embed once', getConvId());
     return (
@@ -1908,7 +1757,6 @@ async selftest() {
     );
   }
 
-  // Single send path — only embed here (intercept calls _sendMessageOriginal with already-embedded text)
   const _sendMessageOriginal = sendMessage;
   let intercepting = false;
   sendMessage = async function(text) {
@@ -1916,7 +1764,6 @@ async selftest() {
     if (raw.startsWith('TOOL_RESULT') || raw.startsWith('[D-HARNESS SYSTEM')) {
       return _sendMessageOriginal(raw);
     }
-    // If intercept already handled embed, raw is user text only when not intercepting
     if (intercepting) return _sendMessageOriginal(raw);
     return _sendMessageOriginal(embedSystemIfNeeded(raw));
   };
@@ -1937,15 +1784,13 @@ async selftest() {
     }
     intercepting = true;
     try {
-      const outbound = embedSystemIfNeeded(userText); // marks done
+      const outbound = embedSystemIfNeeded(userText);
       try {
         setNativeValue(input, '');
         input.dispatchEvent(new Event('input', { bubbles: true }));
       } catch {}
-      // Use original so sendMessage wrapper does not re-process
       const ok = await _sendMessageOriginal(outbound);
       if (!ok) {
-        // allow retry
         const id = getConvId();
         delete sysEmbedDone[id];
         const map = loadSysMap();
@@ -1974,8 +1819,6 @@ async selftest() {
     if (needsSystemEmbed()) interceptFirstSend(e);
   }, true);
 
-
-  // When DeepSeek rewrites /chat → /chat/<id> after first send, copy embed flag
   let __dhLastPath = location.pathname;
   setInterval(() => {
     if (location.pathname === __dhLastPath) return;
@@ -1984,7 +1827,7 @@ async selftest() {
     try {
       const ts = Number(sessionStorage.getItem('__dh_sys_embed_ts') || 0);
       if (ts && (Date.now() - ts) < 180000) {
-        markSystemEmbedded(); // mark new id under cooldown
+        markSystemEmbedded();
         log('sys embed transferred on nav', prev, '→', location.pathname);
       }
     } catch {}
@@ -2015,7 +1858,6 @@ async selftest() {
     return false;
   }
 
-  // ---- Theme tokens (Claude accent vs DeepSeek M3-ish) ----
   function applyThemeTokens() {
     const root = document.documentElement;
     const claude = !!document.getElementById('claude-ds-theme-v3');
@@ -2032,7 +1874,6 @@ async selftest() {
   applyThemeTokens();
   setInterval(applyThemeTokens, 2000);
 
-  // ---- Charts ----
   function svgBarChart(labels, values) {
     const w = 360, h = 160, pad = 28;
     const nums = values.map(Number).map(n => (isNaN(n) ? 0 : n));
@@ -2073,15 +1914,12 @@ async selftest() {
     return s.split('\n').filter(l => /,\s*[0-9.]+/.test(l)).length >= 1;
   }
 
-  // ---- Artifacts ----
   function isHtmlComplete(html) {
     const s = (html || '').trim();
     if (s.length < 20) return false;
-    // Prefer closed fences / balanced root tags
     if (/^<!DOCTYPE/i.test(s) || /<html[\s>]/i.test(s)) {
       return /<\/html>/i.test(s);
     }
-    // Heuristic: has opening and some closing tag
     const opens = (s.match(/<[a-zA-Z][^>]*>/g) || []).length;
     const closes = (s.match(/<\/[a-zA-Z]+>/g) || []).length;
     return opens >= 1 && closes >= 1 && s.length > 40;
@@ -2105,7 +1943,6 @@ async selftest() {
 
   function loadIframe(ifr, html) {
     const srcdoc = wrapArtifactHtml(html);
-    // Blob URL is more reliable than srcdoc on some WebViews
     try {
       if (ifr._dhUrl) {
         try { URL.revokeObjectURL(ifr._dhUrl); } catch {}
@@ -2184,7 +2021,6 @@ async selftest() {
     const ifr = document.createElement('iframe');
     ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
     ifr.setAttribute('referrerpolicy', 'no-referrer');
-    // Show loading until iframe loads
     const loading = document.createElement('div');
     loading.className = 'dh-artifact-loading';
     loading.innerHTML = '<div class="spin"></div><div>Loading…</div>';
@@ -2195,7 +2031,6 @@ async selftest() {
       try { loading.remove(); } catch {}
       ifr.style.opacity = '1';
     };
-    // Fallback if onload doesn't fire
     setTimeout(() => {
       try { loading.remove(); } catch {}
       ifr.style.opacity = '1';
@@ -2227,7 +2062,6 @@ async selftest() {
       if (isArtifactLang) {
         const kind = /simulation/.test(lang) ? 'simulation' : (/interactive/.test(lang) ? 'interactive' : 'html');
         if (!isHtmlComplete(text) || isGenerating()) {
-          // Still streaming — placeholder, do not freeze on empty iframe
           if (!isHtmlComplete(text)) {
             showLoadingCard(pre, kind);
             continue;
@@ -2256,7 +2090,6 @@ async selftest() {
         continue;
       }
 
-      // No copy button — DeepSeek already provides it
       pre.setAttribute('data-dh-done', 'code');
     }
   }
@@ -2282,7 +2115,6 @@ async selftest() {
     if (d.action === 'toast') showToast(String(d.text || ''), 2000);
   });
 
-  // Fast while generating, slower when idle
   let enhanceTimer = setInterval(enhanceAllMessages, 350);
   setInterval(() => {
     clearInterval(enhanceTimer);
@@ -2292,7 +2124,6 @@ async selftest() {
   try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
   enhanceAllMessages();
 
-  // uiEnhance toggle (panel)
   panel.querySelector('[data-opt="uiEnhance"]')?.addEventListener('change', (e) => {
     CONFIG.uiEnhance = e.target.checked;
     try { localStorage.setItem('__dh_ui_enhance', CONFIG.uiEnhance ? '1' : '0'); } catch {}

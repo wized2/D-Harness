@@ -13,7 +13,6 @@ function _cbId() { return 'c' + Date.now().toString(36) + Math.random().toString
 function _asyncNative(fn, timeoutMs) {
   return new Promise(function (resolve, reject) {
     var id = _cbId();
-    // timeoutMs === 0 → no timeout (paste_box etc.)
     var timer = null;
     if (timeoutMs !== 0) {
       timer = setTimeout(function () {
@@ -49,7 +48,6 @@ window.__DHarnessNative = {
   agentStop: function () {
     try { if (typeof DHarness !== 'undefined') DHarness.agentStop(); } catch (e) {}
   },
-
 
   device_uptime: function () { return _j(function () { return DHarness.deviceUptime(); }); },
   device_storage: function () { return _j(function () { return DHarness.deviceStorage(); }); },
@@ -152,7 +150,6 @@ window.__DHarnessNative = {
         if (typeof r.status === 'undefined') r.status = r.ok ? 200 : 0;
         if (typeof r.ok === 'undefined') r.ok = !!(r.status >= 200 && r.status < 300);
         if (typeof r.text === 'undefined') r.text = '';
-        // Normalize contents envelope — always expose these fields
         r.content = null; r.sha = null; r.encoding = null; r.download_url = null; r.name = null; r.path = null;
         if (r.json && typeof r.json === 'object' && !Array.isArray(r.json)) {
           r.content = r.json.content || null;
@@ -189,7 +186,6 @@ window.__DHarnessNative = {
       });
     },
     pr_comment: function (owner, repo, number, body) {
-      // Issue comments endpoint works for PR discussion comments
       return window.__DHarnessNative.github.request('POST', '/repos/' + owner + '/' + repo + '/issues/' + number + '/comments', { body: body });
     }
   },

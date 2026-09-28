@@ -11,8 +11,8 @@ android {
         applicationId = "com.endroid.dharness"
         minSdk = 26
         targetSdk = 35
-        versionCode = 46
-        versionName = "1.9.3"
+        versionCode = 47
+        versionName = "1.9.4"
         resourceConfigurations += listOf("en")
     }
 
@@ -61,12 +61,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { viewBinding = true }
+    buildFeatures { viewBinding = false }
     packaging {
         resources {
             excludes += setOf(
-                "META-INF/AL2.0", "META-INF/LGPL2.1",
-                "META-INF/*.kotlin_module", "META-INF/DEPENDENCIES"
+                "META-INF/**",
+                "kotlin/**",
+                "DebugProbesKt.bin",
+                "**.properties",
+                "mozilla/**"
             )
         }
         jniLibs { useLegacyPackaging = false }

@@ -1,5 +1,6 @@
 -keepattributes SourceFile,LineNumberTable
 -dontwarn kotlinx.**
+-dontwarn javax.annotation.**
 
 -keepclassmembers class com.endroid.dharness.HarnessBridge {
     @android.webkit.JavascriptInterface <methods>;
@@ -23,5 +24,5 @@
 -keep class com.google.crypto.tink.** { *; }
 -dontwarn com.google.crypto.tink.**
 
-# Strip unused kotlin metadata where safe
--keepclassmembers class **$WhenMappings { <fields>; }
+# Drop unused Material components aggressively
+-dontwarn com.google.android.material.**
