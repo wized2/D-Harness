@@ -1,3 +1,7 @@
+## 1.9.11
+
+- Expanded system prompt: full tool map, globals, skills/workflows, args, formats, limits
+
 ## 1.9.10
 
 - Remove empty Tools chips
