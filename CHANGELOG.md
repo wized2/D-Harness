@@ -1,3 +1,8 @@
+## 1.9.9
+
+- One **Tools used · Ns** card for the whole tool chain (not one per tool)
+- Expand shows full Thoughts / steps list
+
 ## 1.9.8
 
 - Tool UI: Grok-style **Thoughts** panel for multi-tool chains (expandable steps)

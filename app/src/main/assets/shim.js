@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.8';
+  const VERSION = '1.9.9';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1373,6 +1373,71 @@ async selftest() {
   const TERMINAL_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 6.3L6.5 8.8L4 11.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.3H11.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
   const CHEV_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+
+  let toolChain = null;
+
+  function formatDuration(ms) {
+    const s = Math.max(1, Math.round(ms / 1000));
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    return m + 'm ' + (s % 60) + 's';
+  }
+
+  function hideMsgBody(dsMessage, keepTagline) {
+    const w = findWrapper(dsMessage);
+    if (!w) return;
+    w.setAttribute('data-ds-shim-wrapper', '1');
+    for (const c of w.children) {
+      if (c === keepTagline) continue;
+      if (c.getAttribute && c.getAttribute('data-ds-shim-tagline') === '1' && c !== keepTagline) {
+        c.style.display = 'none';
+        continue;
+      }
+      c.setAttribute('data-ds-shim-hidden', '1');
+    }
+  }
+
+  function refreshChainHeader(running) {
+    if (!toolChain || !toolChain.tagline) return;
+    const tl = toolChain.tagline;
+    const steps = tl._dsSteps || [];
+    const n = steps.length;
+    const elapsed = formatDuration(Date.now() - (tl._dsStartAt || toolChain.startAt));
+    const anyErr = steps.some(function (s) { return s.err; });
+    const anyRun = running || steps.some(function (s) { return s.running; });
+    tl.toggleAttribute('data-ds-shim-running', !!anyRun);
+    tl.toggleAttribute('data-ds-shim-err', !!anyErr && !anyRun);
+    const txt = tl.querySelector('.ds-shim-txt');
+    if (txt) {
+      txt.textContent = anyRun
+        ? ('Working… · ' + n + (n === 1 ? ' step' : ' steps'))
+        : ('Tools used · ' + elapsed);
+    }
+    const sub = tl.querySelector('.ds-shim-sub');
+    if (sub) sub.textContent = anyRun ? elapsed : (n + (n === 1 ? ' step' : ' steps'));
+    const title = tl.querySelector('.ds-shim-panel-title');
+    if (title) title.textContent = anyRun ? 'In progress' : ('Worked for ' + elapsed);
+    renderThoughtSteps(tl);
+  }
+
+  function getOrCreateChain(dsMessage) {
+    const conv = getConvId();
+    const now = Date.now();
+    if (toolChain && toolChain.conv === conv && toolChain.tagline && toolChain.tagline.isConnected
+        && (now - toolChain.lastAt) < 90000) {
+      toolChain.lastAt = now;
+      hideMsgBody(dsMessage, toolChain.tagline);
+      return toolChain;
+    }
+    const tagline = collapseToolMessage(dsMessage, '', false, true, 'Working…', 'Tools used');
+    if (!tagline) return null;
+    tagline._dsSteps = [];
+    tagline._dsStartAt = now;
+    toolChain = { tagline: tagline, startAt: now, conv: conv, lastAt: now };
+    hideMsgBody(dsMessage, tagline);
+    return toolChain;
+  }
+
     function createTagline(preview = '', isError = false, running = false) {
     const el = document.createElement('div');
     el.setAttribute('data-ds-shim-tagline', '1');
@@ -1492,17 +1557,20 @@ async selftest() {
     const runLabel = desc ? desc : ('Running ' + tname + '…');
     const doneLabel = desc ? desc : 'Tool used';
     log('tool call:', tname, desc || '(no description)', '| msg:', mk);
-    collapseToolMessage(dsMessage, desc || tname, false, true, runLabel, doneLabel);
-    try {
-      const w = findWrapper(dsMessage);
-      const tl = w && w.querySelector('[data-ds-shim-tagline="1"]');
-      if (tl) {
-        if (!tl._dsSteps) tl._dsSteps = [];
-        tl._dsSteps.push({ tool: tname, title: desc || tname, desc: desc || '', running: true, err: false });
-        renderThoughtSteps(tl);
-        updateTagline(tl, desc || tname, false, true);
-      }
-    } catch (_) {}
+    const chain = getOrCreateChain(dsMessage);
+    if (chain && chain.tagline) {
+      chain.tagline._dsSteps = chain.tagline._dsSteps || [];
+      chain.tagline._dsSteps.push({
+        tool: tname,
+        title: desc || tname,
+        desc: desc || tname,
+        running: true,
+        err: false
+      });
+      refreshChainHeader(true);
+    } else {
+      collapseToolMessage(dsMessage, desc || tname, false, true, runLabel, doneLabel);
+    }
 
     setStatus('running');
     try {
@@ -1537,15 +1605,15 @@ async selftest() {
     }
     log('result:', res);
     try {
-      const w = findWrapper(dsMessage);
-      const tl = w && w.querySelector('[data-ds-shim-tagline="1"]');
-      if (tl && tl._dsSteps && tl._dsSteps.length) {
-        const last = tl._dsSteps[tl._dsSteps.length - 1];
-        last.running = false;
-        last.err = !res.ok;
-        if (!res.ok) last.title = (last.title || last.tool) + ' failed';
-        renderThoughtSteps(tl);
-        updateTagline(tl, doneLabel || tname, !res.ok, false);
+      if (toolChain && toolChain.tagline && toolChain.tagline._dsSteps && toolChain.tagline._dsSteps.length) {
+        const last = toolChain.tagline._dsSteps[toolChain.tagline._dsSteps.length - 1];
+        if (last && last.running) {
+          last.running = false;
+          last.err = !res.ok;
+          if (!res.ok) last.title = (last.title || last.tool) + ' failed';
+        }
+        toolChain.lastAt = Date.now();
+        refreshChainHeader(false);
       }
     } catch (_) {}
 
@@ -1579,7 +1647,12 @@ async selftest() {
     collapsedByMsg.set(mk, { preview, err: !res.ok, desc: doneLabel });
     saveDone(); refreshCounts();
 
-    collapseToolMessage(dsMessage, preview, !res.ok, false, runLabel, doneLabel);
+    if (toolChain && toolChain.tagline && toolChain.tagline.isConnected) {
+      refreshChainHeader(false);
+      hideMsgBody(dsMessage, toolChain.tagline);
+    } else {
+      collapseToolMessage(dsMessage, preview, !res.ok, false, runLabel, doneLabel);
+    }
     setStatus(res.ok ? 'idle' : 'error');
     try {
       const n = typeof N === 'function' ? N() : null;
