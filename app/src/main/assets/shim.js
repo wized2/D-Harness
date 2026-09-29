@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.9';
+  const VERSION = '1.9.10';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1338,6 +1338,36 @@ async selftest() {
     return null;
   }
 
+  function extractDsmlToolCall(raw) {
+    const text = String(raw || '');
+    if (!/DSML|invoke\s+name=/i.test(text)) return null;
+    const inv = text.match(/invoke\s+name=["']([^"']+)["']/i);
+    if (!inv) return null;
+    const tool = inv[1].trim();
+    let description = '';
+    const d1 = text.match(/parameter\s+name=["']description["'][^>]*>([^<]+)/i);
+    if (d1) description = d1[1].trim();
+    let args = {};
+    const a1 = text.match(/parameter\s+name=["']args["'][^>]*>([\s\S]*?)(?:<\/|\n\s*<)/i);
+    if (a1) {
+      let body = a1[1].trim();
+      try { args = JSON.parse(body); } catch {
+        const code = body.match(/"code"\s*:\s*"([\s\S]*)"/);
+        if (code) args = { code: code[1].replace(/\\n/g, '\n') };
+      }
+    }
+    if (tool === 'run_js' && !(args && typeof args.code === 'string')) return null;
+    const obj = { tool: tool, description: description, args: args };
+    return { obj: obj, full: text.slice(0, Math.min(text.length, 500)), end: text.length };
+  }
+
+  const _extractToolCallPlain = extractToolCall;
+  extractToolCall = function(raw) {
+    const a = _extractToolCallPlain(raw);
+    if (a) return a;
+    return extractDsmlToolCall(raw);
+  };
+
   function msgInfo(el) {
     try {
       const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
@@ -1644,12 +1674,26 @@ async selftest() {
       });
     }
     DONE[sig] = { ok: res.ok, preview, mk, sent: false, payload, t: Date.now(), desc: doneLabel };
-    collapsedByMsg.set(mk, { preview, err: !res.ok, desc: doneLabel });
+    const isChainHost = toolChain && toolChain.tagline && toolChain.tagline.isConnected
+      && findWrapper(dsMessage) && findWrapper(dsMessage).contains(toolChain.tagline);
+    collapsedByMsg.set(mk, {
+      preview: isChainHost ? preview : '',
+      err: !res.ok,
+      desc: doneLabel,
+      chainFollower: !isChainHost && !!(toolChain && toolChain.tagline)
+    });
     saveDone(); refreshCounts();
 
     if (toolChain && toolChain.tagline && toolChain.tagline.isConnected) {
       refreshChainHeader(false);
       hideMsgBody(dsMessage, toolChain.tagline);
+      // Remove any accidental empty tagline on this message
+      const w = findWrapper(dsMessage);
+      if (w) {
+        w.querySelectorAll(':scope > [data-ds-shim-tagline="1"]').forEach(function (tl) {
+          if (tl !== toolChain.tagline) tl.remove();
+        });
+      }
     } else {
       collapseToolMessage(dsMessage, preview, !res.ok, false, runLabel, doneLabel);
     }
@@ -1695,12 +1739,44 @@ async selftest() {
     if (!collapsedByMsg.size) return;
     for (const el of msgs) {
       const wrapper = el.parentElement;
-      if (!wrapper || wrapper.firstElementChild?.getAttribute('data-ds-shim-tagline') === '1') continue;
+      if (!wrapper) continue;
+      if (wrapper.firstElementChild?.getAttribute('data-ds-shim-tagline') === '1') {
+        // Drop empty decorative taglines (0 steps, not active chain host)
+        const tl = wrapper.firstElementChild;
+        const steps = tl._dsSteps || [];
+        const isHost = toolChain && toolChain.tagline === tl;
+        if (!isHost && steps.length === 0) {
+          tl.remove();
+          wrapper.removeAttribute('data-ds-shim-wrapper');
+        }
+        continue;
+      }
       const info = msgInfo(el);
       if (!info || !isRealId(info.id)) continue;
       const c = collapsedByMsg.get(mkOf(info));
-      if (c) collapseToolMessage(el, c.preview, c.err, false);
+      if (!c) continue;
+      // Followers of a unified chain: hide body only, no new chip
+      if (c.chainFollower || (toolChain && toolChain.tagline && toolChain.tagline.isConnected)) {
+        hideMsgBody(el, toolChain && toolChain.tagline);
+        continue;
+      }
+      // Only restore a real chip if we have a meaningful preview
+      if (!c.preview && !c.desc) continue;
+      collapseToolMessage(el, c.preview || c.desc || 'Tools used', c.err, false);
     }
+  }
+
+  function pruneEmptyToolChips() {
+    document.querySelectorAll('[data-ds-shim-tagline="1"]').forEach(function (tl) {
+      const steps = tl._dsSteps || [];
+      const isHost = toolChain && toolChain.tagline === tl;
+      if (isHost) return;
+      if (steps.length === 0) {
+        const w = tl.parentElement;
+        tl.remove();
+        if (w) w.removeAttribute('data-ds-shim-wrapper');
+      }
+    });
   }
 
   let settle = { el: null, len: -1, at: 0 };
@@ -1785,6 +1861,7 @@ async selftest() {
       const msgs = document.querySelectorAll('div.ds-message');
       hideUserToolResults(msgs);
       restoreCollapsed(msgs);
+      pruneEmptyToolChips();
       reapplyHiding();
       scanForToolCalls(msgs);
     } catch (e) {
@@ -1894,39 +1971,26 @@ async selftest() {
     return p;
   }
   function needsSystemEmbed() {
-    try {
-      const ts = Number(sessionStorage.getItem('__dh_sys_embed_ts') || 0);
-      if (ts && (Date.now() - ts) < 180000) return false;
-      if (sessionStorage.getItem('__dh_sys_embed_global') === '1') {
-        if (ts && (Date.now() - ts) < 180000) return false;
-      }
-    } catch {}
     const id = getConvId();
+    // Only skip if THIS conversation already received system context
     if (sysEmbedDone[id]) return false;
     const map = loadSysMap();
     if (map[id]) return false;
-    const parts = (location.pathname || '').split('/').filter(Boolean);
-    for (const p of parts) {
-      if (sysEmbedDone[p] || map[p]) return false;
-    }
+    // Brand-new chat path segments like "chat" alone must not block embeds
     return true;
   }
   function markSystemEmbedded() {
     const id = getConvId();
+    if (!id || id === 'unknown') {
+      // Still mark a temp key until URL gets a real id
+      sysEmbedDone[id || 'unknown'] = true;
+    }
     const map = loadSysMap();
-    const parts = (location.pathname || '').split('/').filter(Boolean);
-    const all = new Set([id, 'unknown', 'chat', 's', ...parts]);
-    all.forEach(k => {
-      if (!k) return;
-      sysEmbedDone[k] = true;
-      map[k] = true;
-    });
-    try {
-      sessionStorage.setItem('__dh_sys_embed_ts', String(Date.now()));
-      sessionStorage.setItem('__dh_sys_embed_global', '1');
-    } catch {}
+    sysEmbedDone[id] = true;
+    map[id] = true;
+    try { sessionStorage.setItem('__dh_sys_embed_ts', String(Date.now())); } catch {}
     saveSysMap(map);
-    log('sys embed marked', id, 'parts', parts.join('/'));
+    log('sys embed marked for conv', id);
   }
   function embedSystemIfNeeded(userText) {
     const text = String(userText || '');
@@ -2011,17 +2075,20 @@ async selftest() {
   }, true);
 
   let __dhLastPath = location.pathname;
+  let __dhLastConv = getConvId();
   setInterval(() => {
-    if (location.pathname === __dhLastPath) return;
-    const prev = __dhLastPath;
-    __dhLastPath = location.pathname;
-    try {
-      const ts = Number(sessionStorage.getItem('__dh_sys_embed_ts') || 0);
-      if (ts && (Date.now() - ts) < 180000) {
-        markSystemEmbedded();
-        log('sys embed transferred on nav', prev, '→', location.pathname);
-      }
-    } catch {}
+    const path = location.pathname;
+    const conv = getConvId();
+    if (path === __dhLastPath && conv === __dhLastConv) return;
+    const prevConv = __dhLastConv;
+    __dhLastPath = path;
+    __dhLastConv = conv;
+    // New conversation id → allow system embed again (do NOT carry mark)
+    if (conv && conv !== prevConv && conv !== 'unknown') {
+      log('new conv detected', prevConv, '→', conv, '(system embed allowed)');
+      // Reset tool chain between chats
+      toolChain = null;
+    }
   }, 400);
 
   try {
