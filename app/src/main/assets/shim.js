@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.6';
+  const VERSION = '1.9.8';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -87,64 +87,93 @@
 
     [data-ds-shim-tagline="1"] {
       display: flex !important;
-      align-items: center;
-      height: 34px;
-      padding: 0 8px;
-      margin: 4px 0 6px 0;
+      flex-direction: column;
+      align-items: stretch;
+      height: auto;
+      min-height: 40px;
+      padding: 0;
+      margin: 8px 0 10px 0;
       cursor: pointer;
       user-select: none;
-      width: fit-content;
+      width: min(100%, 420px);
       max-width: 100%;
-      border-radius: 8px;
-      color: var(--dsw-alias-label-secondary, rgba(180,195,210,0.75));
-      font: 13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
-      transition: background .15s ease;
+      border-radius: 16px;
+      border: 1px solid var(--dsw-alias-border, rgba(120,150,180,0.14));
+      background: var(--dsw-alias-bg-elevated, rgba(120,150,180,0.06));
+      color: var(--dsw-alias-label-secondary, rgba(180,195,210,0.9));
+      font: 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+      transition: background .15s ease, border-color .15s ease;
       -webkit-tap-highlight-color: transparent;
+      overflow: hidden;
     }
     [data-ds-shim-tagline="1"]:hover {
-      background: var(--dsw-alias-bg-hover, rgba(120,150,180,0.08));
+      background: var(--dsw-alias-bg-hover, rgba(120,150,180,0.10));
     }
     [data-ds-shim-tagline="1"] .ds-shim-inner {
-      display: flex; align-items: center; gap: 7px; height: 100%;
+      display: flex; align-items: center; gap: 8px;
+      min-height: 40px; padding: 8px 12px;
     }
     [data-ds-shim-tagline="1"] .ds-shim-ico {
-      width: 15px; height: 15px;
+      width: 16px; height: 16px;
       display: inline-flex; align-items: center; justify-content: center;
-      opacity: .75; flex-shrink: 0;
+      opacity: .8; flex-shrink: 0;
     }
     [data-ds-shim-tagline="1"] .ds-shim-ico svg { display: block; width: 100%; height: 100%; }
     [data-ds-shim-tagline="1"][data-ds-shim-running="1"] .ds-shim-ico {
       animation: dsshim-pulse-ico 1.2s ease-in-out infinite;
     }
     @keyframes dsshim-pulse-ico { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-    [data-ds-shim-tagline="1"] .ds-shim-txt { font-weight: 400; font-size: 14px; white-space: nowrap; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; }
-    [data-ds-shim-tagline="1"][data-ds-shim-err="1"] .ds-shim-txt { color: #f88; }
-    [data-ds-shim-tagline="1"] .ds-shim-chip {
-      font-family: ui-monospace,SFMono-Regular,Menlo,monospace;
-      font-size: 12px;
-      padding: 1px 7px;
-      border-radius: 5px;
-      background: rgba(120,150,180,0.10);
-      color: rgba(190,205,220,0.9);
-      max-width: 240px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      margin-left: 2px;
+    [data-ds-shim-tagline="1"] .ds-shim-txt {
+      font-weight: 600; font-size: 14px; flex: 1;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: var(--dsw-alias-label-primary, inherit);
     }
-    [data-ds-shim-tagline="1"] .ds-shim-chip::before { content: '- '; opacity: .5; font-family: system-ui; }
-    [data-ds-shim-tagline="1"] .ds-shim-chip.err { color: #f88; background: rgba(240,130,130,0.10); }
-
+    [data-ds-shim-tagline="1"][data-ds-shim-err="1"] .ds-shim-txt { color: #f88; }
+    [data-ds-shim-tagline="1"] .ds-shim-sub {
+      font-weight: 400; font-size: 12px; opacity: .7;
+      margin-left: auto; padding-left: 8px; white-space: nowrap;
+    }
     [data-ds-shim-tagline="1"] .ds-shim-chev {
       width: 14px; height: 14px;
       display: inline-flex; align-items: center; justify-content: center;
-      opacity: .55; margin-left: 2px;
-      transition: transform .18s ease;
-      flex-shrink: 0;
+      opacity: .55; margin-left: 4px; transition: transform .2s ease;
     }
     [data-ds-shim-tagline="1"] .ds-shim-chev svg { display: block; }
     [data-ds-shim-tagline="1"][data-ds-shim-expanded="1"] .ds-shim-chev { transform: rotate(180deg); }
-    @media (pointer: coarse) { [data-ds-shim-tagline="1"] { height: 40px; } }
+    [data-ds-shim-tagline="1"] .ds-shim-panel {
+      display: none;
+      border-top: 1px solid var(--dsw-alias-border, rgba(120,150,180,0.12));
+      padding: 10px 12px 12px;
+      background: var(--dsw-alias-bg-elevated, rgba(0,0,0,0.12));
+    }
+    [data-ds-shim-tagline="1"][data-ds-shim-expanded="1"] .ds-shim-panel { display: block; }
+    [data-ds-shim-tagline="1"] .ds-shim-panel-title {
+      font-size: 12px; font-weight: 600; opacity: .75; margin-bottom: 8px;
+      letter-spacing: 0.02em;
+    }
+    [data-ds-shim-tagline="1"] .ds-shim-step {
+      display: flex; gap: 8px; align-items: flex-start;
+      padding: 6px 0; font-size: 12.5px; line-height: 1.4;
+      border-bottom: 1px solid rgba(120,150,180,0.08);
+    }
+    [data-ds-shim-tagline="1"] .ds-shim-step:last-child { border-bottom: none; }
+    [data-ds-shim-tagline="1"] .ds-shim-step-ico {
+      width: 14px; flex-shrink: 0; opacity: .65; margin-top: 2px;
+    }
+    [data-ds-shim-tagline="1"] .ds-shim-step-body { flex: 1; min-width: 0; }
+    [data-ds-shim-tagline="1"] .ds-shim-step-name { font-weight: 600; word-break: break-word; }
+    [data-ds-shim-tagline="1"] .ds-shim-step-desc { opacity: .7; font-size: 11.5px; margin-top: 2px; }
+    [data-ds-shim-tagline="1"] .ds-shim-step.err .ds-shim-step-name { color: #f88; }
+    [data-ds-shim-tagline="1"] .ds-shim-chip {
+      font-family: ui-monospace,SFMono-Regular,Menlo,monospace;
+      font-size: 11px; padding: 1px 6px; border-radius: 5px;
+      background: rgba(120,150,180,0.10); color: rgba(190,205,220,0.9);
+      display: inline-block; margin-top: 4px; max-width: 100%;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    @media (pointer: coarse) {
+      [data-ds-shim-tagline="1"] .ds-shim-inner { min-height: 44px; }
+    }
 
     #__ds_shim_fab {
       position: fixed; z-index: 2147483645;
@@ -1344,11 +1373,12 @@ async selftest() {
   const TERMINAL_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 6.3L6.5 8.8L4 11.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.3H11.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
   const CHEV_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-  function createTagline(preview = '', isError = false, running = false) {
+    function createTagline(preview = '', isError = false, running = false) {
     const el = document.createElement('div');
     el.setAttribute('data-ds-shim-tagline', '1');
     if (running) el.setAttribute('data-ds-shim-running', '1');
     if (isError) el.setAttribute('data-ds-shim-err', '1');
+    el._dsSteps = [];
 
     const inner = document.createElement('div');
     inner.className = 'ds-shim-inner';
@@ -1360,27 +1390,58 @@ async selftest() {
 
     const txt = document.createElement('span');
     txt.className = 'ds-shim-txt';
-    txt.textContent = running ? 'Running tool…' : 'Tool used';
-    el._dsRunLabel = 'Running tool…';
-    el._dsDoneLabel = 'Tool used';
+    txt.textContent = running ? 'Running tools…' : 'Tools';
+    el._dsRunLabel = 'Running tools…';
+    el._dsDoneLabel = 'Tools';
     inner.appendChild(txt);
+
+    const sub = document.createElement('span');
+    sub.className = 'ds-shim-sub';
+    sub.textContent = '';
+    inner.appendChild(sub);
 
     const chev = document.createElement('span');
     chev.className = 'ds-shim-chev';
     chev.innerHTML = CHEV_SVG;
     inner.appendChild(chev);
-
     el.appendChild(inner);
+
+    const panel = document.createElement('div');
+    panel.className = 'ds-shim-panel';
+    panel.innerHTML = '<div class="ds-shim-panel-title">Thoughts</div><div class="ds-shim-steps"></div>';
+    el.appendChild(panel);
     return el;
+  }
+
+  function renderThoughtSteps(tagline) {
+    const box = tagline.querySelector('.ds-shim-steps');
+    if (!box) return;
+    const steps = tagline._dsSteps || [];
+    box.innerHTML = steps.map(function (s) {
+      const err = s.err ? ' err' : '';
+      const desc = s.desc ? '<div class="ds-shim-step-desc">' + esc(s.desc) + '</div>' : '';
+      const chip = s.tool ? '<span class="ds-shim-chip">' + esc(s.tool) + '</span>' : '';
+      return '<div class="ds-shim-step' + err + '">' +
+        '<span class="ds-shim-step-ico">' + (s.running ? '⏳' : (s.err ? '!' : '•')) + '</span>' +
+        '<div class="ds-shim-step-body"><div class="ds-shim-step-name">' + esc(s.title || s.tool || 'step') + '</div>' +
+        desc + chip + '</div></div>';
+    }).join('');
+    const sub = tagline.querySelector('.ds-shim-sub');
+    if (sub) {
+      const n = steps.length;
+      const running = steps.some(function (s) { return s.running; });
+      sub.textContent = running ? ('Running ' + n + (n === 1 ? ' tool' : ' tools')) : (n + (n === 1 ? ' step' : ' steps'));
+    }
   }
 
   function updateTagline(tagline, preview, isError, running) {
     tagline.toggleAttribute('data-ds-shim-running', !!running);
     tagline.toggleAttribute('data-ds-shim-err', !!isError);
-    tagline.querySelector('.ds-shim-txt').textContent = running
-      ? (tagline._dsRunLabel || 'Running tool…')
-      : (tagline._dsDoneLabel || 'Tool used');
-    tagline.querySelectorAll('.ds-shim-chip').forEach(function (c) { c.remove(); });
+    const n = (tagline._dsSteps || []).length;
+    const headRun = n > 1 ? ('Thought for tools · ' + n) : (tagline._dsRunLabel || 'Running tools…');
+    const headDone = n > 1 ? ('Used ' + n + ' tools') : (tagline._dsDoneLabel || 'Tools');
+    tagline.querySelector('.ds-shim-txt').textContent = running ? headRun : headDone;
+    renderThoughtSteps(tagline);
   }
 
   function applyHiding(wrapper, tagline) {
@@ -1403,12 +1464,13 @@ async selftest() {
       wrapper.insertBefore(tagline, wrapper.firstChild);
       tagline.onclick = () => {
         const expanded = tagline.getAttribute('data-ds-shim-expanded') === '1';
+        tagline.setAttribute('data-ds-shim-expanded', expanded ? '0' : '1');
+        // Keep raw tool JSON collapsed by default; panel shows structured steps
         for (const c of wrapper.children) {
           if (c === tagline) continue;
-          if (expanded) c.setAttribute('data-ds-shim-hidden', '1');
-          else c.removeAttribute('data-ds-shim-hidden');
+          if (!expanded) c.setAttribute('data-ds-shim-hidden', '1');
+          else c.setAttribute('data-ds-shim-hidden', '1'); // always hide raw JSON body
         }
-        tagline.setAttribute('data-ds-shim-expanded', expanded ? '0' : '1');
       };
     }
     if (runLabel) tagline._dsRunLabel = runLabel;
@@ -1431,6 +1493,17 @@ async selftest() {
     const doneLabel = desc ? desc : 'Tool used';
     log('tool call:', tname, desc || '(no description)', '| msg:', mk);
     collapseToolMessage(dsMessage, desc || tname, false, true, runLabel, doneLabel);
+    try {
+      const w = findWrapper(dsMessage);
+      const tl = w && w.querySelector('[data-ds-shim-tagline="1"]');
+      if (tl) {
+        if (!tl._dsSteps) tl._dsSteps = [];
+        tl._dsSteps.push({ tool: tname, title: desc || tname, desc: desc || '', running: true, err: false });
+        renderThoughtSteps(tl);
+        updateTagline(tl, desc || tname, false, true);
+      }
+    } catch (_) {}
+
     setStatus('running');
     try {
       const n = typeof N === 'function' ? N() : null;
@@ -1463,6 +1536,19 @@ async selftest() {
       }
     }
     log('result:', res);
+    try {
+      const w = findWrapper(dsMessage);
+      const tl = w && w.querySelector('[data-ds-shim-tagline="1"]');
+      if (tl && tl._dsSteps && tl._dsSteps.length) {
+        const last = tl._dsSteps[tl._dsSteps.length - 1];
+        last.running = false;
+        last.err = !res.ok;
+        if (!res.ok) last.title = (last.title || last.tool) + ' failed';
+        renderThoughtSteps(tl);
+        updateTagline(tl, doneLabel || tname, !res.ok, false);
+      }
+    } catch (_) {}
+
 
     let resultPayload = res.result;
     if (typeof resultPayload === 'string') {

@@ -1,3 +1,8 @@
+## 1.9.8
+
+- Tool UI: Grok-style **Thoughts** panel for multi-tool chains (expandable steps)
+- Per-step running/done/error in tagline panel
+
 ## 1.9.7
 
 - +28 coding/GitHub tools: code.search/slice/imports, workspace.replace/glob/head/tail, github.pr_list/merge, workflows, releases, tree, gist, …
