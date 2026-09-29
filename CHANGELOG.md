@@ -1,3 +1,9 @@
+## 1.9.10
+
+- Remove empty Tools chips
+- System prompt on each new chat
+- DSML fallback parse + JSON-only prompt
+
 ## 1.9.9
 
 - One **Tools used · Ns** card for the whole tool chain (not one per tool)

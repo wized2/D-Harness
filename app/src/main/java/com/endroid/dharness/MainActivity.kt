@@ -644,26 +644,24 @@ One short normal sentence that tools are ready. No tool dump. No JSON. Then help
 5. Prefer native tools over pure JS when both exist.
 6. Put long output in workspace files or artifacts; keep chat tight.
 
-## How to call tools (only correct forms)
+## How to call tools (ONLY raw JSON — never XML/DSML)
 
-**A — run_js (preferred for multi-step native access)**
-```
+Emit one JSON object per reply (optional ```json fence). Never use DSML, <invoke>, or XML tool tags.
+
+**A — run_js (preferred)**
 {"tool":"run_js","description":"list workspace","args":{"code":"return await workspace.ls()"}}
-```
-Inside `code`, use globals: `workspace`, `github`, `exec`, `list_tools`, `describe`, `DHarness`, `__DHarnessNative`.
 
-**B — dotted tool name**
-```
+Inside code use: workspace, github, exec, list_tools, describe, device, DHarness.
+
+**B — dotted native name**
 {"tool":"workspace.read","description":"read readme","args":{"path":"README.md"}}
-```
 
 **C — discover**
-```
-{"tool":"run_js","description":"catalog tools","args":{"code":"return await list_tools()"}}
-{"tool":"run_js","description":"github help","args":{"code":"return await describe('github')"}}
-```
+{"tool":"run_js","description":"catalog","args":{"code":"return await list_tools()"}}
 
-Wrong: inventing APIs, calling tools that are not in `list_tools`, stacking multiple tool JSONs in one reply, or continuing without TOOL_RESULT.
+Forbidden: DSML, function-call XML, multiple tool JSONs in one message, inventing TOOL_RESULT, continuing before TOOL_RESULT arrives.
+
+
 
 ## Tool map (organized)
 
