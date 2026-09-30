@@ -504,10 +504,10 @@ class MainActivity : AppCompatActivity() {
                     hideFab: true,
                     dedupe: true,
                     nativePreferred: true,
-                    sendTimeoutMs: 5000,
+                    sendTimeoutMs: 2500,
                     hideFlashMs: 80,
-                    scanThrottleMs: 800,
-                    fallbackScanMs: 2500
+                    scanThrottleMs: 100,
+                    fallbackScanMs: 400
                   });
                   // Skip full re-inject if same stable shim already live (avoids clearing session state)
                   var existing = window.__DS_TOOL_SHIM__;

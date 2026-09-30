@@ -13,21 +13,21 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.15';
+  const VERSION = '1.9.16';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
     maxStorageKB: 100,
-    sendTimeoutMs: 3000,
+    sendTimeoutMs: 2500,
     sandboxTimeoutMs: 20000,
     dedupe: true,
     confirmSensitive: true,
     callMustBeLast: true,
     maxResultChars: 20000,
-    settleMs: 700,
-    scanThrottleMs: 250,
-    fallbackScanMs: 900,
-    hideFlashMs: 250,
+    settleMs: 280,
+    scanThrottleMs: 100,
+    fallbackScanMs: 400,
+    hideFlashMs: 120,
   }, window.__DS_SHIM_CONFIG__ || {});
 
   const LS = {
@@ -1233,11 +1233,11 @@ async selftest() {
   let sendingLock = false;
 
   async function waitUntilIdle(maxMs) {
-    const limit = typeof maxMs === 'number' ? maxMs : 25000;
+    const limit = typeof maxMs === 'number' ? maxMs : 12000;
     const t0 = Date.now();
     while (Date.now() - t0 < limit) {
       if (!isGenerating() && !busy) return true;
-      await sleep(120);
+      await sleep(50);
     }
     return !isGenerating();
   }
@@ -1264,7 +1264,7 @@ async selftest() {
       setNativeValue(input, text);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(80);
+      await sleep(35);
 
       // Prefer visible enabled send button (DeepSeek UI changes often)
       let btn = findEnabledSendButton();
@@ -1317,21 +1317,20 @@ async selftest() {
     sendingLock = true;
     try {
       // Wait for model generation to finish so send is accepted
-      await waitUntilIdle(20000);
+      await waitUntilIdle(10000);
       for (let attempt = 1; attempt <= 3; attempt++) {
         const ok = await sendMessageOnce(text);
         if (ok) {
           log('sent attempt', attempt);
-          // After system embed, rewrite UI so only user text is visible
           if (String(text).indexOf('[D-HARNESS SYSTEM') !== -1) {
-            setTimeout(hideSystemPromptBubbles, 400);
-            setTimeout(hideSystemPromptBubbles, 1200);
+            setTimeout(hideSystemPromptBubbles, 200);
+            setTimeout(hideSystemPromptBubbles, 700);
           }
           return true;
         }
         log('send retry', attempt);
-        await sleep(350 * attempt);
-        await waitUntilIdle(8000);
+        await sleep(120 * attempt);
+        await waitUntilIdle(4000);
       }
       log('send failed after retries');
       setStatus('error');
@@ -2134,7 +2133,13 @@ async selftest() {
   const observer = new MutationObserver(() => scheduleTick(false));
   observer.observe(document.body, { childList: true, subtree: true });
 
-  const fallbackTimer = setInterval(() => scheduleTick(false), CONFIG.fallbackScanMs);
+  let __dhWasGenerating = false;
+  const fallbackTimer = setInterval(() => {
+    const gen = isGenerating();
+    if (__dhWasGenerating && !gen) scheduleTick(true); // generation just finished → scan ASAP
+    __dhWasGenerating = gen;
+    scheduleTick(false);
+  }, CONFIG.fallbackScanMs);
 
   document.addEventListener('visibilitychange', () => {
     scheduleTick(true);

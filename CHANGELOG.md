@@ -1,3 +1,7 @@
+## 1.9.16
+
+- Faster tool detection (settle/scan) and quicker TOOL_RESULT send
+
 ## 1.9.15
 
 - Aggressive system-prompt UI hide (MutationObserver + text rewrite)
