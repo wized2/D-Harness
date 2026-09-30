@@ -1,3 +1,10 @@
+## 1.9.14
+
+- Auto-send TOOL_RESULT: wait for idle, retry send, prefer send button click
+- Dotted tools (`research.web`, `workspace.write`, …) resolve correctly
+- Hide system-prompt text in UI (show user message only)
+- Tighter system prompt: no probing, no mentioning instructions
+
 ## 1.9.13
 
 - Fix group tools `text` / `calc` (positional args to native bridge)

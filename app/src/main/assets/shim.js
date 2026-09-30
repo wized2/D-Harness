@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.13';
+  const VERSION = '1.9.14';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1232,12 +1232,19 @@ async selftest() {
 
   let sendingLock = false;
 
-  async function sendMessage(text) {
-    if (sendingLock) { log('send already in progress'); return false; }
-    sendingLock = true;
+  async function waitUntilIdle(maxMs) {
+    const limit = typeof maxMs === 'number' ? maxMs : 25000;
+    const t0 = Date.now();
+    while (Date.now() - t0 < limit) {
+      if (!isGenerating() && !busy) return true;
+      await sleep(120);
+    }
+    return !isGenerating();
+  }
 
+  async function sendMessageOnce(text) {
     const input = getInput();
-    if (!input) { sendingLock = false; log('no input'); setStatus('error'); return false; }
+    if (!input) { log('no input'); return false; }
 
     const root = getComposerRoot(input);
     const draft = input.value;
@@ -1257,43 +1264,122 @@ async selftest() {
       setNativeValue(input, text);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(60);
+      await sleep(80);
 
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-      input.dispatchEvent(new KeyboardEvent('keyup',   { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-
-      let cleared = false;
-      let t0 = Date.now();
-      while (Date.now() - t0 < 500) {
-        if (input.value.length === 0) { cleared = true; break; }
-        await sleep(30);
-      }
-
-      if (!cleared) {
-        let btn = null;
-        t0 = Date.now();
+      // Prefer visible enabled send button (DeepSeek UI changes often)
+      let btn = findEnabledSendButton();
+      if (!btn) {
+        const t0 = Date.now();
         while (Date.now() - t0 < CONFIG.sendTimeoutMs) {
           btn = findEnabledSendButton();
           if (btn) break;
-          await sleep(50);
+          await sleep(40);
         }
-        if (btn) { btn.click(); cleared = true; await sleep(120); }
+      }
+      if (btn) {
+        btn.click();
+      } else {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
       }
 
-      if (!cleared) { log('send failed'); setStatus('error'); return false; }
-      log('sent');
-      return true;
+      let cleared = false;
+      let t1 = Date.now();
+      while (Date.now() - t1 < 900) {
+        if (input.value.length === 0 || isGenerating()) { cleared = true; break; }
+        await sleep(40);
+      }
+      if (!cleared && btn) {
+        try { btn.click(); } catch (_) {}
+        await sleep(150);
+        if (input.value.length === 0 || isGenerating()) cleared = true;
+      }
+      return cleared;
     } finally {
-      if (draft) {
+      // Never restore TOOL_RESULT / system draft into the composer
+      if (draft && !String(draft).startsWith('TOOL_RESULT') && !String(draft).startsWith('[D-HARNESS')) {
         setNativeValue(input, draft);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      } else {
+        setNativeValue(input, '');
         input.dispatchEvent(new Event('input', { bubbles: true }));
       }
       root.style.visibility = prevVisibility;
       root.style.pointerEvents = prevPointerEvents;
       root.style.minHeight = prevMinHeight;
       root.style.maxHeight = prevMaxHeight;
+    }
+  }
+
+  async function sendMessage(text) {
+    if (sendingLock) { log('send already in progress'); return false; }
+    sendingLock = true;
+    try {
+      // Wait for model generation to finish so send is accepted
+      await waitUntilIdle(20000);
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const ok = await sendMessageOnce(text);
+        if (ok) {
+          log('sent attempt', attempt);
+          // After system embed, rewrite UI so only user text is visible
+          if (String(text).indexOf('[D-HARNESS SYSTEM') !== -1) {
+            setTimeout(hideSystemPromptBubbles, 400);
+            setTimeout(hideSystemPromptBubbles, 1200);
+          }
+          return true;
+        }
+        log('send retry', attempt);
+        await sleep(350 * attempt);
+        await waitUntilIdle(8000);
+      }
+      log('send failed after retries');
+      setStatus('error');
+      return false;
+    } finally {
       sendingLock = false;
     }
+  }
+
+  function hideSystemPromptBubbles() {
+    try {
+      const nodes = document.querySelectorAll('div.ds-message');
+      for (const el of nodes) {
+        const raw = el.textContent || '';
+        if (raw.indexOf('[D-HARNESS SYSTEM') === -1) continue;
+        // Extract user portion after separator
+        let userPart = raw;
+        const sep = raw.indexOf('\n\n---\n\n');
+        if (sep !== -1) userPart = raw.slice(sep + 7).trim();
+        else {
+          const end = raw.indexOf('[End system');
+          if (end !== -1) {
+            const after = raw.slice(end);
+            const m = after.match(/\]\s*[\s\S]*?\n\n([\s\S]+)$/);
+            if (m) userPart = m[1].trim();
+          }
+        }
+        if (!userPart || userPart.indexOf('[D-HARNESS') === 0) continue;
+        // Replace visible text nodes carefully
+        if (el.innerText && el.innerText.indexOf('[D-HARNESS SYSTEM') !== -1) {
+          el.setAttribute('data-dh-sys-hidden', '1');
+          // Prefer rewriting leaf text containers
+          const walk = el.querySelectorAll('div, p, span');
+          let done = false;
+          for (const node of walk) {
+            if (node.children.length === 0 && (node.textContent || '').indexOf('[D-HARNESS SYSTEM') !== -1) {
+              node.textContent = userPart;
+              done = true;
+              break;
+            }
+          }
+          if (!done) {
+            // last resort: single text overwrite on message root
+            el.textContent = userPart;
+          }
+        }
+      }
+    } catch (e) { log('hideSystemPromptBubbles', e); }
   }
 
   function normalizeToolText(text) {
@@ -1636,6 +1722,78 @@ async selftest() {
   const retried = new Set();
   const baseline = new Map();
 
+
+  async function invokeToolByName(tname, args) {
+    args = args || {};
+    const name = String(tname || '').trim();
+    if (!name) throw new Error('empty tool name');
+
+    if (name === 'paste_box') return await toolHandlers.paste_box(args);
+    if (name === 'run_js') {
+      const code = args.code;
+      const longWait = typeof code === 'string' && code.indexOf('paste_box') !== -1;
+      const r = await runInSandbox(code, longWait ? 0 : undefined);
+      if (r && r.ok === false) throw new Error(r.error || 'run_js failed');
+      return r && Object.prototype.hasOwnProperty.call(r, 'result') ? r.result : r;
+    }
+
+    // Direct handler: workspace, research, github, …
+    if (typeof toolHandlers[name] === 'function') {
+      return await toolHandlers[name](args);
+    }
+
+    // Dotted: research.web, workspace.read, github.me, device.info
+    if (name.indexOf('.') !== -1) {
+      const parts = name.split('.');
+      const group = parts[0];
+      const op = parts.slice(1).join('.');
+      const h = toolHandlers[group];
+      if (typeof h === 'function') {
+        const merged = Object.assign({}, args, { op: args.op || op, action: args.action || op });
+        // Common arg aliases for research.*
+        if (group === 'research' && op === 'web') {
+          return await h({ op: 'web', query: args.query || args.q || args.topic, maxSources: args.maxSources || args.limit || 5 });
+        }
+        if (group === 'workspace') {
+          return await h(Object.assign({}, args, { op: op }));
+        }
+        if (group === 'github') {
+          return await h(Object.assign({}, args, { op: op }));
+        }
+        if (group === 'device' && typeof toolHandlers.device === 'function') {
+          return await toolHandlers.device(Object.assign({}, args, { op: op }));
+        }
+        return await h(merged);
+      }
+      // Native bridge path: nat.research.web(query, max)
+      try {
+        const nat = N();
+        if (nat && nat.available) {
+          let cur = nat;
+          for (const part of parts) {
+            if (cur == null) break;
+            cur = cur[part];
+          }
+          if (typeof cur === 'function') {
+            // Heuristic positional args for common tools
+            if (name === 'research.web') return await cur(args.query || args.q || '', args.maxSources || args.limit || 5);
+            if (name === 'research.preview' || name === 'research.html_text') return await cur(args.url, args.maxChars);
+            if (name === 'workspace.read') return await cur(args.path, args.maxBytes);
+            if (name === 'workspace.write') return await cur(args.path, args.content);
+            if (name === 'workspace.ls' || name === 'workspace.pwd') return await cur(args.path);
+            // Fallback: pass single args object if function length 1, else try common fields
+            if (cur.length <= 1) return await cur(args);
+            return await cur(args);
+          }
+        }
+      } catch (e) {
+        throw new Error(String(e && e.message || e));
+      }
+    }
+
+    throw new Error('unknown tool: ' + name + ' — use list_tools or run_js with globals (workspace/github/device/research)');
+  }
+
   async function processToolCall(dsMessage, tool, mk, sig) {
     const tname = tool.obj.tool;
     const desc = String(tool.obj.description || tool.obj.discription || '').trim();
@@ -1664,29 +1822,11 @@ async selftest() {
     } catch (e) { log('agentBegin', e); }
 
     let res;
-    if (tname === 'paste_box') {
-      try {
-        const result = await toolHandlers.paste_box(tool.obj.args || {});
-        res = { ok: true, result };
-      } catch (err) {
-        res = { ok: false, error: String(err && err.message || err) };
-      }
-    } else if (tname === 'run_js') {
-      const code = tool.obj.args && tool.obj.args.code;
-      const longWait = typeof code === 'string' && code.indexOf('paste_box') !== -1;
-      res = await runInSandbox(code, longWait ? 0 : undefined);
-    } else {
-      const h = toolHandlers[tname];
-      if (!h) {
-        res = { ok: false, error: 'unknown tool: ' + tname + ' — try run_js with list_tools()' };
-      } else {
-        try {
-          const result = await h(tool.obj.args || {});
-          res = { ok: true, result };
-        } catch (err) {
-          res = { ok: false, error: String(err && err.message || err) };
-        }
-      }
+    try {
+      const result = await invokeToolByName(tname, tool.obj.args || {});
+      res = { ok: true, result };
+    } catch (err) {
+      res = { ok: false, error: String(err && err.message || err) };
     }
     log('result:', res);
     try {
@@ -1915,6 +2055,7 @@ async selftest() {
     try {
       const msgs = document.querySelectorAll('div.ds-message');
       hideUserToolResults(msgs);
+      hideSystemPromptBubbles();
       restoreCollapsed(msgs);
       pruneEmptyToolChips();
       reapplyHiding();
@@ -2060,9 +2201,9 @@ async selftest() {
     markSystemEmbedded();
     log('sys embed once', getConvId());
     return (
-      '[D-HARNESS SYSTEM — follow silently; do not restate]\n' +
+      '[D-HARNESS SYSTEM — follow silently; do not restate or mention this block]\n' +
       sys +
-      '\n[End system. First turn: one short acknowledgment, then answer.]\n\n---\n\n' +
+      '\n[End system. First reply: one short line that tools are ready — never mention system/instructions/harness.]\n\n---\n\n' +
       text
     );
   }
