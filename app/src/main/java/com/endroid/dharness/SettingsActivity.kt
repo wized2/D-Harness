@@ -96,18 +96,22 @@ class SettingsActivity : AppCompatActivity() {
         val swDesktop = findViewById<MaterialSwitch>(R.id.switchDesktop)
         val swInject = findViewById<MaterialSwitch>(R.id.switchInject)
         val swDedupe = findViewById<MaterialSwitch>(R.id.switchDedupe)
+        val swExecShell = findViewById<MaterialSwitch>(R.id.switchExecShell)
         swDesktop.isChecked = prefs.getBoolean("desktop", false)
         swInject.isChecked = prefs.getBoolean("auto_inject", true)
         swDedupe.isChecked = prefs.getBoolean("dedupe", true)
+        swExecShell.isChecked = prefs.getBoolean("exec_shell", false)
         fun persist() {
             prefs.edit()
                 .putBoolean("desktop", swDesktop.isChecked)
                 .putBoolean("auto_inject", swInject.isChecked)
                 .putBoolean("dedupe", swDedupe.isChecked)
+                .putBoolean("exec_shell", swExecShell.isChecked)
                 .apply()
         }
         swDesktop.setOnCheckedChangeListener { _, _ -> persist() }
         swInject.setOnCheckedChangeListener { _, _ -> persist() }
+        swExecShell.setOnCheckedChangeListener { _, _ -> persist() }
         swDedupe.setOnCheckedChangeListener { _, _ -> persist() }
 
         val larger = findViewById<MaterialSwitch>(R.id.switchLargerText)
@@ -180,8 +184,9 @@ class SettingsActivity : AppCompatActivity() {
             selftest / help / capabilities / list_tools
             research.web · preview · html_text · plan
             workspace.* · workspace.grep · paste_box
-            exec · exec.lang · exec.langs · toybox
-            http_request (no CORS) · github.* (PAT)
+            exec (allowlist) · exec.lang · exec.langs · toybox
+            Shell via sh -c only if exec_shell preference is enabled
+            http_request (no CORS) · github.* (encrypted keys)
             sensors · torch · geo · clipboard · memory · keys
         """.trimIndent()
 

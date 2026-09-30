@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.12';
+  const VERSION = '1.9.13';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -987,23 +987,39 @@
     },
     async calc(args) {
       const nat = N();
-      if (nat && nat.calc) {
-        const op = args.op || 'eval';
-        if (typeof nat.calc[op] === 'function') return await nat.calc[op](args.expr || args.x || args);
-      }
-      throw new Error('calc requires native bridge');
+      if (!nat || !nat.calc) throw new Error('calc requires native bridge');
+      const op = args.op || 'eval';
+      const fn = nat.calc[op];
+      if (typeof fn !== 'function') throw new Error('unknown calc op: ' + op);
+      if (op === 'eval') return await fn(args.expr != null ? args.expr : args.x);
+      if (op === 'convert') return await fn(args.value, args.from, args.to);
+      if (op === 'haversine') return await fn(args.lat1, args.lon1, args.lat2, args.lon2);
+      if (op === 'clamp') return await fn(args.value, args.min, args.max);
+      if (op === 'round') return await fn(args.value, args.digits);
+      return await fn(args.expr || args.x || args.value);
     },
     async text(args) {
       const nat = N();
-      if (nat && nat.text) {
-        const op = args.op;
-        if (typeof nat.text[op] === 'function') return await nat.text[op](args);
-      }
-      throw new Error('text requires native bridge');
+      if (!nat || !nat.text) throw new Error('text requires native bridge');
+      const op = args.op;
+      if (!op) throw new Error('text requires args.op');
+      // aliases
+      const op2 = op === 'hash_preview' ? 'stats' : op;
+      const fn = nat.text[op2];
+      if (typeof fn !== 'function') throw new Error('unknown text op: ' + op);
+      if (op2 === 'base64' || op2 === 'url') return await fn(args.mode || args.action || 'encode', args.data || args.text || '');
+      if (op2 === 'regex') return await fn(args.action || args.mode || 'find', args.pattern, args.text || '', args.replacement);
+      if (op2 === 'stats' || op2 === 'trim') return await fn(args.text || args.data || '');
+      if (op2 === 'case') return await fn(args.mode || args.case || 'lower', args.text || '');
+      if (op2 === 'split') return await fn(args.text || '', args.sep != null ? args.sep : ',', args.limit || 0);
+      if (op2 === 'join') return await fn(args.parts || [], args.sep != null ? args.sep : '');
+      return await fn(args.text || args.data || '');
     },
     async crypto_native(args) {
       const nat = N();
-      if (nat && nat.crypto && nat.crypto.hash) return await nat.crypto.hash(args.algo || 'sha256', args.data || args.text);
+      if (nat && nat.crypto && nat.crypto.hash) {
+        return await nat.crypto.hash(args.algo || 'sha256', args.data != null ? args.data : (args.text || ''));
+      }
       throw new Error('crypto native unavailable');
     },
 

@@ -238,6 +238,15 @@
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"
                         android:text="Dedupe tool calls" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchExecShell"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="Allow shell exec (sh -c)" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

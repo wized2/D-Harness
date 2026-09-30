@@ -218,7 +218,7 @@ class HarnessBridge(
         tool("file.verify_roundtrip", "Write then read-back SHA-256 of UTF-8 test bytes", JSONObject())
         tool("exec", "Allowlisted ProcessBuilder in app sandbox", JSONObject().put("argv", "string[]").put("timeout_ms", "number?").put("cwd", "string?"))
         tool("sqlite.query", "Read-only SQLite query", JSONObject().put("path", "string").put("sql", "string").put("args", "string[]?"))
-        tool("crypto.hash", "SHA-256/SHA-1/MD5", JSONObject().put("algo", "string").put("data", "string").put("encoding", "utf8|b64?"))
+        tool("crypto.hash", "SHA-256/SHA-1/MD5", JSONObject().put("algo", "string").put("data", "string").put("text", "string? alias of data").put("encoding", "utf8|b64?"))
         tool("crypto.hmac", "HMAC-SHA256", JSONObject().put("key", "string").put("data", "string"))
         tool("archive.zip_list", "List zip entries", JSONObject().put("path", "string"))
         tool("archive.zip_extract", "Extract one entry as b64", JSONObject().put("path", "string").put("entry", "string"))
@@ -249,7 +249,7 @@ class HarnessBridge(
         tool("text.base64", "encode|decode base64", JSONObject().put("op", "encode|decode").put("data", "string"))
         tool("text.url", "encode|decode URL component", JSONObject().put("op", "encode|decode").put("data", "string"))
         tool("text.regex", "Regex find/match/replace", JSONObject().put("op", "find|match|replace").put("pattern", "string").put("text", "string").put("replacement", "string?"))
-        tool("text.hash_preview", "Length/lines/words of text", JSONObject().put("text", "string"))
+        tool("text.stats", "Length/lines/words of text (alias: text.hash_preview)", JSONObject().put("text", "string"))
         tool("time.now", "Epoch ms + ISO UTC", JSONObject())
         tool("time.format", "Format epoch ms", JSONObject().put("ms", "number").put("pattern", "string?"))
         tool("uuid.v4", "Random UUID", JSONObject())
@@ -525,7 +525,7 @@ class HarnessBridge(
                 }
             }
 
-            val shellEnabled = settings.getBoolean("exec_shell", true)
+            val shellEnabled = settings.getBoolean("exec_shell", false)
             if (bin == "sh" && !shellEnabled) {
                 return JSONObject().put("ok", false)
                     .put("error", "shell exec disabled in Settings (exec_shell)").toString()

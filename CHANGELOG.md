@@ -1,3 +1,11 @@
+## 1.9.13
+
+- Fix group tools `text` / `calc` (positional args to native bridge)
+- Catalog: `text.stats` (was hash_preview); crypto.hash accepts `text` alias
+- Handle `pending_clear_fs` from Settings (clear harness_fs)
+- Default `exec_shell` to false (allowlist exec still works)
+- Settings tools blurb clarifies shell toggle
+
 ## 1.9.12
 
 - System prompt leads with anti-DSML / JSON-only rules and concrete examples

@@ -72,6 +72,17 @@ class MainActivity : AppCompatActivity() {
             webView.clearCache(true)
             webView.reload()
         }
+        if (prefs.getBoolean("pending_clear_fs", false)) {
+            prefs.edit().putBoolean("pending_clear_fs", false).apply()
+            try {
+                val fs = java.io.File(filesDir, "harness_fs")
+                if (fs.exists()) fs.deleteRecursively()
+                fs.mkdirs()
+                android.widget.Toast.makeText(this, "Native FS cleared", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(this, "FS clear failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
         if (prefs.getBoolean("pending_send_instructions", false)) {
             prefs.edit().putBoolean("pending_send_instructions", false).apply()
             webView.postDelayed({ sendToolInstructions() }, 600)
