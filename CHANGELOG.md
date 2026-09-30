@@ -1,3 +1,10 @@
+## 1.9.17
+
+- **Critical:** TOOL_RESULT send no longer deadlocks on `busy` (was waiting forever mid-tool)
+- Tool chips no longer pruned away by React re-renders
+- Balanced detect timing (settle 450ms); more reliable send confirmation
+- Always create Tools chip before tool execution
+
 ## 1.9.16
 
 - Faster tool detection (settle/scan) and quicker TOOL_RESULT send

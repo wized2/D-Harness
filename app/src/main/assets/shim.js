@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.16';
+  const VERSION = '1.9.17';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -24,9 +24,9 @@
     confirmSensitive: true,
     callMustBeLast: true,
     maxResultChars: 20000,
-    settleMs: 280,
-    scanThrottleMs: 100,
-    fallbackScanMs: 400,
+    settleMs: 450,
+    scanThrottleMs: 150,
+    fallbackScanMs: 600,
     hideFlashMs: 120,
   }, window.__DS_SHIM_CONFIG__ || {});
 
@@ -1233,11 +1233,12 @@ async selftest() {
   let sendingLock = false;
 
   async function waitUntilIdle(maxMs) {
-    const limit = typeof maxMs === 'number' ? maxMs : 12000;
+    // Only wait for model generation — NEVER wait on `busy` (processToolCall holds busy while sending).
+    const limit = typeof maxMs === 'number' ? maxMs : 15000;
     const t0 = Date.now();
     while (Date.now() - t0 < limit) {
-      if (!isGenerating() && !busy) return true;
-      await sleep(50);
+      if (!isGenerating()) return true;
+      await sleep(60);
     }
     return !isGenerating();
   }
@@ -1264,7 +1265,7 @@ async selftest() {
       setNativeValue(input, text);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(35);
+      await sleep(50);
 
       // Prefer visible enabled send button (DeepSeek UI changes often)
       let btn = findEnabledSendButton();
@@ -1286,14 +1287,26 @@ async selftest() {
 
       let cleared = false;
       let t1 = Date.now();
-      while (Date.now() - t1 < 900) {
+      while (Date.now() - t1 < 1500) {
         if (input.value.length === 0 || isGenerating()) { cleared = true; break; }
+        // Some DeepSeek builds clear value a tick later after click
         await sleep(40);
       }
-      if (!cleared && btn) {
-        try { btn.click(); } catch (_) {}
-        await sleep(150);
+      if (!cleared) {
+        // Force click send again if still possible
+        btn = findEnabledSendButton() || btn;
+        if (btn) {
+          try { btn.click(); } catch (_) {}
+          await sleep(200);
+        } else {
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+          await sleep(200);
+        }
         if (input.value.length === 0 || isGenerating()) cleared = true;
+      }
+      // Last resort: if text was set and we clicked, assume ok when not still holding full payload
+      if (!cleared && text && input.value !== text && input.value.length < String(text).length * 0.5) {
+        cleared = true;
       }
       return cleared;
     } finally {
@@ -1654,6 +1667,7 @@ async selftest() {
     }
     const tagline = collapseToolMessage(dsMessage, '', false, true, 'Working…', 'Tools used');
     if (!tagline) return null;
+    try { tagline.setAttribute('data-ds-shim-keep', '1'); } catch (_) {}
     tagline._dsSteps = [];
     tagline._dsStartAt = now;
     toolChain = { tagline: tagline, startAt: now, conv: conv, lastAt: now };
@@ -1852,8 +1866,14 @@ async selftest() {
     const runLabel = desc ? desc : ('Running ' + tname + '…');
     const doneLabel = desc ? desc : 'Tool used';
     log('tool call:', tname, desc || '(no description)', '| msg:', mk);
-    const chain = getOrCreateChain(dsMessage);
+    // Always create/refresh a visible chip first (before any await)
+    let chain = getOrCreateChain(dsMessage);
+    if (!chain || !chain.tagline) {
+      collapseToolMessage(dsMessage, desc || tname, false, true, runLabel, doneLabel);
+      chain = getOrCreateChain(dsMessage);
+    }
     if (chain && chain.tagline) {
+      try { chain.tagline.setAttribute('data-ds-shim-keep', '1'); } catch (_) {}
       chain.tagline._dsSteps = chain.tagline._dsSteps || [];
       chain.tagline._dsSteps.push({
         tool: tname,
@@ -1988,15 +2008,7 @@ async selftest() {
       const wrapper = el.parentElement;
       if (!wrapper) continue;
       if (wrapper.firstElementChild?.getAttribute('data-ds-shim-tagline') === '1') {
-        // Drop empty decorative taglines (0 steps, not active chain host)
-        const tl = wrapper.firstElementChild;
-        const steps = tl._dsSteps || [];
-        const isHost = toolChain && toolChain.tagline === tl;
-        if (!isHost && steps.length === 0) {
-          tl.remove();
-          wrapper.removeAttribute('data-ds-shim-wrapper');
-        }
-        continue;
+        continue; // keep existing chip
       }
       const info = msgInfo(el);
       if (!info || !isRealId(info.id)) continue;
@@ -2014,16 +2026,11 @@ async selftest() {
   }
 
   function pruneEmptyToolChips() {
-    document.querySelectorAll('[data-ds-shim-tagline="1"]').forEach(function (tl) {
-      const steps = tl._dsSteps || [];
-      const isHost = toolChain && toolChain.tagline === tl;
-      if (isHost) return;
-      if (steps.length === 0) {
-        const w = tl.parentElement;
-        tl.remove();
-        if (w) w.removeAttribute('data-ds-shim-wrapper');
-      }
-    });
+    // Do not remove taglines aggressively — React re-renders wipe _dsSteps and
+    // caused chips to vanish mid-run. Only drop clearly stale disconnected hosts.
+    if (toolChain && toolChain.tagline && !toolChain.tagline.isConnected) {
+      toolChain = null;
+    }
   }
 
   let settle = { el: null, len: -1, at: 0 };
