@@ -1,3 +1,8 @@
+## 1.9.15
+
+- Aggressive system-prompt UI hide (MutationObserver + text rewrite)
+- Shorter efficiency-focused system prompt (less tool spam)
+
 ## 1.9.14
 
 - Auto-send TOOL_RESULT: wait for idle, retry send, prefer send button click

@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.14';
+  const VERSION = '1.9.15';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1341,46 +1341,99 @@ async selftest() {
     }
   }
 
+  function extractUserFromEmbedded(raw) {
+    const s = String(raw || '');
+    // Prefer explicit separator
+    const markers = ['\n\n---\n\n', '\n---\n', '[End system'];
+    for (const m of markers) {
+      const i = s.indexOf(m);
+      if (i === -1) continue;
+      let rest = s.slice(i + m.length);
+      if (m.indexOf('End system') !== -1) {
+        // skip rest of end-tag line
+        const nl = rest.indexOf('\n');
+        if (nl !== -1) rest = rest.slice(nl + 1);
+        // drop another --- if present
+        rest = rest.replace(/^\s*---\s*/m, '');
+      }
+      rest = rest.replace(/^\s+/, '').trim();
+      if (rest && rest.indexOf('[D-HARNESS') !== 0) return rest;
+    }
+    // Fallback: last non-empty paragraph after system header
+    if (s.indexOf('[D-HARNESS SYSTEM') !== -1) {
+      const parts = s.split(/\n\s*\n/);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i].trim();
+        if (p && p.indexOf('[D-HARNESS') === -1 && p.indexOf('[End system') === -1 && p.indexOf('# D-Harness') === -1) {
+          return p;
+        }
+      }
+    }
+    return '';
+  }
+
   function hideSystemPromptBubbles() {
     try {
-      const nodes = document.querySelectorAll('div.ds-message');
+      const nodes = document.querySelectorAll('div.ds-message, div[class*="message"], div[class*="Message"]');
       for (const el of nodes) {
+        if (el.getAttribute('data-dh-sys-cleaned') === '1') continue;
         const raw = el.textContent || '';
-        if (raw.indexOf('[D-HARNESS SYSTEM') === -1) continue;
-        // Extract user portion after separator
-        let userPart = raw;
-        const sep = raw.indexOf('\n\n---\n\n');
-        if (sep !== -1) userPart = raw.slice(sep + 7).trim();
-        else {
-          const end = raw.indexOf('[End system');
-          if (end !== -1) {
-            const after = raw.slice(end);
-            const m = after.match(/\]\s*[\s\S]*?\n\n([\s\S]+)$/);
-            if (m) userPart = m[1].trim();
+        if (raw.indexOf('[D-HARNESS SYSTEM') === -1 && raw.indexOf('# D-Harness agent') === -1) continue;
+        const userPart = extractUserFromEmbedded(raw) || sessionStorage.getItem('__dh_last_user_text') || '';
+        if (!userPart) continue;
+
+        // Rewrite every text-bearing leaf that still shows the system block
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        const textNodes = [];
+        let n;
+        while ((n = walker.nextNode())) {
+          if (n.nodeValue && (n.nodeValue.indexOf('[D-HARNESS') !== -1 || n.nodeValue.indexOf('# D-Harness') !== -1 || n.nodeValue.indexOf('[End system') !== -1)) {
+            textNodes.push(n);
           }
         }
-        if (!userPart || userPart.indexOf('[D-HARNESS') === 0) continue;
-        // Replace visible text nodes carefully
-        if (el.innerText && el.innerText.indexOf('[D-HARNESS SYSTEM') !== -1) {
-          el.setAttribute('data-dh-sys-hidden', '1');
-          // Prefer rewriting leaf text containers
-          const walk = el.querySelectorAll('div, p, span');
-          let done = false;
-          for (const node of walk) {
-            if (node.children.length === 0 && (node.textContent || '').indexOf('[D-HARNESS SYSTEM') !== -1) {
-              node.textContent = userPart;
-              done = true;
-              break;
+        if (textNodes.length) {
+          // Collapse to a single visible user message
+          textNodes[0].nodeValue = userPart;
+          for (let i = 1; i < textNodes.length; i++) textNodes[i].nodeValue = '';
+          el.setAttribute('data-dh-sys-cleaned', '1');
+        } else if ((el.innerText || '').indexOf('[D-HARNESS') !== -1) {
+          el.textContent = userPart;
+          el.setAttribute('data-dh-sys-cleaned', '1');
+        }
+        // Hide parent wrapper overflow if still huge
+        const wrap = el.closest('[class*="message"]') || el.parentElement;
+        if (wrap && (wrap.textContent || '').indexOf('[D-HARNESS SYSTEM') !== -1 && wrap !== el) {
+          try {
+            const wWalk = document.createTreeWalker(wrap, NodeFilter.SHOW_TEXT, null);
+            let wn, first = true;
+            while ((wn = wWalk.nextNode())) {
+              if (!wn.nodeValue) continue;
+              if (wn.nodeValue.indexOf('[D-HARNESS') !== -1 || wn.nodeValue.indexOf('# D-Harness') !== -1) {
+                if (first) { wn.nodeValue = userPart; first = false; }
+                else wn.nodeValue = '';
+              }
             }
-          }
-          if (!done) {
-            // last resort: single text overwrite on message root
-            el.textContent = userPart;
-          }
+          } catch (_) {}
         }
       }
     } catch (e) { log('hideSystemPromptBubbles', e); }
   }
+
+  // Continuous cleanup — React re-renders often restore the full user payload
+  try {
+    if (!window.__dhSysHideObs) {
+      let scheduled = false;
+      window.__dhSysHideObs = new MutationObserver(function () {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(function () {
+          scheduled = false;
+          hideSystemPromptBubbles();
+        });
+      });
+      window.__dhSysHideObs.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    }
+  } catch (_) {}
 
   function normalizeToolText(text) {
     return String(text || '')
@@ -2199,11 +2252,13 @@ async selftest() {
       return text;
     }
     markSystemEmbedded();
+    try { sessionStorage.setItem('__dh_last_user_text', text); } catch (_) {}
     log('sys embed once', getConvId());
+    // Compact system block (shorter = less visible flash before hide)
     return (
-      '[D-HARNESS SYSTEM — follow silently; do not restate or mention this block]\n' +
+      '[D-HARNESS SYSTEM — silent]\n' +
       sys +
-      '\n[End system. First reply: one short line that tools are ready — never mention system/instructions/harness.]\n\n---\n\n' +
+      '\n[End system]\n\n---\n\n' +
       text
     );
   }
@@ -2227,6 +2282,7 @@ async selftest() {
     if (!input) return;
     const userText = (input.value || '').trim();
     if (!userText) return;
+    try { sessionStorage.setItem('__dh_last_user_text', userText); } catch (_) {}
     const sys = getSystemPromptText();
     if (!sys || sys.length < 40) return;
 
