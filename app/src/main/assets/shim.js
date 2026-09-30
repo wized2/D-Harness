@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.10';
+  const VERSION = '1.9.12';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1339,26 +1339,65 @@ async selftest() {
   }
 
   function extractDsmlToolCall(raw) {
-    const text = String(raw || '');
-    if (!/DSML|invoke\s+name=/i.test(text)) return null;
-    const inv = text.match(/invoke\s+name=["']([^"']+)["']/i);
+    let text = String(raw || '');
+    if (!/DSML|invoke\s+name\s*=/i.test(text)) return null;
+    // Normalize DeepSeek DSML noise: <|DSML|>, | DSML |, broken tags
+    text = text
+      .replace(/<\|?\s*DSML\s*\|?>/gi, ' ')
+      .replace(/\|\s*DSML\s*\|/gi, ' ')
+      .replace(/<\/?\s*\|?\s*DSML\s*\|?\s*>/gi, ' ')
+      .replace(/\s+/g, ' ');
+
+    const inv = text.match(/invoke\s+name\s*=\s*["']([^"']+)["']/i)
+      || text.match(/invoke\s+name\s*=\s*([a-zA-Z0-9_.]+)/i);
     if (!inv) return null;
     const tool = inv[1].trim();
+
     let description = '';
-    const d1 = text.match(/parameter\s+name=["']description["'][^>]*>([^<]+)/i);
-    if (d1) description = d1[1].trim();
+    const dMatch = text.match(/parameter\s+name\s*=\s*["']description["'][^>]*>([^<]{0,200})/i)
+      || text.match(/name\s*=\s*["']description["'][^>]*string\s*=\s*["']true["'][^>]*>([^<]{0,200})/i)
+      || text.match(/description["']\s*string\s*=\s*["']true["']\s*>([^<]{0,200})/i);
+    if (dMatch) description = dMatch[1].replace(/<\/?[^>]+>/g, '').trim();
+
     let args = {};
-    const a1 = text.match(/parameter\s+name=["']args["'][^>]*>([\s\S]*?)(?:<\/|\n\s*<)/i);
-    if (a1) {
-      let body = a1[1].trim();
-      try { args = JSON.parse(body); } catch {
-        const code = body.match(/"code"\s*:\s*"([\s\S]*)"/);
-        if (code) args = { code: code[1].replace(/\\n/g, '\n') };
+    // args as JSON blob after name="args"
+    const argsJson = text.match(/parameter\s+name\s*=\s*["']args["'][^>]*>(\{[\s\S]*?\})/i)
+      || text.match(/name\s*=\s*["']args["'][^>]*>(\{[\s\S]*?\})/i)
+      || text.match(/["']args["'][^>]*string\s*=\s*["']false["']\s*>(\{[\s\S]*?\})/i);
+    if (argsJson) {
+      try {
+        args = JSON.parse(argsJson[1]);
+      } catch (e) {
+        // try to extract code field loosely
+        const codeM = argsJson[1].match(/"code"\s*:\s*"((?:\\.|[^"\\])*)"/);
+        if (codeM) {
+          try { args = { code: JSON.parse('"' + codeM[1] + '"') }; } catch { args = { code: codeM[1] }; }
+        }
       }
     }
-    if (tool === 'run_js' && !(args && typeof args.code === 'string')) return null;
-    const obj = { tool: tool, description: description, args: args };
-    return { obj: obj, full: text.slice(0, Math.min(text.length, 500)), end: text.length };
+    // code parameter separately
+    if (!args.code) {
+      const codeParam = text.match(/parameter\s+name\s*=\s*["']code["'][^>]*>([^<]+)/i)
+        || text.match(/"code"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (codeParam) {
+        let c = codeParam[1];
+        try { c = JSON.parse('"' + c.replace(/^"/, '').replace(/"$/, '') + '"'); } catch {}
+        args.code = c;
+      }
+    }
+    // Common: run_js with code in args
+    if (tool === 'run_js' && typeof args.code !== 'string') {
+      // last chance: return await ... pattern in text
+      const codeLoose = text.match(/return\s+await\s+[a-zA-Z0-9_.]+\([^)]*\)/);
+      if (codeLoose) args.code = codeLoose[0];
+      else return null; // incomplete
+    }
+
+    // Flatten dotted tool with empty args
+    if (!args || typeof args !== 'object') args = {};
+
+    const obj = { tool: tool, description: description || tool, args: args };
+    return { obj: obj, full: String(raw).slice(0, Math.min(String(raw).length, 800)), end: String(raw).length };
   }
 
   const _extractToolCallPlain = extractToolCall;
@@ -1808,12 +1847,12 @@ async selftest() {
     if (!text) return;
     const tool = extractToolCall(text);
     if (!tool) {
-      // Critical: do NOT mark handled while JSON is still incomplete or not present yet
-      if (/"tool"\s*:/.test(normalizeToolText(text))) {
-        log('waiting for complete tool JSON', mk);
+      const norm = normalizeToolText(text);
+      // Wait while JSON or DSML tool call is still streaming
+      if (/"tool"\s*:/.test(norm) || /DSML|invoke\s+name\s*=/i.test(text)) {
+        log('waiting for complete tool call', mk);
         return;
       }
-      // No tool payload — only mark handled once generation finished (already settled)
       handled.add(mk);
       return;
     }

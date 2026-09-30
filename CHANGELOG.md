@@ -1,3 +1,9 @@
+## 1.9.12
+
+- System prompt leads with anti-DSML / JSON-only rules and concrete examples
+- Robust DSML parser fallback (DeepSeek invoke markup still executes)
+- Wait for incomplete DSML while streaming
+
 ## 1.9.11
 
 - Expanded system prompt: full tool map, globals, skills/workflows, args, formats, limits
