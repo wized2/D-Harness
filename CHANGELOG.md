@@ -1,3 +1,8 @@
+## 1.9.19
+
+- Claude theme uses [Anthropic-Fonts](https://github.com/wized2/Anthropic-Fonts) (CDN, zero APK font bloat)
+- Optional code highlighting via same repo (highlight + token-highlight)
+
 ## 1.9.18
 
 - Bind workspace.grep + exec.lang (were catalog-only)

@@ -47,9 +47,10 @@
   const STYLE_ID = 'claude-ds-theme-v3';
   const FONT_ID  = 'claude-ds-fonts-v3';
 
-  const FONT_SERIF = "'Source Serif 4', 'Tiempos Text', 'Iowan Old Style', Georgia, serif";
-  const FONT_SANS  = "'Inter', 'Styrene B', system-ui, -apple-system, sans-serif";
+  const FONT_SERIF = "'Anthropic Serif', 'Source Serif 4', Georgia, serif";
+  const FONT_SANS  = "'Anthropic Sans', 'Inter', system-ui, -apple-system, sans-serif";
   const FONT_MONO  = "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace";
+  const FONT_CDN   = 'https://cdn.jsdelivr.net/gh/wized2/Anthropic-Fonts@main';
 
   const LIGHT = {
     bg:         '#FAF9F5',
@@ -84,12 +85,78 @@
   };
 
   if (!document.getElementById(FONT_ID)) {
-    const link = document.createElement('link');
-    link.id = FONT_ID;
-    link.rel = 'stylesheet';
-    link.href = 'https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&family=Inter:wght@400;500;580&family=JetBrains+Mono:wght@400;500&display=swap';
-    document.head.appendChild(link);
+    // Anthropic-Fonts (https://github.com/wized2/Anthropic-Fonts) via jsDelivr — no APK bloat
+    const style = document.createElement('style');
+    style.id = FONT_ID;
+    style.textContent = `
+@font-face {
+  font-family: 'Anthropic Sans';
+  src: url('${FONT_CDN}/anthropic_sans.ttf') format('truetype');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Anthropic Sans';
+  src: url('${FONT_CDN}/anthropic_sans_italic.ttf') format('truetype');
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Anthropic Serif';
+  src: url('${FONT_CDN}/anthropic_serif.ttf') format('truetype');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Anthropic Serif';
+  src: url('${FONT_CDN}/anthropic_serif_italic.ttf') format('truetype');
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('${FONT_CDN}/jetbrains_mono.ttf') format('truetype');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+`;
+    document.head.appendChild(style);
   }
+
+
+  // Optional Anthropic token highlighter (CDN) — only loads when code blocks appear
+  function ensureCodeHighlight() {
+    if (window.__dhAnthropicHL) return;
+    if (!document.querySelector('pre code, .ds-markdown pre')) return;
+    window.__dhAnthropicHL = true;
+    const s1 = document.createElement('script');
+    s1.src = FONT_CDN + '/highlight.min.js';
+    s1.onload = function () {
+      const s2 = document.createElement('script');
+      s2.src = FONT_CDN + '/token-highlight.js';
+      s2.onload = function () {
+        try {
+          if (window.hljs) {
+            document.querySelectorAll('pre code, .ds-markdown pre code').forEach(function (el) {
+              try { window.hljs.highlightElement(el); } catch (_) {}
+            });
+          }
+        } catch (_) {}
+      };
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s1);
+  }
+  try {
+    const hlObs = new MutationObserver(function () { try { ensureCodeHighlight(); } catch (_) {} });
+    hlObs.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(function () { try { ensureCodeHighlight(); } catch (_) {} }, 800);
+  } catch (_) {}
 
   const vars = (t) => `
     --claude-bg: ${t.bg};
