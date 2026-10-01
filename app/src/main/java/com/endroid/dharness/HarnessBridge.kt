@@ -168,9 +168,9 @@ class HarnessBridge(
         tool("toybox.list", "List toybox applets", JSONObject())
         tool("toybox.run", "Run toybox applet", JSONObject().put("applet", "string").put("args", "array?"))
         tool("describe", "Describe tool or group", JSONObject().put("name", "string"))
-        tool("http_request", "HTTP with headers (native)", JSONObject().put("url", "string").put("method", "string?").put("headers", "object?").put("body", "string?"))
+        tool("http_request", "HTTP native. No GitHub PAT — use github.request for api.github.com auth.", JSONObject().put("url", "string").put("method", "string?").put("headers", "object?").put("body", "string?"))
         tool("fetch_url", "Alias of http_request", JSONObject().put("url", "string").put("headers", "object?"))
-        tool("github.request", "GitHub REST via PAT", JSONObject().put("method", "string?").put("path", "string").put("body", "object?"))
+        tool("github.request", "GitHub REST with stored PAT (keys.github). Prefer over http_request for GitHub", JSONObject().put("method", "string?").put("path", "string").put("body", "object?"))
         tool("github.me", "GET /user", JSONObject())
         tool("github.repos", "List repos (compact)", JSONObject().put("per_page", "number?"))
         tool("github.issues", "List issues", JSONObject().put("owner", "string").put("repo", "string"))
@@ -200,7 +200,7 @@ class HarnessBridge(
         tool("file.read_b64", "Read file as base64 + sha256", JSONObject().put("path", "string"))
         tool("workspace.pwd", "Agent workspace absolute path", JSONObject())
         tool("workspace.ls", "List workspace directory", JSONObject().put("path", "string?"))
-        tool("workspace.read", "Read UTF-8 text file from workspace", JSONObject().put("path", "string").put("maxBytes", "int?"))
+        tool("workspace.read", "Read UTF-8 text from workspace. Use offset+maxBytes for large files.", JSONObject().put("path", "string").put("maxBytes", "int?").put("offset", "int?"))
         tool("workspace.write", "Write UTF-8 text file in workspace", JSONObject().put("path", "string").put("content", "string"))
         tool(
             "paste_box",
@@ -533,8 +533,20 @@ class HarnessBridge(
 
             val cwd = when {
                 !cwdRel.isNullOrBlank() -> {
-                    val f = File(workspaceRoot, cwdRel.trimStart('/'))
-                    if (!f.canonicalPath.startsWith(workspaceRoot.canonicalPath)) {
+                    val raw = cwdRel.trim()
+                    val rootCanon = workspaceRoot.canonicalPath
+                    val f = try {
+                        val asFile = File(raw)
+                        when {
+                            asFile.isAbsolute -> asFile
+                            raw.startsWith(rootCanon) -> File(raw)
+                            else -> File(workspaceRoot, raw.trimStart('/'))
+                        }
+                    } catch (_: Exception) {
+                        File(workspaceRoot, raw.trimStart('/'))
+                    }
+                    val canon = try { f.canonicalPath } catch (_: Exception) { f.absolutePath }
+                    if (!canon.startsWith(rootCanon)) {
                         return JSONObject().put("ok", false).put("error", "cwd escapes workspace").toString()
                     }
                     f.also { if (!it.isDirectory) it.mkdirs() }
@@ -1698,19 +1710,27 @@ class HarnessBridge(
     }
 
     @JavascriptInterface
-    fun workspaceRead(path: String, maxBytes: Int): String {
+    fun workspaceRead(path: String, maxBytes: Int): String = workspaceReadRange(path, maxBytes, 0)
+
+    @JavascriptInterface
+    fun workspaceReadRange(path: String, maxBytes: Int, offset: Int): String {
         return try {
             val f = safeWorkspace(path)
             if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
-            val limit = if (maxBytes > 0) maxBytes else 512_000
             val bytes = f.readBytes()
-            val slice = if (bytes.size > limit) bytes.copyOf(limit) else bytes
+            val off = offset.coerceIn(0, bytes.size)
+            val limit = if (maxBytes > 0) maxBytes else 512_000
+            val end = (off + limit).coerceAtMost(bytes.size)
+            val slice = if (off == 0 && end == bytes.size) bytes else bytes.copyOfRange(off, end)
             val text = slice.toString(Charsets.UTF_8)
             JSONObject()
                 .put("ok", true)
                 .put("path", f.absolutePath)
                 .put("size", bytes.size)
-                .put("truncated", bytes.size > limit)
+                .put("offset", off)
+                .put("maxBytes", limit)
+                .put("returnedBytes", slice.size)
+                .put("truncated", end < bytes.size)
                 .put("content", text)
                 .toString()
         } catch (e: Exception) {
@@ -3395,6 +3415,7 @@ class HarnessBridge(
     fun execLang(lang: String, code: String, timeoutMs: Int): String {
         val t0 = System.currentTimeMillis()
         return try {
+            if (code.isBlank()) return envelope(false, error = "empty code — pass args.code")
             val binary = resolveLangBinary(lang)
                 ?: return envelope(false, error = "runtime not found: $lang — call execLangs()")
             val ext = when (lang.lowercase()) {

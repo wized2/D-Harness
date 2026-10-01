@@ -664,6 +664,8 @@ Then STOP and wait for TOOL_RESULT.
 - Do **not** re-read/list/verify after a successful write unless the user asked.
 - On failure: **at most 2** retries with a fixed approach, then explain briefly.
 - Prefer dotted tools (`research.web`, `workspace.write`) over run_js for simple ops.
+- Complex source with quotes/newlines: prefer `paste_box` or `workspace.write` with `contentB64`, or `workspace.read` with `offset`/`maxBytes` for large files.
+- `http_request` has no GitHub PAT; use `github.request` for api.github.com.
 - Never invent TOOL_RESULT. Never use DSML/XML.
 
 ## Tool names

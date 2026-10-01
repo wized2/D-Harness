@@ -1,3 +1,12 @@
+## 1.9.18
+
+- Bind workspace.grep + exec.lang (were catalog-only)
+- workspace.read offset/maxBytes range reads
+- cwd no longer doubles absolute workspace paths
+- Invalid tool JSON returns parse error (not silent drop); contentB64 write path
+- Large TOOL_RESULT → output_too_large error with range hint
+- http_request vs github.request auth notes in catalog
+
 ## 1.9.17
 
 - **Critical:** TOOL_RESULT send no longer deadlocks on `busy` (was waiting forever mid-tool)

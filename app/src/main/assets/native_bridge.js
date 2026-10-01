@@ -66,14 +66,18 @@ window.__DHarnessNative = {
   workspace: {
     pwd: function () { return _j(function () { return DHarness.workspacePwd(); }); },
     ls: function (path) { return _j(function () { return DHarness.workspaceLs(path || null); }); },
-    read: function (path, maxBytes) { return _j(function () { return DHarness.workspaceRead(path, maxBytes || 0); }); },
+    read: function (path, maxBytes, offset) {
+      if (offset || offset === 0) return _j(function () { return DHarness.workspaceReadRange(path, maxBytes || 0, offset || 0); });
+      return _j(function () { return DHarness.workspaceRead(path, maxBytes || 0); });
+    },
     write: function (path, content) { return _j(function () { return DHarness.workspaceWrite(path, content); }); },
     write_b64: function (path, contentB64) { return _j(function () { return DHarness.workspaceWriteB64(path, contentB64); }); },
     read_b64: function (path) { return _j(function () { return DHarness.workspaceReadB64(path); }); },
     mkdir: function (path) { return _j(function () { return DHarness.workspaceMkdir(path); }); },
     rm: function (path) { return _j(function () { return DHarness.workspaceRm(path); }); },
     stat: function (path) { return _j(function () { return DHarness.workspaceStat(path); }); },
-    tree: function (path, depth) { return _j(function () { return DHarness.workspaceTree(path || null, depth || 2); }); }
+    tree: function (path, depth) { return _j(function () { return DHarness.workspaceTree(path || null, depth || 2); }); },
+    grep: function (query, useRegex, maxHits) { return _j(function () { return DHarness.workspaceGrep(String(query || ''), !!useRegex, maxHits || 50); }); }
   },
   paste_box: function (opts) {
     opts = opts || {};

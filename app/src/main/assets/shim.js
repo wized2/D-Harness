@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.17';
+  const VERSION = '1.9.18';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -23,7 +23,7 @@
     dedupe: true,
     confirmSensitive: true,
     callMustBeLast: true,
-    maxResultChars: 20000,
+    maxResultChars: 100000,
     settleMs: 450,
     scanThrottleMs: 150,
     fallbackScanMs: 600,
@@ -1465,17 +1465,16 @@ async selftest() {
   function extractToolCall(raw) {
     const text = normalizeToolText(raw);
     let idx = 0;
+    let lastParseError = null;
     while ((idx = text.indexOf('"tool"', idx)) !== -1) {
-      // also accept "name" style? no — stick to tool
       let start = text.lastIndexOf('{', idx);
       if (start === -1) { idx += 6; continue; }
-      // walk back over whitespace to true object start
-      let depth = 0, str = false, e2 = false;
+      let depth = 0, str = false, esc = false;
       for (let i = start; i < text.length; i++) {
         const c = text[i];
         if (str) {
-          if (e2) e2 = false;
-          else if (c === '\\') e2 = true;
+          if (esc) esc = false;
+          else if (c === '\\') esc = true;
           else if (c === '"') str = false;
         } else {
           if (c === '"') str = true;
@@ -1487,14 +1486,32 @@ async selftest() {
               try {
                 const obj = JSON.parse(cand);
                 if (obj && typeof obj.tool === 'string' && obj.tool.trim()) {
-                  // run_js without code is incomplete — keep waiting
                   if (obj.tool === 'run_js' && !(obj.args && typeof obj.args.code === 'string')) {
                     idx = i + 1;
                     break;
                   }
-                  return { obj, full: cand, end: i + 1 };
+                  // Normalize args
+                  if (!obj.args || typeof obj.args !== 'object') obj.args = {};
+                  return { obj: obj, full: cand, end: i + 1 };
                 }
-              } catch {}
+              } catch (e) {
+                lastParseError = String(e && e.message || e);
+                // Balanced braces but invalid JSON (bad escapes) — surface as error object
+                return {
+                  obj: {
+                    tool: '__parse_error__',
+                    description: 'json parse failed',
+                    args: {
+                      error: lastParseError,
+                      hint: 'Invalid JSON in tool call (quotes/newlines). Use workspace.write with contentB64, or paste_box, or simpler content.',
+                      snippet: cand.slice(0, 180)
+                    }
+                  },
+                  full: cand,
+                  end: i + 1,
+                  parseError: true
+                };
+              }
               break;
             }
           }
@@ -1793,6 +1810,11 @@ async selftest() {
     args = args || {};
     const name = String(tname || '').trim();
     if (!name) throw new Error('empty tool name');
+    if (name === '__parse_error__') {
+      const err = new Error((args && args.error) || 'tool JSON parse failed');
+      err.hint = (args && args.hint) || 'Use paste_box or contentB64 for complex content';
+      throw err;
+    }
 
     if (name === 'paste_box') return await toolHandlers.paste_box(args);
     if (name === 'run_js') {
@@ -1933,11 +1955,16 @@ async selftest() {
     if (res.error != null) payloadObj.error = { message: String(res.error) };
     let payload = 'TOOL_RESULT: ' + JSON.stringify(payloadObj);
     if (payload.length > CONFIG.maxResultChars + 20) {
+      const approx = payload.length;
       payload = 'TOOL_RESULT: ' + JSON.stringify({
-        ok: res.ok,
-        result: clip(resultPayload),
-        error: res.error != null ? clip(res.error) : undefined,
-        truncated: true
+        ok: false,
+        error: {
+          message: 'output_too_large',
+          bytes: approx,
+          limit: CONFIG.maxResultChars,
+          hint: 'Use workspace.read with offset/maxBytes, workspace.read_b64, or write to a file and read slices.'
+        },
+        meta: { tool: tname, truncated: true }
       });
     }
     DONE[sig] = { ok: res.ok, preview, mk, sent: false, payload, t: Date.now(), desc: doneLabel };
