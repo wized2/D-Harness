@@ -4833,6 +4833,8 @@ class HarnessBridge(
             JSONObject().put("ok", true).put("extracted", n).put("dest", rel).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
 
     // ─── 1.15 harness features ─────────────────────────────────
 
@@ -4938,7 +4940,7 @@ class HarnessBridge(
             if (!o.optBoolean("ok")) return src
             val session = o.optJSONObject("session") ?: JSONObject()
             session.put("forkedFrom", name).put("forkedAt", System.currentTimeMillis())
-            sessionSave(newName, session.toString())
+            return sessionSave(newName, session.toString())
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -5009,6 +5011,4 @@ class HarnessBridge(
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
-}
-}
 }
