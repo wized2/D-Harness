@@ -4769,16 +4769,15 @@ class HarnessBridge(
                     if (f.isDirectory) {
                         f.listFiles()?.forEach { add(it, base + f.name + "/") }
                     } else {
-                        val entry = java.util.zip.ZipEntry(base + f.name)
-                        zos.putNextEntry(entry)
+                        zos.putNextEntry(java.util.zip.ZipEntry(base + f.name))
                         f.inputStream().use { it.copyTo(zos) }
                         zos.closeEntry()
                     }
                 }
                 if (src.isDirectory) src.listFiles()?.forEach { add(it, "") } else add(src, "")
             }
-            JSONObject().put("ok", true).put("path", out.relativeTo(workspaceRoot).path)
-                .put("bytes", out.length()).toString()
+            val rel = try { out.relativeTo(workspaceRoot).path } catch (_: Exception) { out.name }
+            JSONObject().put("ok", true).put("path", rel).put("bytes", out.length()).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -4814,13 +4813,17 @@ class HarnessBridge(
                 while (en.hasMoreElements()) {
                     val e = en.nextElement()
                     val out = File(destDir, e.name)
-                    if (e.isDirectory) { out.mkdirs(); continue }
+                    if (e.isDirectory) {
+                        out.mkdirs()
+                        continue
+                    }
                     out.parentFile?.mkdirs()
                     zf.getInputStream(e).use { inp -> FileOutputStream(out).use { inp.copyTo(it) } }
                     n++
                 }
             }
-            JSONObject().put("ok", true).put("extracted", n).put("dest", destDir.relativeTo(workspaceRoot).path).toString()
+            val rel = try { destDir.relativeTo(workspaceRoot).path } catch (_: Exception) { destDir.name }
+            JSONObject().put("ok", true).put("extracted", n).put("dest", rel).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
