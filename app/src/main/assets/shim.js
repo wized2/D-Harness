@@ -1244,6 +1244,9 @@ async selftest() {
   }
 
   async function sendMessageOnce(text) {
+    if (text && !String(text).startsWith("TOOL_RESULT") && String(text).toLowerCase() !== "continue") {
+      toolsSinceUser = 0; autoContinueCount = 0;
+    }
     const input = getInput();
     if (!input) { log('no input'); return false; }
 
@@ -1463,7 +1466,11 @@ async selftest() {
   }
 
   function extractToolCall(raw) {
-    const text = normalizeToolText(raw);
+    // Only consider the tail of the message to avoid matching prior TOOL_RESULT JSON
+    let text = normalizeToolText(raw);
+    // Strip embedded TOOL_RESULT blocks from search window
+    text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
+    if (text.length > 12000) text = text.slice(-12000);
     let idx = 0;
     let lastParseError = null;
     while ((idx = text.indexOf('"tool"', idx)) !== -1) {
@@ -1828,6 +1835,46 @@ async selftest() {
     return tagline;
   }
 
+
+  // ── Auto-continue (no hard 8-call cap) ─────────────────────
+  let autoContinueCount = 0;
+  const MAX_AUTO_CONTINUE = 40;
+  let lastToolChainAt = 0;
+  let toolsSinceUser = 0;
+
+  async function maybeAutoContinue() {
+    if (busy || sendingLock || isGenerating()) return;
+    if (autoContinueCount >= MAX_AUTO_CONTINUE) return;
+    // Only if we recently ran tools and model produced a non-tool short stop
+    if (Date.now() - lastToolChainAt > 120000) return;
+    if (toolsSinceUser < 2) return;
+    const msgs = document.querySelectorAll('div.ds-message');
+    if (!msgs.length) return;
+    const el = msgs[msgs.length - 1];
+    const info = msgInfo(el);
+    if (!info || !isRealId(info.id)) return;
+    const mk = (info.sessionId || getConvId()) + ':' + info.id;
+    if (handled.has(mk)) return;
+    const main = el.querySelector('div.ds-markdown.ds-assistant-message-main-content')
+      || el.querySelector('div.ds-markdown') || el;
+    const text = (main && main.textContent || '').trim();
+    if (!text) return;
+    // If there's a tool call, normal path handles it
+    if (extractToolCall(text)) return;
+    // If message looks like mid-work ("continue", "next", truncated, only tool chips)
+    const looksStuck = /^(continue|next|\.\.\.|…)$/i.test(text)
+      || (text.length < 40 && toolsSinceUser >= 3)
+      || /I will (now|next|continue)/i.test(text) && text.length < 120;
+    // More aggressive: after many tools if assistant message has no substantial answer
+    const shouldContinue = looksStuck || (toolsSinceUser >= 6 && text.length < 200 && !/done|complete|finished|here is|here's|summary/i.test(text));
+    if (!shouldContinue) return;
+    handled.add(mk);
+    autoContinueCount++;
+    log('auto-continue', autoContinueCount, 'toolsSinceUser', toolsSinceUser);
+    setStatus('running');
+    await sendMessage('continue');
+  }
+
   let busy = false;
   let _reqSeq = 0;
   const pendingById = new Map();
@@ -1865,15 +1912,27 @@ async selftest() {
           try { parsed = JSON.parse(raw); } catch (_) { parsed = { ok: true, data: raw }; }
         }
         // Stale response guard
-        if (parsed && parsed.requestId && parsed.requestId !== requestId) {
-          const err = new Error('STALE_RESPONSE: expected ' + requestId + ' got ' + parsed.requestId);
+        const gotId = (parsed && (parsed.requestId || (parsed.meta && parsed.meta.requestId))) || null;
+        const gotTool = (parsed && (parsed.tool || (parsed.meta && parsed.meta.tool))) || null;
+        if (gotId && gotId !== requestId) {
+          const err = new Error('STALE_RESPONSE: expected ' + requestId + ' got ' + gotId);
           err.code = 'STALE_RESPONSE';
+          err.retryable = true;
           throw err;
         }
-        if (parsed && parsed.meta && parsed.meta.requestId && parsed.meta.requestId !== requestId) {
-          const err = new Error('STALE_RESPONSE');
+        if (gotTool && gotTool !== name && gotTool !== '__parse_error__') {
+          const err = new Error('STALE_RESPONSE: expected tool ' + name + ' got ' + gotTool);
           err.code = 'STALE_RESPONSE';
+          err.retryable = true;
           throw err;
+        }
+        // Stamp expected ids if native omitted them
+        if (parsed && typeof parsed === 'object') {
+          parsed.requestId = requestId;
+          parsed.tool = name;
+          parsed.meta = parsed.meta || {};
+          parsed.meta.requestId = requestId;
+          parsed.meta.tool = name;
         }
         pendingById.delete(requestId);
         if (parsed && parsed.ok === false) {
@@ -1973,6 +2032,8 @@ async selftest() {
     const runLabel = desc ? desc : ('Running ' + tname + '…');
     const doneLabel = desc ? desc : 'Tool used';
     log('tool call:', tname, desc || '(no description)', '| msg:', mk);
+    toolsSinceUser++;
+    lastToolChainAt = Date.now();
     // Always create/refresh a visible chip first (before any await)
     let chain = getOrCreateChain(dsMessage);
     if (!chain || !chain.tagline) {
@@ -2249,6 +2310,7 @@ async selftest() {
       pruneEmptyToolChips();
       reapplyHiding();
       scanForToolCalls(msgs);
+      maybeAutoContinue().catch(function(e){ log("auto-continue", e); });
     } catch (e) {
       log('tick error:', e);
       setStatus('error');

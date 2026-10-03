@@ -1997,6 +1997,7 @@ class HarnessBridge(
         return try {
             val f = safeWorkspace(path)
             if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
+            historySnapshot(f)
             var text = f.readText(Charsets.UTF_8)
             val edits = JSONArray(editsJson)
             val applied = JSONArray()
@@ -2638,6 +2639,16 @@ class HarnessBridge(
             return envelope(false, error = """{"code":"ARGS_INVALID","message":"args must be JSON object: ${e.message}","retryable":false}""", ms = 0, tool = tool, requestId = rid)
         }
         return try {
+            // Policy enforcement
+            try {
+                val pol = JSONObject(policyCheck(tool))
+                if (!pol.optBoolean("allowed", true)) {
+                    logDispatch(JSONObject().put("requestId", rid).put("tool", tool).put("status", "denied"))
+                    return envelope(false,
+                        error = """{"code":"PERMISSION_DENIED","message":"tool denied by policy","retryable":false,"hint":"${pol.optString("reason")}"}""",
+                        ms = 0, tool = tool, requestId = rid)
+                }
+            } catch (_: Exception) {}
             val raw = dispatchByName(tool, args)
             // Attach requestId/tool to whatever the handler returned
             val out = try { JSONObject(raw) } catch (_: Exception) {
@@ -2795,6 +2806,11 @@ class HarnessBridge(
             "code.imports" -> codeImports(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
             "code.detect_lang" -> codeDetectLang(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
             "code.slice" -> codeSlice(sAny("path"), i("start", 1), i("end", 50))
+            "code.outline" -> codeOutline(sAny("path").ifBlank { null }, sAny("content").ifBlank { null }, i("max", 80))
+            "time.sleep" -> timeSleep(i("ms", 100).coerceIn(0, 10000))
+            "util.base64" -> utilBase64(sAny("op").ifBlank { "encode" }, sAny("data", "text"))
+            "json.merge" -> jsonMerge(sAny("a", "json"), sAny("b"))
+            "json.keys" -> jsonKeys(sAny("json", "text", "data"))
             "code.find_todos" -> codeFindTodos(sAny("path").ifBlank { "." }, i("maxHits", 40))
             "code.search" -> codeSearch(sAny("query", "pattern"), sAny("path").ifBlank { "." }, sAny("ext").ifBlank { null }, i("maxHits", 40))
             "env.get" -> envGet()
@@ -3918,7 +3934,7 @@ class HarnessBridge(
 
     // ── Extra coding / GitHub tools (1.9.7) ───────────────────
 
-    private fun readWorkspaceText(path: String): String = safeFile(path).readText()
+    private fun readWorkspaceText(path: String): String = safeWorkspace(path).readText(Charsets.UTF_8)
 
     @JavascriptInterface
     fun codeSearch(query: String, path: String?, ext: String?, maxHits: Int): String {
@@ -4032,12 +4048,20 @@ class HarnessBridge(
     @JavascriptInterface
     fun workspaceReplace(path: String, find: String, replace: String, regex: Boolean): String {
         return try {
-            val f = safeFile(path)
-            val src = f.readText()
+            val f = safeWorkspace(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file: $path").toString()
+            historySnapshot(f)
+            val src = f.readText(Charsets.UTF_8)
             val out = if (regex) Regex(find).replace(src, replace) else src.replace(find, replace)
-            val count = if (regex) Regex(find).findAll(src).count() else src.split(find).size - 1
-            f.writeText(out)
-            JSONObject().put("ok", true).put("replacements", count.coerceAtLeast(0)).put("bytes", out.length).toString()
+            val count = if (regex) Regex(find).findAll(src).count() else {
+                if (find.isEmpty()) 0 else src.split(find).size - 1
+            }
+            val bytes = out.toByteArray(Charsets.UTF_8)
+            val tmp = File(f.parentFile, ".${f.name}.tmp-${System.nanoTime()}")
+            FileOutputStream(tmp).use { o -> o.write(bytes); o.fd.sync() }
+            if (!tmp.renameTo(f)) { FileOutputStream(f).use { it.write(bytes) }; tmp.delete() }
+            JSONObject().put("ok", true).put("replacements", count.coerceAtLeast(0))
+                .put("bytes", bytes.size).put("sha256", sha256(bytes)).put("verified", true).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -4047,8 +4071,10 @@ class HarnessBridge(
     fun workspaceHead(path: String, lines: Int): String {
         return try {
             val n = if (lines <= 0) 20 else lines.coerceAtMost(500)
-            val text = readWorkspaceText(path).lineSequence().take(n).joinToString("\n")
-            JSONObject().put("ok", true).put("text", text).toString()
+            val all = readWorkspaceText(path).split('\n')
+            val slice = all.take(n)
+            JSONObject().put("ok", true).put("path", path).put("lines", slice.size)
+                .put("truncated", all.size > n).put("text", slice.joinToString("\n")).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -4058,9 +4084,14 @@ class HarnessBridge(
     fun workspaceTail(path: String, lines: Int): String {
         return try {
             val n = if (lines <= 0) 20 else lines.coerceAtMost(500)
-            val all = readWorkspaceText(path).split('\n')
-            val text = all.takeLast(n).joinToString("\n")
-            JSONObject().put("ok", true).put("text", text).toString()
+            val raw = readWorkspaceText(path)
+            // Preserve exact last N lines (including possible trailing empty line semantics)
+            val all = raw.split("
+")
+            val slice = if (all.size <= n) all else all.subList(all.size - n, all.size)
+            JSONObject().put("ok", true).put("path", path).put("lines", slice.size)
+                .put("truncated", all.size > n).put("text", slice.joinToString("
+")).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -4069,17 +4100,23 @@ class HarnessBridge(
     @JavascriptInterface
     fun workspaceGlob(pattern: String, path: String?, max: Int): String {
         return try {
-            val root = if (path.isNullOrBlank()) workspaceRoot else safeFile(path)
+            val root = if (path.isNullOrBlank() || path == "." || path == "./") workspaceRoot
+                       else safeWorkspace(path)
             val limit = if (max <= 0) 200 else max.coerceAtMost(1000)
-            val pat = pattern.trim()
-            val recursive = pat.contains("**/") || pat.startsWith("**/")
-            val suffix = pat.removePrefix("**/").removePrefix("**")
+            var pat = pattern.trim().removePrefix("./")
+            // *.ext means recursive match under root
+            if (pat.startsWith("*.") && !pat.contains("/")) {
+                pat = "**/" + pat
+            }
+            val recursive = pat.contains("**") || pat.contains("/")
+            val suffix = pat.substringAfterLast("/")
             val matches = JSONArray()
             fun matchName(name: String): Boolean {
                 if (suffix.startsWith("*.")) {
                     val ext = suffix.removePrefix("*")
                     return name.endsWith(ext)
                 }
+                if (suffix == "*") return true
                 return name == suffix || name.contains(suffix.trim('*'))
             }
             fun walk(f: java.io.File) {
@@ -4090,11 +4127,11 @@ class HarnessBridge(
                 }
                 if (matchName(f.name)) {
                     val rel = try { f.relativeTo(workspaceRoot).path } catch (_: Exception) { f.name }
-                    matches.put(rel)
+                    matches.put(JSONObject().put("path", rel).put("size", f.length()).put("mtime", f.lastModified()))
                 }
             }
             walk(root)
-            JSONObject().put("ok", true).put("count", matches.length()).put("files", matches).toString()
+            JSONObject().put("ok", true).put("count", matches.length()).put("matches", matches).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -4553,7 +4590,8 @@ class HarnessBridge(
     @JavascriptInterface
     fun sessionSave(name: String, stateJson: String?): String {
         return try {
-            val safe = name.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(64).ifBlank { "default" }
+            var safe = name.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(64).ifBlank { "default" }
+            if (safe.endsWith(".json")) safe = safe.removeSuffix(".json")
             val f = File(sessionRoot, "$safe.json")
             val payload = JSONObject()
                 .put("name", safe)
@@ -4716,4 +4754,5 @@ class HarnessBridge(
 
     // Snapshot workspace writes too
     // (workspaceWrite already exists — patch to call historySnapshot)
+}
 }

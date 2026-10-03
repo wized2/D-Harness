@@ -1,3 +1,15 @@
+## 1.14.0
+
+- **Stale response:** strict requestId + tool name match; STALE_RESPONSE on mismatch
+- **Unified workspace root:** head/tail/glob/replace/code path mode use workspace/ (not harness_fs)
+- **workspace.glob:** `*.ext` = recursive under workspace; relative paths only
+- **workspace.tail** exact N lines; **apply_patch** + **replace** history snapshots
+- **Policy enforced** in invokeJson (PERMISSION_DENIED)
+- **session.save** no double `.json`
+- **Auto-continue** up to 40 times (no hard ~8 tool stop)
+- **Tool extract** ignores prior TOOL_RESULT JSON (fewer __parse_error__)
+- Wired code.outline/slice, time.sleep, util.base64, json.merge/keys
+
 ## 1.13.0
 
 - **Long agent chains:** 6 send retries; failed TOOL_RESULT unlocks message for retry; settle 250ms
