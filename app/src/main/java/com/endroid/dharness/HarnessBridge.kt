@@ -4826,3 +4826,4 @@ class HarnessBridge(
         }
     }
 }
+}
