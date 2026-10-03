@@ -2811,6 +2811,13 @@ class HarnessBridge(
             "code.imports" -> codeImports(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
             "code.detect_lang" -> codeDetectLang(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
             "code.slice" -> codeSlice(sAny("path"), i("start", 1), i("end", 50))
+            "workspace.apply_patch_multi" -> workspaceApplyPatchMulti(sAny("patches", "edits", "files"))
+            "tools.for_task" -> toolsForTask(sAny("task", "query", "q"))
+            "index.fresh" -> indexFresh()
+            "session.fork" -> sessionFork(sAny("name", "from"), sAny("new_name", "to", "newName"))
+            "project.context" -> projectContextLoad()
+            "memory.append" -> memoryAppend(sAny("text", "content", "note"))
+            "workspace.diff" -> workspaceDiff(sAny("path"), sAny("content", "text"))
             "code.outline" -> codeOutline(sAny("path").ifBlank { null }, sAny("content").ifBlank { null }, i("max", 80))
             "time.sleep" -> timeSleep(i("ms", 100).coerceIn(0, 10000))
             "util.base64" -> utilBase64(sAny("op").ifBlank { "encode" }, sAny("data", "text"))
@@ -4826,6 +4833,182 @@ class HarnessBridge(
             JSONObject().put("ok", true).put("extracted", n).put("dest", rel).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
+
+    // ─── 1.15 harness features ─────────────────────────────────
+
+    @JavascriptInterface
+    fun workspaceApplyPatchMulti(patchesJson: String): String {
+        return try {
+            val patches = JSONArray(patchesJson)
+            val results = JSONArray()
+            val rollbacks = mutableListOf<Pair<File, ByteArray>>()
+            for (i in 0 until patches.length()) {
+                val p = patches.getJSONObject(i)
+                val path = p.optString("path")
+                val edits = p.optJSONArray("edits") ?: JSONArray()
+                val f = safeWorkspace(path)
+                if (!f.isFile) {
+                    // rollback prior
+                    for ((rf, bytes) in rollbacks.reversed()) {
+                        FileOutputStream(rf).use { it.write(bytes) }
+                    }
+                    return JSONObject().put("ok", false).put("error", "not a file: $path")
+                        .put("rolled_back", true).put("failed_index", i).toString()
+                }
+                rollbacks.add(f to f.readBytes())
+                historySnapshot(f)
+                var text = f.readText(Charsets.UTF_8)
+                for (j in 0 until edits.length()) {
+                    val e = edits.getJSONObject(j)
+                    val old = e.optString("old", e.optString("find", ""))
+                    val neu = e.optString("new", e.optString("replace", ""))
+                    if (old.isEmpty() || !text.contains(old)) {
+                        for ((rf, bytes) in rollbacks.reversed()) {
+                            FileOutputStream(rf).use { it.write(bytes) }
+                        }
+                        return JSONObject().put("ok", false)
+                            .put("error", "edit not found on $path")
+                            .put("rolled_back", true).put("failed_index", i).toString()
+                    }
+                    text = text.replaceFirst(old, neu)
+                }
+                val bytes = text.toByteArray(Charsets.UTF_8)
+                FileOutputStream(f).use { it.write(bytes); it.fd.sync() }
+                results.put(JSONObject().put("path", path).put("ok", true).put("sha256", sha256(bytes)))
+            }
+            JSONObject().put("ok", true).put("files", results.length()).put("results", results).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
+
+    @JavascriptInterface
+    fun toolsForTask(task: String): String {
+        return try {
+            val q = task.lowercase()
+            val scored = mutableListOf<Pair<Int, String>>()
+            fun score(name: String, vararg keys: String) {
+                var s = 0
+                for (k in keys) if (q.contains(k)) s += 2
+                if (q.contains(name.substringAfterLast('.'))) s += 3
+                if (s > 0) scored.add(s to name)
+            }
+            score("workspace.read", "read", "open", "file", "content")
+            score("workspace.write", "write", "save", "create")
+            score("workspace.apply_patch", "edit", "patch", "fix", "replace")
+            score("workspace.grep", "search", "find", "grep")
+            score("workspace.glob", "glob", "list files", "pattern")
+            score("workspace.ls", "list", "dir", "folder")
+            score("exec", "run", "shell", "command", "bash")
+            score("research.web", "web", "search", "google", "research")
+            score("github.request", "github", "repo", "pr", "issue")
+            score("task.add", "todo", "task", "plan")
+            score("http_request", "http", "api", "fetch")
+            score("index.find", "index", "locate")
+            score("code.search", "symbol", "code search")
+            score("archive.zip_create", "zip", "archive")
+            val top = scored.sortedByDescending { it.first }.take(8).map { it.second }.distinct()
+            val arr = JSONArray()
+            top.forEach { arr.put(it) }
+            JSONObject().put("ok", true).put("task", task).put("tools", arr).put("count", arr.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun indexFresh(): String {
+        return try {
+            val idxFile = File(context.filesDir, "workspace_index.json")
+            val age = if (idxFile.isFile) System.currentTimeMillis() - idxFile.lastModified() else Long.MAX_VALUE
+            val stale = age > 5 * 60 * 1000
+            if (stale) indexBuild(null)
+            JSONObject().put("ok", true).put("stale", stale).put("ageMs", age)
+                .put("rebuilt", stale).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun sessionFork(name: String, newName: String): String {
+        return try {
+            val src = sessionLoad(name)
+            val o = JSONObject(src)
+            if (!o.optBoolean("ok")) return src
+            val session = o.optJSONObject("session") ?: JSONObject()
+            session.put("forkedFrom", name).put("forkedAt", System.currentTimeMillis())
+            sessionSave(newName, session.toString())
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun projectContextLoad(): String {
+        return try {
+            val files = listOf(".dharness/PROJECT.md", "PROJECT.md", "AGENTS.md", "CLAUDE.md", "MEMORY.md")
+            val loaded = JSONArray()
+            val parts = StringBuilder()
+            for (rel in files) {
+                try {
+                    val f = safeWorkspace(rel)
+                    if (f.isFile && f.length() < 100_000) {
+                        val text = f.readText(Charsets.UTF_8).take(25_000)
+                        loaded.put(rel)
+                        parts.append("\n\n<!-- ").append(rel).append(" -->\n").append(text)
+                    }
+                } catch (_: Exception) {}
+            }
+            JSONObject().put("ok", true).put("files", loaded)
+                .put("chars", parts.length).put("content", parts.toString().take(50_000)).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun memoryAppend(text: String): String {
+        return try {
+            val f = safeWorkspace("MEMORY.md")
+            f.parentFile?.mkdirs()
+            historySnapshot(f)
+            val prev = if (f.isFile) f.readText(Charsets.UTF_8) else ""
+            val entry = "\n\n## " + java.time.Instant.now().toString() + "\n" + text.trim() + "\n"
+            val out = (prev + entry).takeLast(50_000)
+            f.writeText(out)
+            JSONObject().put("ok", true).put("bytes", out.length).put("verified", true).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun workspaceDiff(path: String, content: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            val before = if (f.isFile) f.readText(Charsets.UTF_8) else ""
+            val after = content
+            // simple unified-ish line diff summary
+            val bLines = before.lines()
+            val aLines = after.lines()
+            var i = 0
+            while (i < bLines.size && i < aLines.size && bLines[i] == aLines[i]) i++
+            var bEnd = bLines.size - 1
+            var aEnd = aLines.size - 1
+            while (bEnd >= i && aEnd >= i && bLines[bEnd] == aLines[aEnd]) { bEnd--; aEnd-- }
+            val removed = if (bEnd >= i) bLines.subList(i, bEnd + 1) else emptyList()
+            val added = if (aEnd >= i) aLines.subList(i, aEnd + 1) else emptyList()
+            JSONObject().put("ok", true).put("path", path)
+                .put("before_lines", bLines.size).put("after_lines", aLines.size)
+                .put("removed", JSONArray(removed.take(40)))
+                .put("added", JSONArray(added.take(40)))
+                .put("changed", removed.isNotEmpty() || added.isNotEmpty())
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+}
+}
 }

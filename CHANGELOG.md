@@ -1,3 +1,32 @@
+## 1.15.0
+
+### Tool calling & shim
+- **DSML V4 / V4.1 / mangled** robust parser (optional via FAB toggle `dsmlEnabled`)
+- Faster settle (180ms) and scan throttle (70ms)
+- Configurable send attempts + auto-continue (FAB toggle)
+- Config persistence (`__ds_shim__cfg_v2`)
+
+### Workspace & agent
+- Unified workspace root for head/tail/glob/replace/code paths (from 1.14)
+- `workspace.apply_patch_multi` — multi-file atomic patch with rollback
+- `workspace.diff` — before/after line summary
+- `tools.for_task` — semantic tool suggestions
+- `project.context` — load PROJECT.md / AGENTS.md / CLAUDE.md / MEMORY.md
+- `memory.append` — durable agent notes
+- `index.fresh` — rebuild stale index
+- `session.fork` — copy session state under a new name
+
+### Docs
+- README rewritten for 1.15 (formats, architecture, design rules)
+
+## 1.14.1
+
+- Compile fixes; archive.zip_*; read-before-edit warning on apply_patch
+
+## 1.14.0
+
+- Stale-response guards; policy enforcement; auto-continue; workspace root unity
+
 ## 1.14.1
 
 - Fix compile (workspaceTail newline)

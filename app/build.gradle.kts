@@ -11,8 +11,8 @@ android {
         applicationId = "com.endroid.dharness"
         minSdk = 26
         targetSdk = 35
-        versionCode = 68
-        versionName = "1.14.1"
+        versionCode = 69
+        versionName = "1.15.0"
         resourceConfigurations += listOf("en")
     }
 
