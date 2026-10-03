@@ -1,3 +1,17 @@
+## 1.13.0
+
+- **Long agent chains:** 6 send retries; failed TOOL_RESULT unlocks message for retry; settle 250ms
+- **fs.write / fs.delete** verified; history snapshot before mutation
+- **history.list / history.revert** — Cursor-style file version rollback
+- **task.add / update / list / clear** — Claude Code TodoWrite-style task state
+- **session.save / load / list** — Codex-style session persistence
+- **policy.allow / deny / check** — session tool policy
+- **dispatch.log / dispatch.errors** — last 50 calls inspectable
+- **index.build / index.find** — lightweight workspace file index
+- **intent.open_url** safe (NEW_TASK, no crash)
+- **toybox.list** real applet list (not help-text words)
+- invokeJson routes for all of the above
+
 ## 1.12.0
 
 - **Root Cause A fix:** `DHarness.invokeJson(tool, argsJson, requestId)` — all tools unwrap JSONObject fields (no more `[object Object]`)

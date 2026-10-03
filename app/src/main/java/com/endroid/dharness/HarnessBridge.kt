@@ -1071,10 +1071,29 @@ class HarnessBridge(
     @JavascriptInterface
     fun fsWrite(path: String, content: String): String {
         return try {
+            if (content == "[object Object]") {
+                return JSONObject().put("ok", false).put("error", "ARGS_NOT_UNWRAPPED")
+                    .put("hint", "pass path and content as strings").toString()
+            }
             val f = safeFile(path)
             f.parentFile?.mkdirs()
-            f.writeText(content)
-            JSONObject().put("ok", true).put("bytes", content.length).toString()
+            // history snapshot
+            historySnapshot(f)
+            val bytes = content.toByteArray(Charsets.UTF_8)
+            val expected = sha256(bytes)
+            val tmp = File(f.parentFile, ".${f.name}.tmp-${System.nanoTime()}")
+            FileOutputStream(tmp).use { out -> out.write(bytes); out.fd.sync() }
+            if (!tmp.renameTo(f)) {
+                FileOutputStream(f).use { it.write(bytes); it.fd.sync() }
+                tmp.delete()
+            }
+            val actual = sha256(f.readBytes())
+            if (actual != expected) {
+                return JSONObject().put("ok", false).put("error", "VERIFICATION_FAILED")
+                    .put("sha256_expected", expected).put("sha256_actual", actual).toString()
+            }
+            JSONObject().put("ok", true).put("path", path).put("bytes", bytes.size)
+                .put("sha256", actual).put("verified", true).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -1104,7 +1123,19 @@ class HarnessBridge(
     @JavascriptInterface
     fun fsDelete(path: String): String {
         return try {
-            JSONObject().put("ok", safeFile(path).delete()).toString()
+            val f = safeFile(path)
+            val existed = f.exists()
+            if (!existed) {
+                return JSONObject().put("ok", true).put("existed", false).put("nowExists", false).toString()
+            }
+            historySnapshot(f)
+            val ok = if (f.isDirectory) f.deleteRecursively() else f.delete()
+            val nowExists = f.exists()
+            JSONObject().put("ok", ok && !nowExists)
+                .put("existed", true)
+                .put("nowExists", nowExists)
+                .apply { if (nowExists) put("error", "delete did not persist") }
+                .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -1322,7 +1353,31 @@ class HarnessBridge(
                 }
                 "replace" -> JSONObject().put("ok", true)
                     .put("result", re.replace(text, replacement ?: "")).toString()
-                else -> JSONObject().put("ok", false).put("error", "op").toString()
+    
+            "fs.write" -> fsWrite(sAny("path"), sAny("content", "text"))
+            "fs.read" -> fsRead(sAny("path"))
+            "fs.delete" -> fsDelete(sAny("path"))
+            "fs.list" -> fsList(sAny("prefix", "path"))
+            "task.add" -> taskAdd(sAny("content", "text", "title"))
+            "task.update" -> taskUpdate(sAny("id"), sAny("status"))
+            "task.list" -> taskList()
+            "task.clear" -> taskClear()
+            "history.list" -> historyList(sAny("path"))
+            "history.revert" -> historyRevert(sAny("path"), sAny("version"))
+            "session.save" -> sessionSave(sAny("name", "path"), sAny("state").ifBlank { null })
+            "session.load" -> sessionLoad(sAny("name", "path"))
+            "session.list" -> sessionList()
+            "policy.allow" -> policyAllow(sAny("pattern", "tool"))
+            "policy.deny" -> policyDeny(sAny("pattern", "tool"))
+            "policy.check" -> policyCheck(sAny("tool", "name"))
+            "dispatch.log" -> dispatchLog()
+            "dispatch.errors" -> dispatchErrors()
+            "intent.open_url" -> intentOpenUrl(sAny("url", "uri", "link"))
+            "index.build" -> indexBuild(sAny("path").ifBlank { null })
+            "index.find" -> indexFind(sAny("query", "q", "name"))
+            "toybox.list" -> toyboxList()
+
+            else -> JSONObject().put("ok", false).put("error", "op").toString()
             }
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
@@ -1888,6 +1943,7 @@ class HarnessBridge(
             }
             val f = safeWorkspace(path)
             f.parentFile?.mkdirs()
+            historySnapshot(f)
             val bytes = content.toByteArray(Charsets.UTF_8)
             val expected = sha256(bytes)
             val tmp = File(f.parentFile, ".${f.name}.tmp-${System.nanoTime()}")
@@ -2987,40 +3043,50 @@ class HarnessBridge(
     @JavascriptInterface
     fun toyboxList(): String {
         return try {
-            var applets = listOf<String>()
-            val attempts = listOf(
-                listOf("/system/bin/toybox", "--list"),
-                listOf("/system/bin/toybox", "--help"),
-                listOf("toybox", "--list")
-            )
-            for (cmd in attempts) {
-                try {
-                    val proc = ProcessBuilder(cmd).redirectErrorStream(true).start()
-                    val text = proc.inputStream.bufferedReader().readText()
-                    proc.waitFor(4, java.util.concurrent.TimeUnit.SECONDS)
-                    val clean = text.lines().map { it.trim() }.filter { line ->
-                        line.matches(Regex("^[a-z][a-z0-9_-]*$")) && line.length < 32
+            val pb = ProcessBuilder("toybox", "--help")
+            pb.redirectErrorStream(true)
+            val proc = pb.start()
+            val out = proc.inputStream.bufferedReader().readText()
+            proc.waitFor(3, TimeUnit.SECONDS)
+            // Prefer "Currently defined functions:" section or applet-only lines
+            val applets = linkedSetOf<String>()
+            var inList = false
+            for (line in out.lineSequence()) {
+                val l = line.trim()
+                if (l.contains("defined functions", ignoreCase = true) || l.contains("commands:", ignoreCase = true)) {
+                    inList = true
+                    continue
+                }
+                if (inList) {
+                    // lines of space-separated applet names
+                    for (tok in l.split(Regex("\\s+"))) {
+                        val a = tok.trim().trimEnd(',')
+                        if (a.matches(Regex("[a-z][a-z0-9_.+-]*")) && a.length <= 24) applets.add(a)
                     }
-                    if (clean.size >= 10) {
-                        applets = clean.distinct().sorted()
-                        break
-                    }
-                    val toks = text.split(Regex("[\\s,]+")).map { it.trim() }
-                        .filter { it.matches(Regex("^[a-z][a-z0-9_-]*$")) && it.length in 2..20 }
-                        .filter { it !in setOf("toybox", "usage", "help", "command", "applets", "see") }
-                    if (toks.size >= 15) {
-                        applets = toks.distinct().sorted()
-                        break
-                    }
-                } catch (_: Exception) { }
+                }
             }
-            envelope(
-                applets.isNotEmpty(),
-                JSONObject().put("applets", JSONArray(applets)).put("count", applets.size),
-                error = if (applets.isEmpty()) "could not list toybox applets" else null
-            )
+            if (applets.isEmpty()) {
+                // fallback: toybox with no args sometimes prints applets
+                val pb2 = ProcessBuilder("toybox")
+                pb2.redirectErrorStream(true)
+                val p2 = pb2.start()
+                val o2 = p2.inputStream.bufferedReader().readText()
+                p2.waitFor(2, TimeUnit.SECONDS)
+                for (tok in o2.split(Regex("\\s+"))) {
+                    val a = tok.trim()
+                    if (a.matches(Regex("[a-z][a-z0-9_.+-]*")) && a.length in 2..20
+                        && a !in setOf("the", "and", "for", "with", "from", "this", "that", "available", "commands", "arguments", "argument")) {
+                        applets.add(a)
+                    }
+                }
+            }
+            // Filter English help words
+            val stop = setOf("accept","additional","also","any","argument","arguments","available","commands",
+                "day","decimal","each","usage","options","help","version","currently","defined","functions")
+            val cleaned = applets.filter { it !in stop && it.length >= 2 }.sorted()
+            JSONObject().put("ok", true).put("count", cleaned.size).put("applets", JSONArray(cleaned)).toString()
         } catch (e: Exception) {
-            envelope(false, error = e.message)
+            JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
 
@@ -4389,4 +4455,267 @@ class HarnessBridge(
         }
     }
 
+
+    // ─── History / rollback (Cursor-style) ─────────────────────
+    private val historyRoot: File by lazy {
+        File(context.filesDir, "history").also { it.mkdirs() }
+    }
+    private fun historySnapshot(f: File) {
+        try {
+            if (!f.isFile) return
+            val key = sha256(f.absolutePath.toByteArray()).take(16)
+            val dir = File(historyRoot, key).also { it.mkdirs() }
+            val ver = System.currentTimeMillis()
+            f.copyTo(File(dir, "$ver.bak"), overwrite = true)
+            // keep last 10
+            dir.listFiles()?.sortedByDescending { it.name }?.drop(10)?.forEach { it.delete() }
+            File(dir, "path.txt").writeText(f.absolutePath)
+        } catch (_: Exception) {}
+    }
+
+    @JavascriptInterface
+    fun historyList(path: String): String {
+        return try {
+            val f = try { safeWorkspace(path) } catch (_: Exception) { safeFile(path) }
+            val key = sha256(f.absolutePath.toByteArray()).take(16)
+            val dir = File(historyRoot, key)
+            val arr = JSONArray()
+            dir.listFiles()?.filter { it.name.endsWith(".bak") }?.sortedByDescending { it.name }?.forEach {
+                arr.put(JSONObject().put("version", it.name.removeSuffix(".bak")).put("bytes", it.length()))
+            }
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("versions", arr).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun historyRevert(path: String, version: String): String {
+        return try {
+            val f = try { safeWorkspace(path) } catch (_: Exception) { safeFile(path) }
+            val key = sha256(f.absolutePath.toByteArray()).take(16)
+            val bak = File(File(historyRoot, key), "${version}.bak")
+            if (!bak.isFile) return JSONObject().put("ok", false).put("error", "version not found").toString()
+            historySnapshot(f)
+            bak.copyTo(f, overwrite = true)
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("restored", version)
+                .put("sha256", sha256(f.readBytes())).put("verified", true).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    // ─── Task list (Claude Code TodoWrite) ─────────────────────
+    private val taskStore by lazy { context.getSharedPreferences("dharness_tasks", Context.MODE_PRIVATE) }
+
+    @JavascriptInterface
+    fun taskAdd(content: String): String {
+        val id = "t-" + System.currentTimeMillis().toString(36)
+        val o = JSONObject().put("id", id).put("content", content).put("status", "pending")
+            .put("activeForm", content).put("created", System.currentTimeMillis())
+        taskStore.edit().putString(id, o.toString()).apply()
+        return JSONObject().put("ok", true).put("id", id).put("task", o).toString()
+    }
+
+    @JavascriptInterface
+    fun taskUpdate(id: String, status: String): String {
+        val raw = taskStore.getString(id, null)
+            ?: return JSONObject().put("ok", false).put("error", "not found").toString()
+        val o = JSONObject(raw)
+        val st = status.lowercase()
+        if (st !in setOf("pending", "in_progress", "completed", "cancelled")) {
+            return JSONObject().put("ok", false).put("error", "bad status").toString()
+        }
+        o.put("status", st).put("updated", System.currentTimeMillis())
+        taskStore.edit().putString(id, o.toString()).apply()
+        return JSONObject().put("ok", true).put("task", o).toString()
+    }
+
+    @JavascriptInterface
+    fun taskList(): String {
+        val arr = JSONArray()
+        taskStore.all.forEach { (_, v) ->
+            try { arr.put(JSONObject(v.toString())) } catch (_: Exception) {}
+        }
+        return JSONObject().put("ok", true).put("tasks", arr).put("count", arr.length()).toString()
+    }
+
+    @JavascriptInterface
+    fun taskClear(): String {
+        taskStore.edit().clear().apply()
+        return JSONObject().put("ok", true).toString()
+    }
+
+    // ─── Session save/load (Codex-style) ───────────────────────
+    private val sessionRoot: File by lazy { File(context.filesDir, "sessions").also { it.mkdirs() } }
+
+    @JavascriptInterface
+    fun sessionSave(name: String, stateJson: String?): String {
+        return try {
+            val safe = name.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(64).ifBlank { "default" }
+            val f = File(sessionRoot, "$safe.json")
+            val payload = JSONObject()
+                .put("name", safe)
+                .put("savedAt", System.currentTimeMillis())
+                .put("tasks", JSONObject(taskList()).optJSONArray("tasks"))
+                .put("state", if (stateJson.isNullOrBlank()) JSONObject() else try { JSONObject(stateJson) } catch (_: Exception) { JSONObject().put("raw", stateJson) })
+            f.writeText(payload.toString(2))
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("name", safe).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun sessionLoad(name: String): String {
+        return try {
+            val safe = name.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(64)
+            val f = File(sessionRoot, "$safe.json")
+            if (!f.isFile) return JSONObject().put("ok", false).put("error", "not found").toString()
+            JSONObject().put("ok", true).put("session", JSONObject(f.readText())).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun sessionList(): String {
+        val arr = JSONArray()
+        sessionRoot.listFiles()?.filter { it.name.endsWith(".json") }?.forEach {
+            arr.put(JSONObject().put("name", it.name.removeSuffix(".json")).put("bytes", it.length()).put("mtime", it.lastModified()))
+        }
+        return JSONObject().put("ok", true).put("sessions", arr).toString()
+    }
+
+    // ─── Policy (allow/deny/ask) ───────────────────────────────
+    private val policyStore by lazy { context.getSharedPreferences("dharness_policy", Context.MODE_PRIVATE) }
+
+    @JavascriptInterface
+    fun policyAllow(pattern: String): String {
+        policyStore.edit().putString("allow:" + pattern, "allow").apply()
+        return JSONObject().put("ok", true).put("pattern", pattern).put("action", "allow").toString()
+    }
+
+    @JavascriptInterface
+    fun policyDeny(pattern: String): String {
+        policyStore.edit().putString("deny:" + pattern, "deny").apply()
+        return JSONObject().put("ok", true).put("pattern", pattern).put("action", "deny").toString()
+    }
+
+    @JavascriptInterface
+    fun policyCheck(tool: String): String {
+        val denies = policyStore.all.filter { it.key.startsWith("deny:") }.keys.map { it.removePrefix("deny:") }
+        val allows = policyStore.all.filter { it.key.startsWith("allow:") }.keys.map { it.removePrefix("allow:") }
+        for (d in denies) if (tool.contains(d) || tool == d || d == "*") {
+            return JSONObject().put("ok", true).put("allowed", false).put("reason", "denied:$d").toString()
+        }
+        for (a in allows) if (tool.contains(a) || tool == a || a == "*") {
+            return JSONObject().put("ok", true).put("allowed", true).put("reason", "allowed:$a").toString()
+        }
+        return JSONObject().put("ok", true).put("allowed", true).put("reason", "default").toString()
+    }
+
+    // ─── Dispatch log ─────────────────────────────────────────
+    private val dispatchLog = java.util.concurrent.ConcurrentLinkedDeque<JSONObject>()
+
+    private fun logDispatch(entry: JSONObject) {
+        dispatchLog.addFirst(entry)
+        while (dispatchLog.size > 50) dispatchLog.pollLast()
+    }
+
+    @JavascriptInterface
+    fun dispatchLog(): String {
+        val arr = JSONArray()
+        dispatchLog.forEach { arr.put(it) }
+        return JSONObject().put("ok", true).put("entries", arr).put("count", arr.length()).toString()
+    }
+
+    @JavascriptInterface
+    fun dispatchErrors(): String {
+        val arr = JSONArray()
+        dispatchLog.filter { it.optString("status") != "ok" }.forEach { arr.put(it) }
+        return JSONObject().put("ok", true).put("entries", arr).toString()
+    }
+
+    // ─── Idempotency ──────────────────────────────────────────
+    private val idempotencyCache = ConcurrentHashMap<String, String>()
+
+    @JavascriptInterface
+    fun idempotencyGet(key: String): String {
+        val v = idempotencyCache[key]
+        return if (v != null) JSONObject().put("ok", true).put("hit", true).put("result", JSONObject(v)).toString()
+        else JSONObject().put("ok", true).put("hit", false).toString()
+    }
+
+    // ─── Intent open URL (safe) ───────────────────────────────
+    @JavascriptInterface
+    fun intentOpenUrl(url: String): String {
+        return try {
+            if (url.isBlank() || url == "[object Object]") {
+                return JSONObject().put("ok", false).put("error", "ARGS_INVALID")
+                    .put("hint", "pass args.url as string").toString()
+            }
+            val uri = android.net.Uri.parse(url)
+            val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            webView.post {
+                try {
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    android.util.Log.e("DHarness", "openUrl", e)
+                }
+            }
+            JSONObject().put("ok", true).put("url", url).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    // ─── Index (lightweight Cursor-style) ─────────────────────
+    @JavascriptInterface
+    fun indexBuild(path: String?): String {
+        return try {
+            val root = if (path.isNullOrBlank()) workspaceRoot else safeWorkspace(path)
+            val arr = JSONArray()
+            var n = 0
+            root.walkTopDown().maxDepth(6).forEach { f ->
+                if (n >= 500) return@forEach
+                if (f.isFile && f.length() < 2_000_000) {
+                    val rel = try { f.relativeTo(workspaceRoot).path } catch (_: Exception) { f.name }
+                    val ext = f.extension.lowercase()
+                    arr.put(JSONObject().put("path", rel).put("size", f.length()).put("mtime", f.lastModified()).put("ext", ext))
+                    n++
+                }
+            }
+            val idxFile = File(context.filesDir, "workspace_index.json")
+            idxFile.writeText(arr.toString())
+            JSONObject().put("ok", true).put("count", n).put("indexedAt", System.currentTimeMillis()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun indexFind(query: String): String {
+        return try {
+            val idxFile = File(context.filesDir, "workspace_index.json")
+            if (!idxFile.isFile) indexBuild(null)
+            val arr = JSONArray(idxFile.readText())
+            val q = query.lowercase()
+            val hits = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                if (o.optString("path").lowercase().contains(q)) hits.put(o)
+                if (hits.length() >= 40) break
+            }
+            JSONObject().put("ok", true).put("hits", hits).put("count", hits.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    // Snapshot workspace writes too
+    // (workspaceWrite already exists — patch to call historySnapshot)
+
+
+}
 }

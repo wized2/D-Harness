@@ -24,7 +24,7 @@
     confirmSensitive: true,
     callMustBeLast: true,
     maxResultChars: 100000,
-    settleMs: 320,
+    settleMs: 250,
     scanThrottleMs: 100,
     fallbackScanMs: 400,
     hideFlashMs: 120,
@@ -1330,8 +1330,8 @@ async selftest() {
     sendingLock = true;
     try {
       // Wait for model generation to finish so send is accepted
-      await waitUntilIdle(10000);
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      await waitUntilIdle(8000);
+      for (let attempt = 1; attempt <= 6; attempt++) {
         const ok = await sendMessageOnce(text);
         if (ok) {
           log('sent attempt', attempt);
@@ -2084,6 +2084,11 @@ async selftest() {
 
     const sent = await sendMessage(payload);
     if (sent && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); }
+    else {
+      // Allow re-detection so long agent chains don't die on a single failed send
+      handled.delete(mk);
+      log('send failed — unlocked for retry', mk);
+    }
   }
 
   function hideUserToolResults(msgs) {
