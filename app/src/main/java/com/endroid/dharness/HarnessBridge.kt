@@ -2851,7 +2851,7 @@ class HarnessBridge(
             "workspace.which" -> workspaceWhich(sAny("name", "file", "query"))
             "hash.file" -> hashFile(sAny("path"))
             "text.word_count" -> textWordCount(sAny("text", "content"))
-            "util.sleep" -> utilSleep(i("ms", 100))
+            "util.sleep" -> timeSleep(i("ms", 100).coerceIn(0, 10000))
             "keys.set" -> keysSet(sAny("key", "name"), sAny("value", "val"))
             "keys.list" -> keysList()
             "notify.simple" -> notifySimple(sAny("title").ifBlank { "D-Harness" }, sAny("body", "text", "message"))
@@ -5139,38 +5139,9 @@ class HarnessBridge(
         }
     }
 
-    @JavascriptInterface
-    fun textWordCount(text: String): String {
-        val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-        return JSONObject().put("ok", true).put("words", words.size).put("chars", text.length)
-            .put("lines", if (text.isEmpty()) 0 else text.split('\n').size).toString()
-    }
 
-    @JavascriptInterface
-    fun utilSleep(ms: Int): String {
-        val n = ms.coerceIn(0, 10000)
-        Thread.sleep(n.toLong())
-        return JSONObject().put("ok", true).put("sleptMs", n).toString()
-    }
 
-    @JavascriptInterface
-    fun keysSet(key: String, value: String): String {
-        return try {
-            val sp = context.getSharedPreferences("dharness_keys", Context.MODE_PRIVATE)
-            sp.edit().putString(key.take(64), value.take(10000)).apply()
-            JSONObject().put("ok", true).put("key", key.take(64)).toString()
-        } catch (e: Exception) {
-            JSONObject().put("ok", false).put("error", e.message).toString()
-        }
-    }
 
-    @JavascriptInterface
-    fun keysList(): String {
-        val sp = context.getSharedPreferences("dharness_keys", Context.MODE_PRIVATE)
-        val arr = JSONArray()
-        sp.all.keys.forEach { arr.put(it) }
-        return JSONObject().put("ok", true).put("keys", arr).toString()
-    }
 
     @JavascriptInterface
     fun notifySimple(title: String, body: String): String {
