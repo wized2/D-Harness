@@ -1,3 +1,10 @@
+## 1.14.1
+
+- Fix compile (workspaceTail newline)
+- archive.zip_create/list/extract, code.find_todos
+- readSession for read-before-edit warning on apply_patch
+- code path tools use workspace root
+
 ## 1.14.0
 
 - **Stale response:** strict requestId + tool name match; STALE_RESPONSE on mismatch

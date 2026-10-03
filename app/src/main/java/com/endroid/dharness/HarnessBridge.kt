@@ -73,6 +73,7 @@ class HarnessBridge(
         val base = if (ext != null) File(ext, "workspace") else File(context.filesDir, "workspace")
         base.also { it.mkdirs() }
     }
+    private val readSession = ConcurrentHashMap<String, Long>()
     private val inFlight = ConcurrentHashMap<String, Long>()
     private val childProcs = ConcurrentHashMap<Int, java.lang.Process>()
 
@@ -1534,7 +1535,7 @@ class HarnessBridge(
         return try {
             val src = when {
                 !content.isNullOrBlank() -> content
-                !path.isNullOrBlank() -> safeFile(path).readText()
+                !path.isNullOrBlank() -> safeWorkspace(path).readText(Charsets.UTF_8)
                 else -> return JSONObject().put("ok", false).put("error", "path or content required").toString()
             }
             val limit = if (max <= 0) 100 else max.coerceAtMost(400)
@@ -1774,6 +1775,7 @@ class HarnessBridge(
             val end = (off + limit).coerceAtMost(bytes.size)
             val slice = if (off == 0 && end == bytes.size) bytes else bytes.copyOfRange(off, end)
             val text = slice.toString(Charsets.UTF_8)
+            readSession[f.absolutePath] = System.currentTimeMillis()
             JSONObject()
                 .put("ok", true)
                 .put("path", f.absolutePath)
@@ -1998,6 +2000,7 @@ class HarnessBridge(
             val f = safeWorkspace(path)
             if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
             historySnapshot(f)
+            val wasRead = readSession.containsKey(f.absolutePath)
             var text = f.readText(Charsets.UTF_8)
             val edits = JSONArray(editsJson)
             val applied = JSONArray()
@@ -2042,6 +2045,8 @@ class HarnessBridge(
                 .put("sha256", sha256(bytes))
                 .put("edits_applied", applied.length())
                 .put("applied", applied)
+                .put("was_read", wasRead)
+                .apply { if (!wasRead) put("warning", "file not read in this session — prefer workspace.read first") }
                 .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
@@ -3939,7 +3944,7 @@ class HarnessBridge(
     @JavascriptInterface
     fun codeSearch(query: String, path: String?, ext: String?, maxHits: Int): String {
         return try {
-            val root = if (path.isNullOrBlank()) workspaceRoot else safeFile(path)
+            val root = if (path.isNullOrBlank()) workspaceRoot else safeWorkspace(path)
             val limit = if (maxHits <= 0) 40 else maxHits.coerceAtMost(200)
             val re = Regex(query)
             val exts = ext?.split(',', ' ')?.map { it.trim().trimStart('.').lowercase() }?.filter { it.isNotEmpty() }?.toSet()
@@ -4071,7 +4076,7 @@ class HarnessBridge(
     fun workspaceHead(path: String, lines: Int): String {
         return try {
             val n = if (lines <= 0) 20 else lines.coerceAtMost(500)
-            val all = readWorkspaceText(path).split('\n')
+            val all = readWorkspaceText(path).lines()
             val slice = all.take(n)
             JSONObject().put("ok", true).put("path", path).put("lines", slice.size)
                 .put("truncated", all.size > n).put("text", slice.joinToString("\n")).toString()
@@ -4084,14 +4089,10 @@ class HarnessBridge(
     fun workspaceTail(path: String, lines: Int): String {
         return try {
             val n = if (lines <= 0) 20 else lines.coerceAtMost(500)
-            val raw = readWorkspaceText(path)
-            // Preserve exact last N lines (including possible trailing empty line semantics)
-            val all = raw.split("
-")
+            val all = readWorkspaceText(path).lines()
             val slice = if (all.size <= n) all else all.subList(all.size - n, all.size)
             JSONObject().put("ok", true).put("path", path).put("lines", slice.size)
-                .put("truncated", all.size > n).put("text", slice.joinToString("
-")).toString()
+                .put("truncated", all.size > n).put("text", slice.joinToString("\n")).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -4754,5 +4755,100 @@ class HarnessBridge(
 
     // Snapshot workspace writes too
     // (workspaceWrite already exists — patch to call historySnapshot)
-}
+
+    @JavascriptInterface
+    fun archiveZipCreate(path: String, dest: String?): String {
+        return try {
+            val src = safeWorkspace(path)
+            if (!src.exists()) return JSONObject().put("ok", false).put("error", "not found").toString()
+            val outPath = dest?.takeIf { it.isNotBlank() } ?: (src.name + ".zip")
+            val out = safeWorkspace(outPath)
+            out.parentFile?.mkdirs()
+            java.util.zip.ZipOutputStream(FileOutputStream(out)).use { zos ->
+                fun add(f: java.io.File, base: String) {
+                    if (f.isDirectory) {
+                        f.listFiles()?.forEach { add(it, base + f.name + "/") }
+                    } else {
+                        val entry = java.util.zip.ZipEntry(base + f.name)
+                        zos.putNextEntry(entry)
+                        f.inputStream().use { it.copyTo(zos) }
+                        zos.closeEntry()
+                    }
+                }
+                if (src.isDirectory) src.listFiles()?.forEach { add(it, "") } else add(src, "")
+            }
+            JSONObject().put("ok", true).put("path", out.relativeTo(workspaceRoot).path)
+                .put("bytes", out.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun archiveZipList(path: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            val arr = JSONArray()
+            java.util.zip.ZipFile(f).use { zf ->
+                val en = zf.entries()
+                while (en.hasMoreElements()) {
+                    val e = en.nextElement()
+                    arr.put(JSONObject().put("name", e.name).put("size", e.size).put("dir", e.isDirectory))
+                }
+            }
+            JSONObject().put("ok", true).put("entries", arr).put("count", arr.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun archiveZipExtract(path: String, dest: String?): String {
+        return try {
+            val f = safeWorkspace(path)
+            val destDir = if (dest.isNullOrBlank()) safeWorkspace(f.nameWithoutExtension) else safeWorkspace(dest)
+            destDir.mkdirs()
+            var n = 0
+            java.util.zip.ZipFile(f).use { zf ->
+                val en = zf.entries()
+                while (en.hasMoreElements()) {
+                    val e = en.nextElement()
+                    val out = File(destDir, e.name)
+                    if (e.isDirectory) { out.mkdirs(); continue }
+                    out.parentFile?.mkdirs()
+                    zf.getInputStream(e).use { inp -> FileOutputStream(out).use { inp.copyTo(it) } }
+                    n++
+                }
+            }
+            JSONObject().put("ok", true).put("extracted", n).put("dest", destDir.relativeTo(workspaceRoot).path).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun codeFindTodos(path: String?, max: Int): String {
+        return try {
+            val root = if (path.isNullOrBlank()) workspaceRoot else safeWorkspace(path)
+            val limit = if (max <= 0) 50 else max.coerceAtMost(200)
+            val re = Regex("""(?i)\b(TODO|FIXME|HACK|XXX)\b.*""")
+            val hits = JSONArray()
+            fun walk(f: java.io.File) {
+                if (hits.length() >= limit) return
+                if (f.isDirectory) { f.listFiles()?.forEach { walk(it) }; return }
+                if (f.length() > 1_000_000) return
+                try {
+                    f.readLines().forEachIndexed { i, line ->
+                        if (hits.length() >= limit) return
+                        if (re.containsMatchIn(line)) {
+                            val rel = try { f.relativeTo(workspaceRoot).path } catch (_: Exception) { f.name }
+                            hits.put(JSONObject().put("path", rel).put("line", i + 1).put("text", line.trim().take(200)))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            walk(root)
+            JSONObject().put("ok", true).put("count", hits.length()).put("hits", hits).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
 }
