@@ -4823,8 +4823,4 @@ class HarnessBridge(
             JSONObject().put("ok", true).put("extracted", n).put("dest", destDir.relativeTo(workspaceRoot).path).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
-        }
-    }
-
-}
 }
