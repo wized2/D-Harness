@@ -5055,6 +5055,7 @@ class HarnessBridge(
                 .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
+        }
     }
 
     // ─── 1.16 extras ───────────────────────────────────────────
@@ -5238,4 +5239,5 @@ class HarnessBridge(
             .put("readSession", readSession.size)
             .put("policyMode", policyStore.getString("mode", "open"))
             .toString()
+    }
 }
