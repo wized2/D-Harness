@@ -1,3 +1,14 @@
+## 1.12.0
+
+- **Root Cause A fix:** `DHarness.invokeJson(tool, argsJson, requestId)` — all tools unwrap JSONObject fields (no more `[object Object]`)
+- **Request IDs** on every dispatch; STALE_RESPONSE if mismatch
+- **workspace.write** read-back verification (`verified:true` + sha256 of on-disk bytes)
+- **clipboard.write** unwrap + read-back verify; rejects `[object Object]`
+- **keys.get** masked by default
+- **Busy watchdog** (45s) — stops tool chain from freezing after ~8–9 tools
+- Empty tool chips on reload skipped when no preview
+- native_bridge exposes `invokeJson`
+
 ## 1.11.0
 
 - **DSML V4 parser**: handles `<｜DSML｜ calls>`, mangled `||DSML||`, `toolcalls` typos, multi-parameter invoke blocks

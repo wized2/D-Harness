@@ -932,9 +932,26 @@ class HarnessBridge(
 
     @JavascriptInterface
     fun clipboardWrite(text: String): String {
-        (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-            .setPrimaryClip(ClipData.newPlainText("dharness", text))
-        return JSONObject().put("ok", true).toString()
+        return try {
+            val value = when {
+                text == "[object Object]" -> return JSONObject().put("ok", false)
+                    .put("error", "ARGS_NOT_UNWRAPPED")
+                    .put("hint", "pass args.text as a string").toString()
+                else -> text
+            }
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("dharness", value))
+            // read-back verify
+            val back = cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() ?: ""
+            val verified = back == value
+            JSONObject().put("ok", verified)
+                .put("verified", verified)
+                .put("bytes", value.length)
+                .apply { if (!verified) put("error", "clipboard read-back mismatch") }
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
     }
 
     @JavascriptInterface
@@ -1860,13 +1877,19 @@ class HarnessBridge(
     fun workspaceRootPath(): String =
         JSONObject().put("ok", true).put("path", workspaceRoot.absolutePath).toString()
 
-    /** Atomic UTF-8 write: temp file in same dir → fsync → rename. Returns sha256. */
+    /** Atomic UTF-8 write: temp + fsync + rename, then read-back verify. */
     @JavascriptInterface
     fun workspaceWrite(path: String, content: String): String {
         return try {
+            // Guard: if content looks like stringified object, reject
+            if (content == "[object Object]" || content.startsWith("{") && content.contains(""path"") && path.isBlank()) {
+                return JSONObject().put("ok", false).put("error", "ARGS_NOT_UNWRAPPED")
+                    .put("hint", "pass path and content as separate string fields").toString()
+            }
             val f = safeWorkspace(path)
             f.parentFile?.mkdirs()
             val bytes = content.toByteArray(Charsets.UTF_8)
+            val expected = sha256(bytes)
             val tmp = File(f.parentFile, ".${f.name}.tmp-${System.nanoTime()}")
             try {
                 FileOutputStream(tmp).use { out ->
@@ -1874,19 +1897,30 @@ class HarnessBridge(
                     out.fd.sync()
                 }
                 if (!tmp.renameTo(f)) {
-                    // fallback copy+delete
-                    FileOutputStream(f).use { it.write(bytes) }
+                    FileOutputStream(f).use { it.write(bytes); it.fd.sync() }
                     tmp.delete()
                 }
             } catch (e: Exception) {
                 tmp.delete()
                 throw e
             }
+            // Verify on disk
+            if (!f.isFile) {
+                return JSONObject().put("ok", false).put("error", "VERIFICATION_FAILED")
+                    .put("hint", "file missing after write").toString()
+            }
+            val actualBytes = f.readBytes()
+            val actual = sha256(actualBytes)
+            if (actual != expected) {
+                return JSONObject().put("ok", false).put("error", "VERIFICATION_FAILED")
+                    .put("sha256_expected", expected).put("sha256_actual", actual).toString()
+            }
             JSONObject()
                 .put("ok", true)
                 .put("path", f.absolutePath)
-                .put("bytes", bytes.size)
-                .put("sha256", sha256(bytes))
+                .put("bytes", actualBytes.size)
+                .put("sha256", actual)
+                .put("verified", true)
                 .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
@@ -2531,7 +2565,7 @@ class HarnessBridge(
 
     private var wakeLock: PowerManager.WakeLock? = null
 
-    private fun envelope(ok: Boolean, data: Any? = null, error: String? = null, ms: Long = 0): String {
+    private fun envelope(ok: Boolean, data: Any? = null, error: String? = null, ms: Long = 0, tool: String? = null, requestId: String? = null): String {
         val o = JSONObject().put("ok", ok)
         if (data != null) {
             when (data) {
@@ -2543,9 +2577,203 @@ class HarnessBridge(
                 else -> o.put("data", data.toString())
             }
         }
-        if (error != null) o.put("error", JSONObject().put("message", error))
-        o.put("meta", JSONObject().put("ms", ms))
+        if (error != null) {
+            o.put("error", if (error.startsWith("{")) try { JSONObject(error) } catch (_: Exception) { JSONObject().put("message", error) } else JSONObject().put("message", error))
+        }
+        val meta = JSONObject().put("ms", ms)
+        if (!tool.isNullOrBlank()) meta.put("tool", tool)
+        if (!requestId.isNullOrBlank()) meta.put("requestId", requestId)
+        o.put("meta", meta)
+        if (!requestId.isNullOrBlank()) o.put("requestId", requestId)
+        if (!tool.isNullOrBlank()) o.put("tool", tool)
         return o.toString()
+    }
+
+    /**
+     * Universal JSON dispatcher — all tools receive one JSONObject args.
+     * Fixes Root Cause A (positional/[object Object] arg bugs).
+     */
+    @JavascriptInterface
+    fun invokeJson(toolName: String, argsJson: String?, requestId: String?): String {
+        val t0 = System.currentTimeMillis()
+        val tool = toolName.trim()
+        val rid = requestId?.takeIf { it.isNotBlank() } ?: ("r-" + System.currentTimeMillis())
+        val args = try {
+            if (argsJson.isNullOrBlank() || argsJson == "null") JSONObject()
+            else JSONObject(argsJson)
+        } catch (e: Exception) {
+            return envelope(false, error = """{"code":"ARGS_INVALID","message":"args must be JSON object: ${e.message}","retryable":false}""", ms = 0, tool = tool, requestId = rid)
+        }
+        return try {
+            val raw = dispatchByName(tool, args)
+            // Attach requestId/tool to whatever the handler returned
+            val out = try { JSONObject(raw) } catch (_: Exception) {
+                JSONObject().put("ok", true).put("data", raw)
+            }
+            if (!out.has("requestId")) out.put("requestId", rid)
+            if (!out.has("tool")) out.put("tool", tool)
+            val meta = out.optJSONObject("meta") ?: JSONObject()
+            meta.put("ms", System.currentTimeMillis() - t0)
+            meta.put("tool", tool)
+            meta.put("requestId", rid)
+            out.put("meta", meta)
+            out.toString()
+        } catch (e: Exception) {
+            envelope(false,
+                error = """{"code":"TOOL_BROKEN","message":${JSONObject.quote(e.message ?: "error")},"retryable":true,"hint":"retry or check args"}""",
+                ms = System.currentTimeMillis() - t0, tool = tool, requestId = rid)
+        }
+    }
+
+    private fun dispatchByName(tool: String, args: JSONObject): String {
+        fun s(key: String, default: String = "") = args.optString(key, default)
+        fun sAny(vararg keys: String): String {
+            for (k in keys) {
+                if (args.has(k) && !args.isNull(k)) {
+                    val v = args.opt(k)
+                    return when (v) {
+                        is String -> v
+                        is Number, is Boolean -> v.toString()
+                        is JSONObject, is JSONArray -> v.toString()
+                        else -> v?.toString() ?: ""
+                    }
+                }
+            }
+            return ""
+        }
+        fun i(key: String, default: Int = 0) = args.optInt(key, default)
+        fun l(key: String, default: Long = 0L) = args.optLong(key, default)
+        fun d(key: String, default: Double = 0.0) = args.optDouble(key, default)
+        fun b(key: String, default: Boolean = false) = args.optBoolean(key, default)
+
+        return when (tool) {
+            "list_tools" -> listTools()
+            "describe" -> describeTool(sAny("name", "tool"))
+            "selftest" -> selftest()
+            "time.now" -> timeNow()
+            "time.format" -> timeFormat(l("ms"), s("pattern").ifBlank { null })
+            "time.sleep" -> timeSleep(i("ms", 100).coerceIn(0, 10000))
+            "uuid.v4", "uuid" -> uuidV4()
+            "device.info" -> deviceInfo()
+            "device.battery", "battery" -> battery()
+            "device.network", "network" -> network()
+            "clipboard.read" -> clipboardRead()
+            "clipboard.write", "clipboard.copy" -> {
+                val text = sAny("text", "value", "content")
+                if (text.isEmpty() && args.length() > 0 && !args.has("text")) {
+                    return JSONObject().put("ok", false).put("error", "ARGS_NOT_UNWRAPPED")
+                        .put("hint", "use args.text string").toString()
+                }
+                clipboardWrite(text)
+            }
+            "workspace.pwd" -> workspacePwd()
+            "workspace.ls" -> workspaceLs(sAny("path").ifBlank { null })
+            "workspace.read" -> workspaceReadRange(sAny("path"), i("maxBytes", 0), i("offset", 0))
+            "workspace.write" -> workspaceWrite(sAny("path"), sAny("content", "text", "data"))
+            "workspace.write_b64" -> workspaceWriteB64(sAny("path"), sAny("contentB64", "content", "data"))
+            "workspace.read_b64" -> workspaceReadB64(sAny("path"))
+            "workspace.mkdir" -> workspaceMkdir(sAny("path"))
+            "workspace.rm" -> workspaceRm(sAny("path"))
+            "workspace.stat" -> workspaceStat(sAny("path"))
+            "workspace.tree" -> workspaceTree(sAny("path").ifBlank { null }, i("depth", 2))
+            "workspace.grep" -> workspaceGrep(sAny("query", "pattern"), b("regex"), i("maxHits", 50))
+            "workspace.replace" -> workspaceReplace(sAny("path"), sAny("find", "old"), sAny("replace", "new"), b("regex"))
+            "workspace.apply_patch" -> {
+                val edits = args.opt("edits")
+                val ej = when (edits) {
+                    is JSONArray -> edits.toString()
+                    is String -> edits
+                    else -> "[]"
+                }
+                workspaceApplyPatch(sAny("path"), ej)
+            }
+            "workspace.head" -> workspaceHead(sAny("path"), i("lines", 40))
+            "workspace.tail" -> workspaceTail(sAny("path"), i("lines", 40))
+            "workspace.glob" -> workspaceGlob(sAny("pattern", "glob"), sAny("path").ifBlank { null }, i("max", 200))
+            "workspace.append" -> workspaceAppend(sAny("path"), sAny("content", "text"))
+            "net.ping" -> netPing(sAny("host", "hostname", "target"), i("timeoutMs", 3000))
+            "net.dns" -> netDns(sAny("host", "hostname", "name"))
+            "net.port" -> netPort(sAny("host", "hostname"), i("port", 80), i("timeoutMs", 3000))
+            "crypto.hash" -> cryptoHash(sAny("algo", "algorithm", "hash"), sAny("data", "text", "input"), sAny("encoding").ifBlank { null })
+            "crypto.hmac" -> cryptoHmac(sAny("key"), sAny("data", "text"))
+            "calc.eval" -> calcEval(sAny("expr", "expression", "code"))
+            "calc.round" -> calcRound(d("value"), i("digits", 2))
+            "calc.clamp" -> calcClamp(d("value"), d("min"), d("max"))
+            "calc.convert" -> calcConvert(d("value"), sAny("from"), sAny("to"))
+            "calc.haversine" -> calcHaversine(d("lat1"), d("lon1"), d("lat2"), d("lon2"))
+            "color.hex_rgb" -> colorHexRgb(sAny("op", "action").ifBlank { "to_rgb" }, sAny("value", "hex", "color"))
+            "json.pretty" -> jsonPretty(sAny("json", "text", "data"), i("indent", 2))
+            "json.parse" -> jsonParse(sAny("json", "text", "data"))
+            "json.query" -> jsonQuery(sAny("json", "text"), sAny("path", "query"))
+            "text.stats" -> textStats(sAny("text", "content"))
+            "text.trim" -> textTrim(sAny("text", "content"))
+            "text.split" -> textSplit(sAny("text"), sAny("sep", "separator", "delimiter"), i("limit", 0))
+            "text.join" -> textJoin(args.opt("parts")?.toString() ?: "[]", sAny("sep", "separator"))
+            "text.base64" -> textBase64(sAny("op").ifBlank { "encode" }, sAny("data", "text"))
+            "text.regex", "text.regex_find" -> textRegex(sAny("op").ifBlank { "find" }, sAny("pattern", "regex"), sAny("text"), sAny("replace", "replacement").ifBlank { null })
+            "text.case" -> textCase(sAny("op").ifBlank { "upper" }, sAny("text"))
+            "text.lines" -> textLines(sAny("text"))
+            "text.replace" -> textReplace(sAny("text"), sAny("find"), sAny("replace"))
+            "text.snippet" -> textSnippet(sAny("text"), i("lines", 5))
+            "text.url" -> textUrl(sAny("op").ifBlank { "encode" }, sAny("data", "text", "url"))
+            "text.word_count" -> textWordCount(sAny("text"))
+            "random.bytes" -> randomBytes(i("n", 16).coerceIn(1, 4096))
+            "http_request", "fetch_url" -> {
+                // async tools still need callback path — return guidance
+                JSONObject().put("ok", false).put("error", "use http_request via native async bridge")
+                    .put("hint", "call http_request with url/method from shim async path").toString()
+            }
+            "github.me" -> {
+                // sync wrapper not available — mark
+                JSONObject().put("ok", false).put("error", "use github.me via async bridge").toString()
+            }
+            "toast" -> { toast(sAny("message", "text")); JSONObject().put("ok", true).toString() }
+            "vibrate" -> vibrate(i("ms", 50))
+            "notify" -> notify(sAny("title"), sAny("body", "text", "message"))
+            "exec.langs" -> execLangs()
+            "exec.which" -> execWhich(sAny("bin", "name", "cmd"))
+            "exec" -> exec(args.opt("argv")?.toString() ?: "[]", i("timeout_ms", i("timeoutMs", 15000)), sAny("cwd").ifBlank { null })
+            "memory.get" -> memoryGet(sAny("key", "name"))
+            "memory.set" -> memorySet(sAny("key", "name"), sAny("value"))
+            "memory.delete" -> memoryDelete(sAny("key", "name"))
+            "memory.list" -> memoryList()
+            "memory.clear" -> memoryClear()
+            "keys.get" -> {
+                // mask by default
+                val name = sAny("name", "key")
+                val full = keysGet(name)
+                try {
+                    val o = JSONObject(full)
+                    val v = o.optString("value", "")
+                    if (v.length > 8) {
+                        o.put("value", v.take(3) + "…" + v.takeLast(3))
+                        o.put("masked", true)
+                        o.put("exists", v.isNotEmpty())
+                    }
+                    o.toString()
+                } catch (_: Exception) { full }
+            }
+            "keys.set" -> keysSet(sAny("name", "key"), sAny("value"))
+            "keys.delete" -> keysDelete(sAny("name", "key"))
+            "keys.list" -> keysList()
+            "diff.lines" -> diffLines(sAny("a", "textA", "left"), sAny("b", "textB", "right"))
+            "diff.file" -> diffFile(sAny("pathA", "a"), sAny("pathB", "b"))
+            "code.count_lines" -> codeCountLines(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
+            "code.imports" -> codeImports(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
+            "code.detect_lang" -> codeDetectLang(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
+            "code.slice" -> codeSlice(sAny("path"), i("start", 1), i("end", 50))
+            "code.find_todos" -> codeFindTodos(sAny("path").ifBlank { "." }, i("maxHits", 40))
+            "code.search" -> codeSearch(sAny("query", "pattern"), sAny("path").ifBlank { "." }, sAny("ext").ifBlank { null }, i("maxHits", 40))
+            "env.get" -> envGet()
+            "app.info" -> appInfo()
+            else -> JSONObject().put("ok", false)
+                .put("error", JSONObject()
+                    .put("code", "TOOL_NOT_FOUND")
+                    .put("message", "unknown tool: $tool")
+                    .put("retryable", false)
+                    .put("hint", "call list_tools"))
+                .put("tool", tool).toString()
+        }
     }
 
     @JavascriptInterface

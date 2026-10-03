@@ -93,6 +93,11 @@ window.__DHarnessNative = {
     }, 0);
   },
   list_tools: function () { return _j(function () { return DHarness.listTools(); }); },
+  invokeJson: function (tool, args, requestId) {
+    return _j(function () {
+      return DHarness.invokeJson(String(tool), typeof args === 'string' ? args : JSON.stringify(args || {}), requestId || null);
+    });
+  },
   describe: function (name) { return _j(function () { return DHarness.describeTool(String(name)); }); },
   http_request: function (opts) {
     opts = opts || {};

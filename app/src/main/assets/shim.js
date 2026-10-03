@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.11.0';
+  const VERSION = '1.12.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1829,6 +1829,8 @@ async selftest() {
   }
 
   let busy = false;
+  let _reqSeq = 0;
+  const pendingById = new Map();
   const handled = new Set();
   const retried = new Set();
   const baseline = new Map();
@@ -1844,8 +1846,58 @@ async selftest() {
       throw err;
     }
 
-    if (name === 'paste_box') return await toolHandlers.paste_box(args);
+    const requestId = 'r-' + (++_reqSeq) + '-' + Date.now().toString(36);
+    pendingById.set(requestId, { tool: name, at: Date.now() });
+
+    // Prefer universal native JSON dispatcher (fixes arg unwrapping)
+    try {
+      const nat = typeof N === 'function' ? N() : null;
+      const dh = (typeof DHarness !== 'undefined' && DHarness && typeof DHarness.invokeJson === 'function')
+        ? DHarness
+        : (nat && typeof nat.invokeJson === 'function' ? nat : null);
+      if (dh) {
+        let raw = (dh === nat)
+          ? dh.invokeJson(name, args, requestId)
+          : dh.invokeJson(name, JSON.stringify(args), requestId);
+        if (raw && typeof raw.then === 'function') raw = await raw;
+        let parsed = raw;
+        if (typeof raw === 'string') {
+          try { parsed = JSON.parse(raw); } catch (_) { parsed = { ok: true, data: raw }; }
+        }
+        // Stale response guard
+        if (parsed && parsed.requestId && parsed.requestId !== requestId) {
+          const err = new Error('STALE_RESPONSE: expected ' + requestId + ' got ' + parsed.requestId);
+          err.code = 'STALE_RESPONSE';
+          throw err;
+        }
+        if (parsed && parsed.meta && parsed.meta.requestId && parsed.meta.requestId !== requestId) {
+          const err = new Error('STALE_RESPONSE');
+          err.code = 'STALE_RESPONSE';
+          throw err;
+        }
+        pendingById.delete(requestId);
+        if (parsed && parsed.ok === false) {
+          const e = parsed.error;
+          const msg = (e && (e.message || e.code)) || parsed.error || 'tool failed';
+          const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+          err.payload = parsed;
+          throw err;
+        }
+        return parsed;
+      }
+    } catch (e) {
+      if (e && e.code === 'STALE_RESPONSE') throw e;
+      // fall through to legacy paths only if invokeJson missing
+      if (String(e.message || e).indexOf('invokeJson') === -1 && e.payload) throw e;
+    }
+
+    // paste_box stays async UI
+    if (name === 'paste_box') {
+      pendingById.delete(requestId);
+      return await toolHandlers.paste_box(args);
+    }
     if (name === 'run_js') {
+      pendingById.delete(requestId);
       const code = args.code;
       const longWait = typeof code === 'string' && code.indexOf('paste_box') !== -1;
       const r = await runInSandbox(code, longWait ? 0 : undefined);
@@ -1853,91 +1905,66 @@ async selftest() {
       return r && Object.prototype.hasOwnProperty.call(r, 'result') ? r.result : r;
     }
 
-    // Direct handler: workspace, research, github, …
-    if (typeof toolHandlers[name] === 'function') {
-      return await toolHandlers[name](args);
+    // Async network tools via native_bridge
+    if (name === 'http_request' || name === 'fetch_url') {
+      pendingById.delete(requestId);
+      if (typeof toolHandlers.http_request === 'function') return await toolHandlers.http_request(args);
+      const nat = N();
+      if (nat && nat.http_request) return await nat.http_request(args);
+    }
+    if (name === 'github.request' || name === 'github.me' || name === 'github.repos') {
+      pendingById.delete(requestId);
+      const nat = N();
+      if (name === 'github.me' && nat && nat.github && nat.github.me) return await nat.github.me();
+      if (name === 'github.repos' && nat && nat.github && nat.github.repos) return await nat.github.repos(args.per_page || args.limit || 10);
+      if (nat && nat.github && nat.github.request) return await nat.github.request(args.method || 'GET', args.path, args.body);
+    }
+    if (name === 'research.web' || name === 'research.preview' || name === 'research.html_text') {
+      pendingById.delete(requestId);
+      const nat = N();
+      if (nat && nat.research) {
+        if (name === 'research.web' && nat.research.web) return await nat.research.web(args.query || args.q || '', args.maxSources || args.limit || 5);
+        if (name === 'research.preview' && nat.research.preview) return await nat.research.preview(args.url);
+        if (name === 'research.html_text' && nat.research.html_text) return await nat.research.html_text(args.url, args.maxChars);
+      }
     }
 
-    // Dotted: research.web, workspace.read, github.me, device.info
+    // Legacy dotted path via native_bridge object graph
     if (name.indexOf('.') !== -1) {
-      const parts = name.split('.');
-      const group = parts[0];
-      const op = parts.slice(1).join('.');
-      const h = toolHandlers[group];
-      if (typeof h === 'function') {
-        const merged = Object.assign({}, args, { op: args.op || op, action: args.action || op });
-        // Common arg aliases for research.*
-        if (group === 'research' && op === 'web') {
-          return await h({ op: 'web', query: args.query || args.q || args.topic, maxSources: args.maxSources || args.limit || 5 });
-        }
-        if (group === 'workspace') {
-          return await h(Object.assign({}, args, { op: op }));
-        }
-        if (group === 'github') {
-          return await h(Object.assign({}, args, { op: op }));
-        }
-        if (group === 'device' && typeof toolHandlers.device === 'function') {
-          return await toolHandlers.device(Object.assign({}, args, { op: op }));
-        }
-        return await h(merged);
-      }
-      // Native bridge path: nat.research.web(query, max)
       try {
         const nat = N();
         if (nat && nat.available) {
+          const parts = name.split('.');
           let cur = nat;
           for (const part of parts) {
             if (cur == null) break;
             cur = cur[part];
           }
           if (typeof cur === 'function') {
-            // Heuristic positional args for common tools
-            if (name === 'research.web') return await cur(args.query || args.q || '', args.maxSources || args.limit || 5);
-            if (name === 'research.preview' || name === 'research.html_text') return await cur(args.url, args.maxChars);
-            if (name === 'workspace.read') {
-              if (args.offset) return await (workspace.read_range ? workspace.read_range(args.path, args.maxBytes||0, args.offset||0) : cur(args.path, args.maxBytes||0));
-              return await cur(args.path, args.maxBytes || 0);
-            }
-            if (name === 'workspace.apply_patch') {
-              const fn = (typeof workspace !== 'undefined' && workspace.apply_patch) ? workspace.apply_patch.bind(workspace) : null;
-              if (fn) return await fn(args.path, args.edits);
-              return await _j(function(){ return DHarness.workspaceApplyPatch(args.path, typeof args.edits==='string'?args.edits:JSON.stringify(args.edits||[])); });
-            }
-            if (name === 'workspace.replace') return await cur(args.path, args.find || args.old, args.replace || args.new, !!args.regex);
+            // Pass JSON string if function length is 1 and name suggests json
+            pendingById.delete(requestId);
             if (name === 'workspace.write') return await cur(args.path, args.content);
-            if (name === 'workspace.write_b64') return await cur(args.path, args.contentB64 || args.content);
-            if (name === 'workspace.ls' || name === 'workspace.pwd' || name === 'workspace.stat' || name === 'workspace.mkdir' || name === 'workspace.rm') return await cur(args.path);
+            if (name === 'workspace.read') return await cur(args.path, args.maxBytes || 0);
+            if (name === 'workspace.ls' || name === 'workspace.mkdir' || name === 'workspace.rm' || name === 'workspace.stat') return await cur(args.path);
             if (name === 'workspace.grep') return await cur(args.query || args.pattern, !!args.regex, args.maxHits || 50);
             if (name === 'workspace.head' || name === 'workspace.tail') return await cur(args.path, args.lines || 40);
-            if (name === 'workspace.tree') return await cur(args.path, args.depth || 2);
-            if (name === 'time.now') return await cur();
-            if (name === 'uuid.v4' || name === 'uuid') return await cur();
-            if (name === 'device.info') return await cur();
-            if (name === 'list_tools') return await cur();
-            if (name === 'http_request') return await cur(args);
-            if (name === 'github.request') return await cur(args.method || 'GET', args.path, args.body);
-            if (name === 'github.me') return await cur();
-            // run_js is an explicit tool — execute code only
-            if (name === 'run_js' || name === 'exec.js') {
-              const code = args.code || args.js || '';
-              if (!code) throw new Error('run_js requires args.code');
-              // Prefer native sandbox if present
-              if (typeof run_js === 'function') return await run_js(code);
-              // eslint-disable-next-line no-new-func
-              const fn = new Function('return (async()=>{' + code + '})()');
-              return await fn();
-            }
-            // Fallback: pass single args object if function length 1, else try common fields
             if (cur.length <= 1) return await cur(args);
             return await cur(args);
           }
         }
       } catch (e) {
-        throw new Error(String(e && e.message || e));
+        pendingById.delete(requestId);
+        throw e;
       }
     }
 
-    throw new Error('unknown tool: ' + name + ' — call list_tools; prefer native dotted tools. run_js only for custom JS.');
+    if (typeof toolHandlers[name] === 'function') {
+      pendingById.delete(requestId);
+      return await toolHandlers[name](args);
+    }
+
+    pendingById.delete(requestId);
+    throw new Error('unknown tool: ' + name + ' — call list_tools');
   }
 
   async function processToolCall(dsMessage, tool, mk, sig) {
@@ -2127,7 +2154,20 @@ async selftest() {
   }
 
   function scanForToolCalls(msgs) {
-    if (busy || !msgs.length) return;
+    if (busy) {
+      // Auto-recover if busy stuck (prevents 8-9 tool stop)
+      if (!scanForToolCalls._busySince) scanForToolCalls._busySince = Date.now();
+      if (Date.now() - scanForToolCalls._busySince > 45000) {
+        log('busy watchdog: clearing stuck busy');
+        busy = false;
+        scanForToolCalls._busySince = 0;
+      } else {
+        return;
+      }
+    } else {
+      scanForToolCalls._busySince = 0;
+    }
+    if (!msgs.length) return;
     const el = msgs[msgs.length - 1];
     const info = msgInfo(el);
     if (!info || !isRealId(info.id)) return;
