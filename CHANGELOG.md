@@ -1,3 +1,10 @@
+## 1.10.0
+
+- **workspace.apply_patch** — sequential exact search/replace (Claude Code style); fails if `old` not unique unless `replace_all`
+- **Atomic writes** — temp + fsync + rename for `workspace.write` / `write_b64`; always return `sha256`
+- Stronger agent instructions: read-before-edit, patch discipline, GitHub vs HTTP, efficiency rules
+- README rewritten for production FOSS (real capabilities only)
+
 ## 1.9.19
 
 - Claude theme uses [Anthropic-Fonts](https://github.com/wized2/Anthropic-Fonts) (CDN, zero APK font bloat)

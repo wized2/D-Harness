@@ -71,6 +71,10 @@ window.__DHarnessNative = {
       return _j(function () { return DHarness.workspaceRead(path, maxBytes || 0); });
     },
     write: function (path, content) { return _j(function () { return DHarness.workspaceWrite(path, content); }); },
+    apply_patch: function (path, edits) {
+      var ej = (typeof edits === 'string') ? edits : JSON.stringify(edits || []);
+      return _j(function () { return DHarness.workspaceApplyPatch(path, ej); });
+    },
     write_b64: function (path, contentB64) { return _j(function () { return DHarness.workspaceWriteB64(path, contentB64); }); },
     read_b64: function (path) { return _j(function () { return DHarness.workspaceReadB64(path); }); },
     mkdir: function (path) { return _j(function () { return DHarness.workspaceMkdir(path); }); },

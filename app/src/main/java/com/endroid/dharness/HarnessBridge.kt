@@ -304,6 +304,7 @@ class HarnessBridge(
         tool("code.imports", "Extract import/require/include lines from source.", JSONObject().put("path", "string?").put("content", "string?"))
         tool("code.detect_lang", "Guess language from path extension or content heuristics.", JSONObject().put("path", "string?").put("content", "string?"))
         tool("workspace.replace", "Find/replace in a workspace file (literal or regex).", JSONObject().put("path", "string").put("find", "string").put("replace", "string").put("regex", "boolean?"), example = "return await workspace.replace('a.txt', 'foo', 'bar', false)")
+        tool("workspace.apply_patch", "Apply sequential exact search/replace edits to one file (Claude Code style). Fails if old not unique unless replace_all.", JSONObject().put("path", "string").put("edits", "array of {old,new,replace_all?}"), example = "return await DHarness.workspaceApplyPatch('a.kt', JSON.stringify([{old:'foo',new:'bar'}]))")
         tool("workspace.head", "First N lines of a workspace file.", JSONObject().put("path", "string").put("lines", "number?"))
         tool("workspace.tail", "Last N lines of a workspace file.", JSONObject().put("path", "string").put("lines", "number?"))
         tool("workspace.glob", "List files under path matching a simple glob (*.kt, **/*.js).", JSONObject().put("pattern", "string").put("path", "string?").put("max", "number?"))
@@ -1858,13 +1859,34 @@ class HarnessBridge(
     fun workspaceRootPath(): String =
         JSONObject().put("ok", true).put("path", workspaceRoot.absolutePath).toString()
 
+    /** Atomic UTF-8 write: temp file in same dir → fsync → rename. Returns sha256. */
     @JavascriptInterface
     fun workspaceWrite(path: String, content: String): String {
         return try {
             val f = safeWorkspace(path)
             f.parentFile?.mkdirs()
-            f.writeText(content, Charsets.UTF_8)
-            JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", f.length()).toString()
+            val bytes = content.toByteArray(Charsets.UTF_8)
+            val tmp = File(f.parentFile, ".${f.name}.tmp-${System.nanoTime()}")
+            try {
+                FileOutputStream(tmp).use { out ->
+                    out.write(bytes)
+                    out.fd.sync()
+                }
+                if (!tmp.renameTo(f)) {
+                    // fallback copy+delete
+                    FileOutputStream(f).use { it.write(bytes) }
+                    tmp.delete()
+                }
+            } catch (e: Exception) {
+                tmp.delete()
+                throw e
+            }
+            JSONObject()
+                .put("ok", true)
+                .put("path", f.absolutePath)
+                .put("bytes", bytes.size)
+                .put("sha256", sha256(bytes))
+                .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -1876,9 +1898,82 @@ class HarnessBridge(
             val f = safeWorkspace(path)
             f.parentFile?.mkdirs()
             val bytes = Base64.decode(contentB64, Base64.DEFAULT)
-            FileOutputStream(f).use { it.write(bytes) }
+            val tmp = File(f.parentFile, ".${f.name}.tmp-${System.nanoTime()}")
+            try {
+                FileOutputStream(tmp).use { out ->
+                    out.write(bytes)
+                    out.fd.sync()
+                }
+                if (!tmp.renameTo(f)) {
+                    FileOutputStream(f).use { it.write(bytes) }
+                    tmp.delete()
+                }
+            } catch (e: Exception) {
+                tmp.delete()
+                throw e
+            }
             JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", bytes.size)
                 .put("sha256", sha256(bytes)).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    /**
+     * Claude-Code-style apply_patch: sequential search/replace blocks on one file.
+     * args JSON: { "path":"...", "edits":[{"old":"...","new":"..."}, ...] }
+     * Each old must appear exactly once (or use replace_all:true on an edit).
+     */
+    @JavascriptInterface
+    fun workspaceApplyPatch(path: String, editsJson: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
+            var text = f.readText(Charsets.UTF_8)
+            val edits = JSONArray(editsJson)
+            val applied = JSONArray()
+            for (i in 0 until edits.length()) {
+                val e = edits.getJSONObject(i)
+                val old = e.optString("old", e.optString("find", ""))
+                val neu = e.optString("new", e.optString("replace", ""))
+                val replaceAll = e.optBoolean("replace_all", false)
+                if (old.isEmpty()) {
+                    return JSONObject().put("ok", false).put("error", "edit $i: empty old").put("applied", applied).toString()
+                }
+                val count = old.toRegex(RegexOption.LITERAL).findAll(text).count()
+                if (count == 0) {
+                    return JSONObject().put("ok", false)
+                        .put("error", "edit $i: old text not found")
+                        .put("old_preview", old.take(120))
+                        .put("applied", applied)
+                        .toString()
+                }
+                if (count > 1 && !replaceAll) {
+                    return JSONObject().put("ok", false)
+                        .put("error", "edit $i: old text found $count times — set replace_all:true or make old unique")
+                        .put("matches", count)
+                        .put("applied", applied)
+                        .toString()
+                }
+                text = if (replaceAll) text.replace(old, neu) else text.replaceFirst(old, neu)
+                applied.put(JSONObject().put("index", i).put("matches", if (replaceAll) count else 1))
+            }
+            // atomic write
+            val bytes = text.toByteArray(Charsets.UTF_8)
+            val tmp = File(f.parentFile, ".${f.name}.tmp-${System.nanoTime()}")
+            FileOutputStream(tmp).use { out -> out.write(bytes); out.fd.sync() }
+            if (!tmp.renameTo(f)) {
+                FileOutputStream(f).use { it.write(bytes) }
+                tmp.delete()
+            }
+            JSONObject()
+                .put("ok", true)
+                .put("path", f.absolutePath)
+                .put("bytes", bytes.size)
+                .put("sha256", sha256(bytes))
+                .put("edits_applied", applied.length())
+                .put("applied", applied)
+                .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }

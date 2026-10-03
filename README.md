@@ -1,70 +1,28 @@
 # D-Harness
 
-Android harness for DeepSeek Chat: native tools, workspace sandbox, background agent.
+**Production Android harness for [DeepSeek Chat](https://chat.deepseek.com/)** — WebView + JS tool shim + native Kotlin bridge.
 
-## Highlights (1.8.0)
+Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with JSON tool calls.
 
-- **Artifacts**: HTML / simulation embeds in chat (sandboxed)
-- **Auto system prompt** on new conversations
-- Claude-style detailed agent instructions
+## What works
 
-## Highlights (1.7.1)
+| Area | Capabilities |
+|------|----------------|
+| **Workspace** | `ls`, `read` (range), `write` (atomic + sha256), `apply_patch`, `replace`, `grep`, `mkdir`, `rm`, `stat`, paste box |
+| **Agent loop** | Detect tool JSON → native execute → inject `TOOL_RESULT` → continue |
+| **Research** | `research.web`, HTML text extract, generic `http_request` |
+| **GitHub** | PAT-backed `github.request` / search / me |
+| **Device** | info, clipboard, notify, sensors (where available) |
+| **UI** | Claude-style theme, Thoughts / tools chips, projects panel, artifacts & charts |
+| **Background** | Foreground agent service during multi-step tool chains |
 
-- **Projects panel** (Claude-style) + chart/file-tree UI in chat
-- Zero-deps SVG charts, code copy, table polish
-
-## Highlights (1.7)
-
-- **Research**: `research.web`, URL preview, HTML text extract, research plans
-- **Exec languages**: run Python/Node/PHP/Ruby/Lua/Perl/sh when present on device
-- **Workspace grep**, regex tools, base64/uuid/time
-- **Primary API**: `DHarness.*` (see `selftest()`, `help()`, `capabilities()`)
-- Encrypted secrets, sensors, torch, geo, clipboard, CORS-free HTTP
-
-## Tool call
+## Tool call format
 
 ```json
-{"tool":"run_js","description":"Web research","args":{"code":"return await research({op:'web',query:'Material 3'})"}}
+{"tool":"workspace.apply_patch","description":"fix typo","args":{"path":"Main.kt","edits":[{"old":"foo","new":"bar"}]}}
 ```
 
-## Docs
-
-- In-app **Send system instructions**
-- `list_tools` / `describe` / `help`
-- [CHANGELOG.md](CHANGELOG.md)
-
-## License
-
-See repository license file.
-
-# D-Harness
-
-Android shell for [DeepSeek Chat](https://chat.deepseek.com/) with a **tool shim** and **native bridge**.
-
-## 1.5.17 highlights
-
-- Background agent tool loop
-- Tool call  drives tagline (no JSON chip)
-- Send instructions + explore workspace fixes
-
-## Features
-
-- Full-screen WebView chat + native tool bridge
-- Material 3 settings (dark, compact)
-- Tools: workspace, paste_box, GitHub, HTTP, memory/keys, device
-- Optional Claude theme · draggable FAB → settings
-
-## Size
-
-Release: **R8 minify + resource shrink**. Only Material widgets used by settings are retained; unused Material code is stripped.
-
-## Tools
-
-```json
-{"tool":"run_js","args":{"code":"return await list_tools()"}}
-```
-
-See in-app settings for the quick map. GitHub needs PAT key `github`.
+Then stop and wait for `TOOL_RESULT`.
 
 ## Build
 
@@ -72,6 +30,28 @@ See in-app settings for the quick map. GitHub needs PAT key `github`.
 ./gradlew :app:assembleRelease
 ```
 
+Release uses R8 minify + resource shrink. Sign with a **single** long-lived keystore so updates install cleanly.
+
+## Settings
+
+- Paste / store secrets (e.g. GitHub PAT under key `github`)
+- Send system instructions into the current chat
+- Explore workspace files on device
+
+## Architecture
+
+```
+DeepSeek WebView  ←→  shim.js (detect tool JSON, send TOOL_RESULT)
+                         ↓
+                   native_bridge.js
+                         ↓
+                   HarnessBridge.kt  (workspace, HTTP, GitHub, device)
+```
+
 ## License
 
-MIT
+MIT — see repository license.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).

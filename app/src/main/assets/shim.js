@@ -1867,6 +1867,7 @@ async selftest() {
             if (name === 'research.web') return await cur(args.query || args.q || '', args.maxSources || args.limit || 5);
             if (name === 'research.preview' || name === 'research.html_text') return await cur(args.url, args.maxChars);
             if (name === 'workspace.read') return await cur(args.path, args.maxBytes);
+            if (name === 'workspace.apply_patch') return await (workspace.apply_patch || (async function(path, edits){ return await DHarness.workspaceApplyPatch(path, typeof edits==='string'?edits:JSON.stringify(edits||[])); }))(args.path, args.edits);
             if (name === 'workspace.write') return await cur(args.path, args.content);
             if (name === 'workspace.ls' || name === 'workspace.pwd') return await cur(args.path);
             // Fallback: pass single args object if function length 1, else try common fields
