@@ -4718,5 +4718,6 @@ class HarnessBridge(
     // (workspaceWrite already exists — patch to call historySnapshot)
 
 
+
 }
 }
