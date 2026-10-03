@@ -1882,7 +1882,7 @@ class HarnessBridge(
     fun workspaceWrite(path: String, content: String): String {
         return try {
             // Guard: if content looks like stringified object, reject
-            if (content == "[object Object]" || content.startsWith("{") && content.contains(""path"") && path.isBlank()) {
+            if (content == "[object Object]") {
                 return JSONObject().put("ok", false).put("error", "ARGS_NOT_UNWRAPPED")
                     .put("hint", "pass path and content as separate string fields").toString()
             }
@@ -2727,8 +2727,8 @@ class HarnessBridge(
                 // sync wrapper not available — mark
                 JSONObject().put("ok", false).put("error", "use github.me via async bridge").toString()
             }
-            "toast" -> { toast(sAny("message", "text")); JSONObject().put("ok", true).toString() }
-            "vibrate" -> vibrate(i("ms", 50))
+            "toast" -> run { toast(sAny("message", "text")); JSONObject().put("ok", true).toString() }
+            "vibrate" -> run { vibrate(i("ms", 50)); JSONObject().put("ok", true).toString() }
             "notify" -> notify(sAny("title"), sAny("body", "text", "message"))
             "exec.langs" -> execLangs()
             "exec.which" -> execWhich(sAny("bin", "name", "cmd"))
