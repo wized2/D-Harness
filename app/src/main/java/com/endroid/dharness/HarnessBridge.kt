@@ -1568,7 +1568,7 @@ class HarnessBridge(
     @JavascriptInterface
     fun codeFindTodos(path: String?, maxHits: Int): String {
         return try {
-            val root = if (path.isNullOrBlank()) workspaceRoot else safeFile(path)
+            val root = if (path.isNullOrBlank()) workspaceRoot else safeWorkspace(path)
             val limit = if (maxHits <= 0) 50 else maxHits.coerceAtMost(200)
             val hits = JSONArray()
             val re = Regex("""(?i)\b(TODO|FIXME|HACK|XXX)\b.*""")
@@ -4826,29 +4826,5 @@ class HarnessBridge(
         }
     }
 
-    @JavascriptInterface
-    fun codeFindTodos(path: String?, max: Int): String {
-        return try {
-            val root = if (path.isNullOrBlank()) workspaceRoot else safeWorkspace(path)
-            val limit = if (max <= 0) 50 else max.coerceAtMost(200)
-            val re = Regex("""(?i)\b(TODO|FIXME|HACK|XXX)\b.*""")
-            val hits = JSONArray()
-            fun walk(f: java.io.File) {
-                if (hits.length() >= limit) return
-                if (f.isDirectory) { f.listFiles()?.forEach { walk(it) }; return }
-                if (f.length() > 1_000_000) return
-                try {
-                    f.readLines().forEachIndexed { i, line ->
-                        if (hits.length() >= limit) return
-                        if (re.containsMatchIn(line)) {
-                            val rel = try { f.relativeTo(workspaceRoot).path } catch (_: Exception) { f.name }
-                            hits.put(JSONObject().put("path", rel).put("line", i + 1).put("text", line.trim().take(200)))
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-            walk(root)
-            JSONObject().put("ok", true).put("count", hits.length()).put("hits", hits).toString()
-        } catch (e: Exception) {
-            JSONObject().put("ok", false).put("error", e.message).toString()
+}
 }
