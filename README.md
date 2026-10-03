@@ -4,6 +4,8 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with JSON tool calls.
 
+**1.11:** Native-first tool routing (run_js is last-resort only), robust DeepSeek DSML V4 parsing, atomic writes + apply_patch.
+
 ## What works
 
 | Area | Capabilities |

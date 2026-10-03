@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.9.19';
+  const VERSION = '1.11.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -24,9 +24,9 @@
     confirmSensitive: true,
     callMustBeLast: true,
     maxResultChars: 100000,
-    settleMs: 450,
-    scanThrottleMs: 150,
-    fallbackScanMs: 600,
+    settleMs: 320,
+    scanThrottleMs: 100,
+    fallbackScanMs: 400,
     hideFlashMs: 120,
   }, window.__DS_SHIM_CONFIG__ || {});
 
@@ -1525,63 +1525,91 @@ async selftest() {
   function extractDsmlToolCall(raw) {
     let text = String(raw || '');
     if (!/DSML|invoke\s+name\s*=/i.test(text)) return null;
-    // Normalize DeepSeek DSML noise: <|DSML|>, | DSML |, broken tags
+
+    // Normalize V4 + mangled gateways:
+    //   <｜DSML｜tool_calls>  <｜DSML｜ calls>  <||DSML||tool_calls>  <｜DSML｜toolcalls>
     text = text
-      .replace(/<\|?\s*DSML\s*\|?>/gi, ' ')
-      .replace(/\|\s*DSML\s*\|/gi, ' ')
-      .replace(/<\/?\s*\|?\s*DSML\s*\|?\s*>/gi, ' ')
-      .replace(/\s+/g, ' ');
+      .replace(/<\|{1,2}\s*DSML\s*\|{1,2}\s*\/?\s*(tool[_\s]?calls|calls|invoke|parameter)?\s*>/gi, ' ')
+      .replace(/<\/?\s*\|{0,2}\s*DSML\s*\|{0,2}[^>]*>/gi, ' ')
+      .replace(/<\|end▁of▁sentence\|>/gi, ' ')
+      .replace(/\uFF5C/g, '|'); // fullwidth bar → ascii
 
-    const inv = text.match(/invoke\s+name\s*=\s*["']([^"']+)["']/i)
-      || text.match(/invoke\s+name\s*=\s*([a-zA-Z0-9_.]+)/i);
-    if (!inv) return null;
-    const tool = inv[1].trim();
+    // Prefer last complete invoke block (model sometimes retries)
+    const invBlocks = [];
+    const invRe = /invoke\s+name\s*=\s*["']([^"']+)["']([\s\S]*?)(?:invoke\s+name\s*=|tool[_\s]?calls|$)/gi;
+    let m;
+    const allInv = [...text.matchAll(/invoke\s+name\s*=\s*["']([^"']+)["']/gi)];
+    if (!allInv.length) {
+      const bare = text.match(/invoke\s+name\s*=\s*([a-zA-Z0-9_.]+)/i);
+      if (!bare) return null;
+      allInv.push(bare);
+    }
+    // Use the last invoke name
+    const last = allInv[allInv.length - 1];
+    const tool = (last[1] || '').trim();
+    if (!tool) return null;
 
+    // Slice from last invoke to end for parameter scan
+    const invIdx = text.lastIndexOf(last[0]);
+    const region = invIdx >= 0 ? text.slice(invIdx) : text;
+
+    const args = {};
     let description = '';
-    const dMatch = text.match(/parameter\s+name\s*=\s*["']description["'][^>]*>([^<]{0,200})/i)
-      || text.match(/name\s*=\s*["']description["'][^>]*string\s*=\s*["']true["'][^>]*>([^<]{0,200})/i)
-      || text.match(/description["']\s*string\s*=\s*["']true["']\s*>([^<]{0,200})/i);
-    if (dMatch) description = dMatch[1].replace(/<\/?[^>]+>/g, '').trim();
 
-    let args = {};
-    // args as JSON blob after name="args"
-    const argsJson = text.match(/parameter\s+name\s*=\s*["']args["'][^>]*>(\{[\s\S]*?\})/i)
-      || text.match(/name\s*=\s*["']args["'][^>]*>(\{[\s\S]*?\})/i)
-      || text.match(/["']args["'][^>]*string\s*=\s*["']false["']\s*>(\{[\s\S]*?\})/i);
-    if (argsJson) {
+    // parameter name="X" string="true|false">VALUE
+    const paramRe = /parameter\s+name\s*=\s*["']([^"']+)["']([^>]*)>([\s\S]*?)(?=parameter\s+name\s*=|invoke\s+name\s*=|tool[_\s]?calls|$)/gi;
+    let pm;
+    while ((pm = paramRe.exec(region)) !== null) {
+      const pname = pm[1].trim();
+      const meta = pm[2] || '';
+      let val = (pm[3] || '').replace(/<\/?[^>]+>/g, '').trim();
+      // strip trailing DSML closers leaked into value
+      val = val.replace(/<\/?\s*\|?\s*DSML[^>]*>/gi, '').trim();
+      const isString = /string\s*=\s*["']true["']/i.test(meta) || !/string\s*=\s*["']false["']/i.test(meta);
+      if (pname === 'description') {
+        description = val.slice(0, 200);
+        continue;
+      }
+      if (pname === 'args' && val.startsWith('{')) {
+        try { Object.assign(args, JSON.parse(val)); continue; } catch (_) {}
+      }
+      if (!isString) {
+        try { args[pname] = JSON.parse(val); continue; } catch (_) {}
+      }
+      // unescape common JSON string escapes
       try {
-        args = JSON.parse(argsJson[1]);
-      } catch (e) {
-        // try to extract code field loosely
-        const codeM = argsJson[1].match(/"code"\s*:\s*"((?:\\.|[^"\\])*)"/);
-        if (codeM) {
-          try { args = { code: JSON.parse('"' + codeM[1] + '"') }; } catch { args = { code: codeM[1] }; }
-        }
+        if (val.startsWith('"') && val.endsWith('"')) args[pname] = JSON.parse(val);
+        else args[pname] = val;
+      } catch (_) {
+        args[pname] = val;
       }
     }
-    // code parameter separately
-    if (!args.code) {
-      const codeParam = text.match(/parameter\s+name\s*=\s*["']code["'][^>]*>([^<]+)/i)
-        || text.match(/"code"\s*:\s*"((?:\\.|[^"\\])*)"/);
-      if (codeParam) {
-        let c = codeParam[1];
-        try { c = JSON.parse('"' + c.replace(/^"/, '').replace(/"$/, '') + '"'); } catch {}
-        args.code = c;
+
+    // JSON tool form sometimes nested after DSML noise
+    if (!Object.keys(args).length) {
+      const j = region.match(/\{[\s\S]*"tool"\s*:\s*["'][^"']+["'][\s\S]*\}/);
+      if (j) {
+        try {
+          const o = JSON.parse(j[0]);
+          if (o && o.args) Object.assign(args, o.args);
+          if (o && o.description) description = String(o.description);
+        } catch (_) {}
       }
     }
-    // Common: run_js with code in args
-    if (tool === 'run_js' && typeof args.code !== 'string') {
-      // last chance: return await ... pattern in text
-      const codeLoose = text.match(/return\s+await\s+[a-zA-Z0-9_.]+\([^)]*\)/);
+
+    // run_js incomplete without code
+    if ((tool === 'run_js' || tool === 'exec.js') && typeof args.code !== 'string') {
+      const codeLoose = region.match(/return\s+await\s+[a-zA-Z0-9_.$]+\([^)]*\)/);
       if (codeLoose) args.code = codeLoose[0];
-      else return null; // incomplete
+      else return null;
     }
 
-    // Flatten dotted tool with empty args
-    if (!args || typeof args !== 'object') args = {};
-
-    const obj = { tool: tool, description: description || tool, args: args };
-    return { obj: obj, full: String(raw).slice(0, Math.min(String(raw).length, 800)), end: String(raw).length };
+    return {
+      obj: { tool: tool, description: description || tool, args: args },
+      full: region.slice(0, Math.min(region.length, 4000)),
+      end: text.length,
+      dsml: true
+    };
   }
 
   const _extractToolCallPlain = extractToolCall;
@@ -1866,10 +1894,39 @@ async selftest() {
             // Heuristic positional args for common tools
             if (name === 'research.web') return await cur(args.query || args.q || '', args.maxSources || args.limit || 5);
             if (name === 'research.preview' || name === 'research.html_text') return await cur(args.url, args.maxChars);
-            if (name === 'workspace.read') return await cur(args.path, args.maxBytes);
-            if (name === 'workspace.apply_patch') return await (workspace.apply_patch || (async function(path, edits){ return await DHarness.workspaceApplyPatch(path, typeof edits==='string'?edits:JSON.stringify(edits||[])); }))(args.path, args.edits);
+            if (name === 'workspace.read') {
+              if (args.offset) return await (workspace.read_range ? workspace.read_range(args.path, args.maxBytes||0, args.offset||0) : cur(args.path, args.maxBytes||0));
+              return await cur(args.path, args.maxBytes || 0);
+            }
+            if (name === 'workspace.apply_patch') {
+              const fn = (typeof workspace !== 'undefined' && workspace.apply_patch) ? workspace.apply_patch.bind(workspace) : null;
+              if (fn) return await fn(args.path, args.edits);
+              return await _j(function(){ return DHarness.workspaceApplyPatch(args.path, typeof args.edits==='string'?args.edits:JSON.stringify(args.edits||[])); });
+            }
+            if (name === 'workspace.replace') return await cur(args.path, args.find || args.old, args.replace || args.new, !!args.regex);
             if (name === 'workspace.write') return await cur(args.path, args.content);
-            if (name === 'workspace.ls' || name === 'workspace.pwd') return await cur(args.path);
+            if (name === 'workspace.write_b64') return await cur(args.path, args.contentB64 || args.content);
+            if (name === 'workspace.ls' || name === 'workspace.pwd' || name === 'workspace.stat' || name === 'workspace.mkdir' || name === 'workspace.rm') return await cur(args.path);
+            if (name === 'workspace.grep') return await cur(args.query || args.pattern, !!args.regex, args.maxHits || 50);
+            if (name === 'workspace.head' || name === 'workspace.tail') return await cur(args.path, args.lines || 40);
+            if (name === 'workspace.tree') return await cur(args.path, args.depth || 2);
+            if (name === 'time.now') return await cur();
+            if (name === 'uuid.v4' || name === 'uuid') return await cur();
+            if (name === 'device.info') return await cur();
+            if (name === 'list_tools') return await cur();
+            if (name === 'http_request') return await cur(args);
+            if (name === 'github.request') return await cur(args.method || 'GET', args.path, args.body);
+            if (name === 'github.me') return await cur();
+            // run_js is an explicit tool — execute code only
+            if (name === 'run_js' || name === 'exec.js') {
+              const code = args.code || args.js || '';
+              if (!code) throw new Error('run_js requires args.code');
+              // Prefer native sandbox if present
+              if (typeof run_js === 'function') return await run_js(code);
+              // eslint-disable-next-line no-new-func
+              const fn = new Function('return (async()=>{' + code + '})()');
+              return await fn();
+            }
             // Fallback: pass single args object if function length 1, else try common fields
             if (cur.length <= 1) return await cur(args);
             return await cur(args);
@@ -1880,7 +1937,7 @@ async selftest() {
       }
     }
 
-    throw new Error('unknown tool: ' + name + ' — use list_tools or run_js with globals (workspace/github/device/research)');
+    throw new Error('unknown tool: ' + name + ' — call list_tools; prefer native dotted tools. run_js only for custom JS.');
   }
 
   async function processToolCall(dsMessage, tool, mk, sig) {
@@ -2422,7 +2479,7 @@ async selftest() {
     root.style.setProperty('--dh-code-bg', dark ? (claude ? '#1f1e1b' : '#2a2b30') : (claude ? '#f3f1ec' : '#f1f3f4'));
   }
   applyThemeTokens();
-  setInterval(applyThemeTokens, 2000);
+  setInterval(applyThemeTokens, 5000);
 
   function chartWrap(title, svg) {
     return `<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>${esc(title || 'Chart')}</h4>${svg}</div>`;

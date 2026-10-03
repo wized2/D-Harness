@@ -143,6 +143,7 @@ class HarnessBridge(
             tools.put(o)
         }
         tool("list_tools", "Full tool catalog with params, call form, and examples. Call this before inventing APIs.", JSONObject(), example = "return await list_tools()")
+        tool("run_js", "Execute custom JS in the tool sandbox (last resort). Prefer native dotted tools. args.code required.", JSONObject().put("code", "string"), example = "{\"tool\":\"run_js\",\"args\":{\"code\":\"return await workspace.ls()\"}}")
         tool("selftest", "Probe which tools are actually bound", JSONObject())
         tool("research.web", "Multi-source web research (DDG + Wikipedia + pages)", JSONObject().put("query", "string").put("maxSources", "number?"))
         tool("research.preview", "URL title/description preview", JSONObject().put("url", "string"))

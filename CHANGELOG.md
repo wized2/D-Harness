@@ -1,3 +1,11 @@
+## 1.11.0
+
+- **DSML V4 parser**: handles `<｜DSML｜ calls>`, mangled `||DSML||`, `toolcalls` typos, multi-parameter invoke blocks
+- **Native-first tools**: dispatch routes for apply_patch, replace, grep, head/tail, tree, github, http, time, uuid — `run_js` is one explicit tool only
+- Faster tool settle (320ms) + lower scan throttle; theme poll 5s (less main-thread work)
+- Stronger agent instructions: read-before-edit, native over run_js, efficiency rules
+- native_bridge: replace / head / tail helpers
+
 ## 1.10.0
 
 - **workspace.apply_patch** — sequential exact search/replace (Claude Code style); fails if `old` not unique unless `replace_all`
