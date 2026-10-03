@@ -1,3 +1,22 @@
+## 1.16.0
+
+### Reliability & agent UX
+- Scan only last N messages (faster loop)
+- TOOL_RESULT compaction for long payloads
+- Slash commands: /ls /read /grep /tasks /memory /project /selftest …
+- Floating task bar from task.list
+- Trajectory log (last 100 dispatches)
+- Policy modes: open | allow_reads | ask_mutations | strict
+- selftest.deep end-to-end probes
+- Metrics: stale rejects, agent.metrics
+
+### Tools
+- tools.groups, workspace.count/which, hash.file, text.word_count
+- keys.set/list, notify.simple, util.sleep, policy.mode, trajectory.log
+
+### Docs
+- TOOLS.md, ARCHITECTURE.md, CONTRIBUTING.md
+
 ## 1.15.0
 
 ### Tool calling & shim

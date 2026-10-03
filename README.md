@@ -4,7 +4,7 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
 
-**Current: 1.15.0** — Robust DSML V4 / V4.1 detection (optional), unified workspace root, auto-continue, policy enforcement, multi-file patches, project/memory context.
+**Current: 1.16.0** — Robust DSML V4 / V4.1 detection (optional), unified workspace root, auto-continue, policy enforcement, multi-file patches, project/memory context.
 
 ## What works
 
@@ -52,6 +52,10 @@ JSON inside `invoke` is also supported.
 ```
 
 Release uses R8 minify + resource shrink. Sign with a **single** long-lived keystore so updates install cleanly.
+
+## Slash commands
+
+In the chat box: `/ls`, `/read path`, `/grep q`, `/tasks`, `/task …`, `/memory …`, `/project`, `/selftest`, `/tools …`.
 
 ## Settings
 

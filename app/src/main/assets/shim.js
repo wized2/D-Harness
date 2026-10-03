@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.15.0';
+  const VERSION = '1.16.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -35,6 +35,11 @@
     autoContinue: true,
     maxAutoContinue: 40,
     maxSendAttempts: 6,
+    scanLastMessages: 12,
+    compactToolResults: true,
+    compactMaxChars: 4000,
+    hardReadBeforeEdit: false,
+    slashCommands: true,
   }, window.__DS_SHIM_CONFIG__ || {});
   // Persist toggles
   try {
@@ -1274,10 +1279,65 @@ async selftest() {
     return !isGenerating();
   }
 
+
+  function trySlashCommand(text) {
+    if (!CONFIG.slashCommands) return null;
+    const s = String(text || '').trim();
+    if (!s.startsWith('/')) return null;
+    const parts = s.slice(1).split(/\s+/);
+    const cmd = (parts[0] || '').toLowerCase();
+    const rest = parts.slice(1).join(' ');
+    const mk = (tool, args, desc) => JSON.stringify({ tool: tool, description: desc || cmd, args: args || {} });
+    switch (cmd) {
+      case 'help':
+        return mk('list_tools', {}, 'help');
+      case 'ls':
+        return mk('workspace.ls', { path: rest || '.' }, 'ls');
+      case 'read':
+        return mk('workspace.read', { path: rest }, 'read');
+      case 'grep':
+        return mk('workspace.grep', { query: rest, maxHits: 40 }, 'grep');
+      case 'glob':
+        return mk('workspace.glob', { pattern: rest || '**/*' }, 'glob');
+      case 'tasks':
+        return mk('task.list', {}, 'tasks');
+      case 'task':
+        return mk('task.add', { content: rest }, 'add task');
+      case 'memory':
+        return mk('memory.append', { text: rest }, 'memory');
+      case 'project':
+        return mk('project.context', {}, 'project');
+      case 'index':
+        return mk('index.fresh', {}, 'index');
+      case 'log':
+        return mk('dispatch.log', {}, 'log');
+      case 'selftest':
+        return mk('selftest', { deep: true }, 'selftest');
+      case 'tools':
+        return mk('tools.for_task', { task: rest || 'general coding' }, 'tools');
+      case 'diff':
+        return mk('workspace.stat', { path: rest }, 'stat');
+      case 'pwd':
+        return mk('workspace.ls', { path: '.' }, 'pwd');
+      case 'policy':
+        return mk('policy.check', { tool: rest || '*' }, 'policy');
+      default:
+        return null;
+    }
+  }
+
   async function sendMessageOnce(text) {
     if (text && !String(text).startsWith("TOOL_RESULT") && String(text).toLowerCase() !== "continue") {
       toolsSinceUser = 0; autoContinueCount = 0;
     }
+    // Slash commands → synthetic tool call message
+    try {
+      const slash = trySlashCommand(text);
+      if (slash) {
+        log('slash →', slash.slice(0, 120));
+        text = slash;
+      }
+    } catch (_) {}
     const input = getInput();
     if (!input) { log('no input'); return false; }
 
@@ -1928,6 +1988,13 @@ async selftest() {
   }
 
   let busy = false;
+  let staleRejects = 0;
+  let toolsOk = 0;
+  let toolsFail = 0;
+  window.__DH_METRICS__ = function() {
+    return { staleRejects, toolsOk, toolsFail, toolsSinceUser, autoContinueCount, version: VERSION };
+  };
+
   let _reqSeq = 0;
   const pendingById = new Map();
   const handled = new Set();
@@ -1970,6 +2037,7 @@ async selftest() {
           const err = new Error('STALE_RESPONSE: expected ' + requestId + ' got ' + gotId);
           err.code = 'STALE_RESPONSE';
           err.retryable = true;
+          staleRejects++;
           throw err;
         }
         if (gotTool && gotTool !== name && gotTool !== '__parse_error__') {
@@ -2076,6 +2144,17 @@ async selftest() {
 
     pendingById.delete(requestId);
     throw new Error('unknown tool: ' + name + ' — call list_tools');
+  }
+
+
+  function compactResult(str) {
+    if (!CONFIG.compactToolResults) return str;
+    const max = CONFIG.compactMaxChars || 4000;
+    if (!str || str.length <= max) return str;
+    // Keep head + tail for structure
+    const head = Math.floor(max * 0.7);
+    const tail = Math.floor(max * 0.25);
+    return str.slice(0, head) + '\n…[compacted ' + (str.length - head - tail) + ' chars]…\n' + str.slice(-tail);
   }
 
   async function processToolCall(dsMessage, tool, mk, sig) {
@@ -2272,6 +2351,13 @@ async selftest() {
   }
 
   function scanForToolCalls(msgs) {
+    // Only inspect the last N messages for speed
+    try {
+      const n = CONFIG.scanLastMessages || 12;
+      if (msgs && msgs.length > n) {
+        msgs = Array.prototype.slice.call(msgs, -n);
+      }
+    } catch (_) {}
     if (busy) {
       // Auto-recover if busy stuck (prevents 8-9 tool stop)
       if (!scanForToolCalls._busySince) scanForToolCalls._busySince = Date.now();
@@ -2350,6 +2436,37 @@ async selftest() {
 
   let lastTickAt = 0;
   let tickScheduled = false;
+
+
+  function ensureTaskBar() {
+    let bar = document.getElementById('dh-task-bar');
+    if (bar) return bar;
+    bar = document.createElement('div');
+    bar.id = 'dh-task-bar';
+    bar.style.cssText = 'position:fixed;left:8px;right:8px;bottom:72px;z-index:99998;max-height:96px;overflow:auto;font:11px/1.3 system-ui,sans-serif;color:#e5e7eb;background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:10px;padding:6px 8px;display:none;backdrop-filter:blur(6px)';
+    document.documentElement.appendChild(bar);
+    return bar;
+  }
+  async function renderTaskBar() {
+    try {
+      const bar = ensureTaskBar();
+      const dh = window.DHarness || window.native_bridge;
+      if (!dh || !dh.invokeJson) { bar.style.display = 'none'; return; }
+      const raw = dh.invokeJson('task.list', '{}', 'ui-tasks');
+      const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const tasks = (o && o.tasks) || (o && o.data && o.data.tasks) || [];
+      if (!tasks.length) { bar.style.display = 'none'; return; }
+      const html = tasks.slice(0, 8).map(function(t) {
+        const st = (t.status || 'pending');
+        const col = st === 'completed' ? '#22c55e' : st === 'in_progress' ? '#38bdf8' : '#94a3b8';
+        return '<div style="margin:2px 0"><span style="color:' + col + '">●</span> ' +
+          (t.content || t.id || '').toString().slice(0, 80) + ' <span style="opacity:.6">[' + st + ']</span></div>';
+      }).join('');
+      bar.innerHTML = '<div style="font-weight:600;margin-bottom:4px;color:#93c5fd">Tasks</div>' + html;
+      bar.style.display = 'block';
+    } catch (_) {}
+  }
+  setInterval(function() { renderTaskBar(); }, 4000);
 
   function runTick() {
     tickScheduled = false;

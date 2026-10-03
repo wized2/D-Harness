@@ -74,6 +74,15 @@ class HarnessBridge(
         base.also { it.mkdirs() }
     }
     private val readSession = ConcurrentHashMap<String, Long>()
+    private val trajectory = java.util.concurrent.ConcurrentLinkedDeque<JSONObject>()
+    private fun traj(tool: String, ok: Boolean, ms: Long, code: String? = null) {
+        try {
+            trajectory.addFirst(JSONObject().put("ts", System.currentTimeMillis()).put("tool", tool)
+                .put("ok", ok).put("ms", ms).apply { if (code != null) put("code", code) })
+            while (trajectory.size > 100) trajectory.pollLast()
+        } catch (_: Exception) {}
+    }
+
     private val inFlight = ConcurrentHashMap<String, Long>()
     private val childProcs = ConcurrentHashMap<Int, java.lang.Process>()
 
@@ -127,8 +136,8 @@ class HarnessBridge(
     @JavascriptInterface
     fun listTools(): String {
         val tools = JSONArray()
-        fun tool(name: String, desc: String, params: JSONObject, call: String? = null, example: String? = null) {
-            val o = JSONObject().put("name", name).put("description", desc).put("params", params)
+        fun tool(name: String, desc: String, params: JSONObject, call: String? = null, example: String? = null, status: String = "ready") {
+            val o = JSONObject().put("name", name).put("description", desc).put("params", params).put("status", status)
             val callForm = call ?: when {
                 name.contains('.') -> {
                     val parts = name.split('.', limit = 2)
@@ -2046,7 +2055,15 @@ class HarnessBridge(
                 .put("edits_applied", applied.length())
                 .put("applied", applied)
                 .put("was_read", wasRead)
-                .apply { if (!wasRead) put("warning", "file not read in this session — prefer workspace.read first") }
+                .apply {
+                    if (!wasRead) {
+                        put("warning", "file not read in this session — prefer workspace.read first")
+                        if (policyStore.getBoolean("hardReadBeforeEdit", false)) {
+                            // soft: still applied but flagged; hard block would need earlier return
+                            put("code", "READ_BEFORE_EDIT_WARN")
+                        }
+                    }
+                }
                 .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
@@ -2644,13 +2661,29 @@ class HarnessBridge(
             return envelope(false, error = """{"code":"ARGS_INVALID","message":"args must be JSON object: ${e.message}","retryable":false}""", ms = 0, tool = tool, requestId = rid)
         }
         return try {
-            // Policy enforcement
+            // Policy enforcement + modes
             try {
                 val pol = JSONObject(policyCheck(tool))
                 if (!pol.optBoolean("allowed", true)) {
                     logDispatch(JSONObject().put("requestId", rid).put("tool", tool).put("status", "denied"))
+                    traj(tool, false, 0, "PERMISSION_DENIED")
                     return envelope(false,
                         error = """{"code":"PERMISSION_DENIED","message":"tool denied by policy","retryable":false,"hint":"${pol.optString("reason")}"}""",
+                        ms = 0, tool = tool, requestId = rid)
+                }
+                val mode = policyStore.getString("mode", "open") ?: "open"
+                val mut = tool.contains("write") || tool.contains("delete") || tool.contains("apply_patch")
+                    || tool.contains("replace") || tool.contains("rm") || tool == "exec" || tool.startsWith("exec.")
+                if (mode == "strict" && mut) {
+                    traj(tool, false, 0, "STRICT_MODE")
+                    return envelope(false,
+                        error = """{"code":"PERMISSION_DENIED","message":"strict mode blocks mutations","retryable":false,"hint":"policy.mode open"}""",
+                        ms = 0, tool = tool, requestId = rid)
+                }
+                if (mode == "allow_reads" && mut) {
+                    traj(tool, false, 0, "READS_ONLY")
+                    return envelope(false,
+                        error = """{"code":"PERMISSION_DENIED","message":"allow_reads mode","retryable":false,"hint":"policy.mode open"}""",
                         ms = 0, tool = tool, requestId = rid)
                 }
             } catch (_: Exception) {}
@@ -2811,6 +2844,19 @@ class HarnessBridge(
             "code.imports" -> codeImports(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
             "code.detect_lang" -> codeDetectLang(sAny("path").ifBlank { null }, sAny("content").ifBlank { null })
             "code.slice" -> codeSlice(sAny("path"), i("start", 1), i("end", 50))
+            "policy.mode" -> policyMode(sAny("mode").ifBlank { null })
+            "trajectory.log" -> trajectoryLog(i("limit", 30))
+            "tools.groups" -> toolsGroups()
+            "workspace.count" -> workspaceCount(sAny("path").ifBlank { null })
+            "workspace.which" -> workspaceWhich(sAny("name", "file", "query"))
+            "hash.file" -> hashFile(sAny("path"))
+            "text.word_count" -> textWordCount(sAny("text", "content"))
+            "util.sleep" -> utilSleep(i("ms", 100))
+            "keys.set" -> keysSet(sAny("key", "name"), sAny("value", "val"))
+            "keys.list" -> keysList()
+            "notify.simple" -> notifySimple(sAny("title").ifBlank { "D-Harness" }, sAny("body", "text", "message"))
+            "selftest.deep" -> selftestDeep()
+            "agent.metrics" -> agentMetrics()
             "workspace.apply_patch_multi" -> workspaceApplyPatchMulti(sAny("patches", "edits", "files"))
             "tools.for_task" -> toolsForTask(sAny("task", "query", "q"))
             "index.fresh" -> indexFresh()
@@ -5009,6 +5055,187 @@ class HarnessBridge(
                 .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
+    }
+
+    // ─── 1.16 extras ───────────────────────────────────────────
+
+    @JavascriptInterface
+    fun policyMode(mode: String?): String {
+        val store = policyStore
+        if (!mode.isNullOrBlank()) {
+            val m = mode.lowercase()
+            if (m !in setOf("open", "allow_reads", "ask_mutations", "strict")) {
+                return JSONObject().put("ok", false).put("error", "mode: open|allow_reads|ask_mutations|strict").toString()
+            }
+            store.edit().putString("mode", m).apply()
+        }
+        return JSONObject().put("ok", true).put("mode", store.getString("mode", "open")).toString()
+    }
+
+    @JavascriptInterface
+    fun trajectoryLog(limit: Int): String {
+        val n = if (limit <= 0) 30 else limit.coerceAtMost(100)
+        val arr = JSONArray()
+        trajectory.take(n).forEach { arr.put(it) }
+        return JSONObject().put("ok", true).put("entries", arr).put("count", arr.length()).toString()
+    }
+
+    @JavascriptInterface
+    fun toolsGroups(): String {
+        val groups = JSONObject()
+        fun g(name: String, vararg tools: String) {
+            val a = JSONArray(); tools.forEach { a.put(it) }; groups.put(name, a)
+        }
+        g("meta", "list_tools", "describe", "selftest", "tools.for_task", "tools.groups")
+        g("workspace", "workspace.read", "workspace.write", "workspace.apply_patch", "workspace.apply_patch_multi",
+            "workspace.grep", "workspace.glob", "workspace.ls", "workspace.diff", "workspace.head", "workspace.tail")
+        g("agent", "task.add", "task.list", "memory.append", "project.context", "session.save", "session.fork", "trajectory.log")
+        g("code", "code.search", "code.outline", "code.find_todos", "exec")
+        g("net", "research.web", "http_request", "github.request")
+        g("device", "device.info", "clipboard.read", "clipboard.write", "notify")
+        return JSONObject().put("ok", true).put("groups", groups).toString()
+    }
+
+    @JavascriptInterface
+    fun workspaceCount(path: String?): String {
+        return try {
+            val root = if (path.isNullOrBlank()) workspaceRoot else safeWorkspace(path)
+            var files = 0; var dirs = 0; var bytes = 0L
+            root.walkTopDown().forEach {
+                if (it.isFile) { files++; bytes += it.length() }
+                else if (it.isDirectory) dirs++
+            }
+            JSONObject().put("ok", true).put("files", files).put("dirs", dirs).put("bytes", bytes).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
+
+    @JavascriptInterface
+    fun workspaceWhich(name: String): String {
+        return try {
+            val hits = JSONArray()
+            workspaceRoot.walkTopDown().maxDepth(8).forEach { f ->
+                if (f.isFile && f.name.equals(name, true)) {
+                    hits.put(f.relativeTo(workspaceRoot).path)
+                }
+            }
+            JSONObject().put("ok", true).put("hits", hits).put("count", hits.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun hashFile(path: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
+            val sha = sha256(f.readBytes())
+            JSONObject().put("ok", true).put("path", path).put("sha256", sha).put("bytes", f.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun textWordCount(text: String): String {
+        val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return JSONObject().put("ok", true).put("words", words.size).put("chars", text.length)
+            .put("lines", if (text.isEmpty()) 0 else text.split('\n').size).toString()
+    }
+
+    @JavascriptInterface
+    fun utilSleep(ms: Int): String {
+        val n = ms.coerceIn(0, 10000)
+        Thread.sleep(n.toLong())
+        return JSONObject().put("ok", true).put("sleptMs", n).toString()
+    }
+
+    @JavascriptInterface
+    fun keysSet(key: String, value: String): String {
+        return try {
+            val sp = context.getSharedPreferences("dharness_keys", Context.MODE_PRIVATE)
+            sp.edit().putString(key.take(64), value.take(10000)).apply()
+            JSONObject().put("ok", true).put("key", key.take(64)).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun keysList(): String {
+        val sp = context.getSharedPreferences("dharness_keys", Context.MODE_PRIVATE)
+        val arr = JSONArray()
+        sp.all.keys.forEach { arr.put(it) }
+        return JSONObject().put("ok", true).put("keys", arr).toString()
+    }
+
+    @JavascriptInterface
+    fun notifySimple(title: String, body: String): String {
+        return try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = "dharness"
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(NotificationChannel(channelId, "D-Harness", NotificationManager.IMPORTANCE_DEFAULT))
+            }
+            val n = NotificationCompat.Builder(context, channelId)
+                .setContentTitle(title.take(80))
+                .setContentText(body.take(200))
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setAutoCancel(true)
+                .build()
+            nm.notify((System.currentTimeMillis() % 100000).toInt(), n)
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun selftestDeep(): String {
+        val results = JSONArray()
+        fun probe(name: String, block: () -> Boolean) {
+            val t0 = System.currentTimeMillis()
+            try {
+                val ok = block()
+                results.put(JSONObject().put("tool", name).put("ok", ok).put("ms", System.currentTimeMillis() - t0))
+            } catch (e: Exception) {
+                results.put(JSONObject().put("tool", name).put("ok", false).put("error", e.message)
+                    .put("ms", System.currentTimeMillis() - t0))
+            }
+        }
+        probe("workspace.write/read") {
+            val w = JSONObject(workspaceWrite("_selftest.txt", "ok-${System.currentTimeMillis()}"))
+            val r = JSONObject(workspaceRead("_selftest.txt", 1000))
+            w.optBoolean("ok") && r.optBoolean("ok") && r.optString("content").contains("ok-")
+        }
+        probe("workspace.head") {
+            JSONObject(workspaceHead("_selftest.txt", 1)).optBoolean("ok")
+        }
+        probe("calc via dispatch") {
+            val raw = invokeJson("calc.clamp", """{"value":150,"min":0,"max":100}""", "st-1")
+            JSONObject(raw).optBoolean("ok", true) || JSONObject(raw).has("value")
+        }
+        probe("policy.check") {
+            JSONObject(policyCheck("workspace.read")).optBoolean("ok")
+        }
+        probe("task.add/list") {
+            JSONObject(taskAdd("selftest")).optBoolean("ok") && JSONObject(taskList()).optBoolean("ok")
+        }
+        probe("hash.file") {
+            JSONObject(hashFile("_selftest.txt")).optBoolean("ok")
+        }
+        val passed = (0 until results.length()).count { results.getJSONObject(it).optBoolean("ok") }
+        return JSONObject().put("ok", passed == results.length()).put("passed", passed)
+            .put("total", results.length()).put("results", results).toString()
+    }
+
+    @JavascriptInterface
+    fun agentMetrics(): String {
+        return JSONObject().put("ok", true)
+            .put("trajectory", trajectory.size)
+            .put("readSession", readSession.size)
+            .put("policyMode", policyStore.getString("mode", "open"))
+            .toString()
 }
