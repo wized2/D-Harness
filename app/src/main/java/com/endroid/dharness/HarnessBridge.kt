@@ -4829,4 +4829,3 @@ class HarnessBridge(
         }
     }
 }
-}
