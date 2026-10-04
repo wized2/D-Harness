@@ -247,6 +247,24 @@
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"
                         android:text="Allow shell exec (sh -c)" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchDsml"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="DSML tool calling (V4/V4.1)" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchTaskBar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="Show task bar overlay" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

@@ -1,3 +1,10 @@
+## 1.16.1
+
+- **Task bar off by default** — no longer covers the message input; enable in Settings → "Show task bar overlay"
+- **DSML tool calling** Settings toggle — when on, system prompt uses DSML examples (not JSON)
+- **task.delete** — remove a task by id (not only mark completed)
+- Shim applies settings from Android prefs on inject
+
 ## 1.16.0
 
 ### Reliability & agent UX

@@ -2882,6 +2882,7 @@ class HarnessBridge(
             "task.update" -> taskUpdate(sAny("id"), sAny("status"))
             "task.list" -> taskList()
             "task.clear" -> taskClear()
+            "task.delete" -> taskDelete(sAny("id"))
             "history.list" -> historyList(sAny("path"))
             "history.revert" -> historyRevert(sAny("path"), sAny("version"))
             "session.save" -> sessionSave(sAny("name", "path"), sAny("state").ifBlank { null })
@@ -4636,6 +4637,14 @@ class HarnessBridge(
     fun taskClear(): String {
         taskStore.edit().clear().apply()
         return JSONObject().put("ok", true).toString()
+    }
+
+    @JavascriptInterface
+    fun taskDelete(id: String): String {
+        if (id.isBlank()) return JSONObject().put("ok", false).put("error", "id required").toString()
+        val existed = taskStore.contains(id)
+        taskStore.edit().remove(id).apply()
+        return JSONObject().put("ok", true).put("id", id).put("existed", existed).toString()
     }
 
     // ─── Session save/load (Codex-style) ───────────────────────

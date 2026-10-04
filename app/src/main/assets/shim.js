@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.16.0';
+  const VERSION = '1.16.1';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -29,9 +29,10 @@
     fallbackScanMs: 320,
     hideFlashMs: 100,
     // DSML: detect V3.2 / V4 / V4.1 (and mangled <||DSML||>) tool calls from chat.deepseek.com
-    dsmlEnabled: true,
+    dsmlEnabled: false,
     // Prefer instructing model to use JSON (false) or allow DSML in system prompt (true)
     dsmlPreferred: false,
+    showTaskBar: false,
     autoContinue: true,
     maxAutoContinue: 40,
     maxSendAttempts: 6,
@@ -54,6 +55,7 @@
         confirmSensitive: !!CONFIG.confirmSensitive,
         dsmlEnabled: !!CONFIG.dsmlEnabled,
         dsmlPreferred: !!CONFIG.dsmlPreferred,
+        showTaskBar: !!CONFIG.showTaskBar,
         autoContinue: !!CONFIG.autoContinue,
       }));
     } catch (_) {}
@@ -2449,6 +2451,11 @@ async selftest() {
   }
   async function renderTaskBar() {
     try {
+      if (!CONFIG.showTaskBar) {
+        const existing = document.getElementById('dh-task-bar');
+        if (existing) existing.style.display = 'none';
+        return;
+      }
       const bar = ensureTaskBar();
       const dh = window.DHarness || window.native_bridge;
       if (!dh || !dh.invokeJson) { bar.style.display = 'none'; return; }
@@ -2467,6 +2474,11 @@ async selftest() {
     } catch (_) {}
   }
   setInterval(function() { renderTaskBar(); }, 4000);
+  // Never cover the composer by default
+  try {
+    var _tb = document.getElementById('dh-task-bar');
+    if (_tb && !CONFIG.showTaskBar) _tb.style.display = 'none';
+  } catch (_) {}
 
   function runTick() {
     tickScheduled = false;
@@ -3103,3 +3115,15 @@ async selftest() {
   console.log(`%c[shim] DeepSeek Tool Shim v${VERSION} loaded`, 'color:#0af;font-weight:bold');
   console.log('API: __DS_TOOL_SHIM__.stats() | .inspect() | .showPanel()');
 })();
+
+  window.__DH_APPLY_SETTINGS__ = function(cfg) {
+    try {
+      if (!cfg || typeof cfg !== 'object') return;
+      if ('dsmlEnabled' in cfg) CONFIG.dsmlEnabled = !!cfg.dsmlEnabled;
+      if ('dsmlPreferred' in cfg) CONFIG.dsmlPreferred = !!cfg.dsmlPreferred;
+      if ('showTaskBar' in cfg) CONFIG.showTaskBar = !!cfg.showTaskBar;
+      if ('dedupe' in cfg) CONFIG.dedupe = !!cfg.dedupe;
+      persistConfig();
+      renderTaskBar();
+    } catch (e) { log('apply settings', e); }
+  };

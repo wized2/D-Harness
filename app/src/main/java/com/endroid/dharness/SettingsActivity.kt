@@ -97,22 +97,30 @@ class SettingsActivity : AppCompatActivity() {
         val swInject = findViewById<MaterialSwitch>(R.id.switchInject)
         val swDedupe = findViewById<MaterialSwitch>(R.id.switchDedupe)
         val swExecShell = findViewById<MaterialSwitch>(R.id.switchExecShell)
+        val swDsml = findViewById<MaterialSwitch>(R.id.switchDsml)
+        val swTaskBar = findViewById<MaterialSwitch>(R.id.switchTaskBar)
         swDesktop.isChecked = prefs.getBoolean("desktop", false)
         swInject.isChecked = prefs.getBoolean("auto_inject", true)
         swDedupe.isChecked = prefs.getBoolean("dedupe", true)
         swExecShell.isChecked = prefs.getBoolean("exec_shell", false)
+        swDsml.isChecked = prefs.getBoolean("dsml_tools", false)
+        swTaskBar.isChecked = prefs.getBoolean("show_task_bar", false)
         fun persist() {
             prefs.edit()
                 .putBoolean("desktop", swDesktop.isChecked)
                 .putBoolean("auto_inject", swInject.isChecked)
                 .putBoolean("dedupe", swDedupe.isChecked)
                 .putBoolean("exec_shell", swExecShell.isChecked)
+                .putBoolean("dsml_tools", swDsml.isChecked)
+                .putBoolean("show_task_bar", swTaskBar.isChecked)
                 .apply()
         }
         swDesktop.setOnCheckedChangeListener { _, _ -> persist() }
         swInject.setOnCheckedChangeListener { _, _ -> persist() }
         swExecShell.setOnCheckedChangeListener { _, _ -> persist() }
         swDedupe.setOnCheckedChangeListener { _, _ -> persist() }
+        swDsml.setOnCheckedChangeListener { _, _ -> persist() }
+        swTaskBar.setOnCheckedChangeListener { _, _ -> persist() }
 
         val larger = findViewById<MaterialSwitch>(R.id.switchLargerText)
         larger.isChecked = prefs.getInt("text_zoom", 100) >= 110
