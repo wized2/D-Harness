@@ -1,3 +1,11 @@
+## 1.17.0
+
+- DSML detection enabled by default; multi-invoke DSML + multi JSON tool arrays
+- Tool chain runs sequential queue (no 8-call stop); maxAutoContinue 500
+- Chip step count persisted across reload
+- New tools: tool.search, text.*, json.*, url.parse, encode/decode.uri, random.int, string.*, sleep, time.now, workspace.count, math.eval
+- Improved describe / list / search discovery
+
 ## 1.16.1
 
 - **Task bar off by default** — no longer covers the message input; enable in Settings → "Show task bar overlay"

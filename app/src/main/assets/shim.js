@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.16.1';
+  const VERSION = '1.17.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -29,14 +29,14 @@
     fallbackScanMs: 320,
     hideFlashMs: 100,
     // DSML: detect V3.2 / V4 / V4.1 (and mangled <||DSML||>) tool calls from chat.deepseek.com
-    dsmlEnabled: false,
+    dsmlEnabled: true,
     // Prefer instructing model to use JSON (false) or allow DSML in system prompt (true)
-    dsmlPreferred: false,
+    dsmlPreferred: false, // JSON preferred in prompt; DSML still detected
     showTaskBar: false,
     autoContinue: true,
-    maxAutoContinue: 40,
+    maxAutoContinue: 500,
     maxSendAttempts: 6,
-    scanLastMessages: 12,
+    scanLastMessages: 40,
     compactToolResults: true,
     compactMaxChars: 4000,
     hardReadBeforeEdit: false,
@@ -80,7 +80,15 @@
 
   const collapsedByMsg = new Map();
   for (const v of Object.values(DONE)) {
-    if (v && v.mk) collapsedByMsg.set(v.mk, { preview: v.preview || '', err: !v.ok });
+    if (v && v.mk) {
+      collapsedByMsg.set(v.mk, {
+        preview: v.preview || '',
+        err: !v.ok,
+        desc: v.desc || '',
+        steps: Array.isArray(v.steps) ? v.steps : [],
+        stepCount: v.stepCount || (v.steps && v.steps.length) || 0
+      });
+    }
   }
 
   function hashStr(s) {
@@ -1079,6 +1087,125 @@
       throw new Error('unknown workspace op: ' + op);
     },
 
+
+    async tool_search(args) {
+      const q = String((args && (args.query || args.q || args.name)) || '').toLowerCase().trim();
+      const nat = N();
+      let catalog = [];
+      try {
+        if (nat && nat.list_tools) catalog = await nat.list_tools();
+        else if (typeof list_tools === 'function') catalog = await list_tools();
+      } catch (_) {}
+      if (catalog && catalog.tools) catalog = catalog.tools;
+      if (!Array.isArray(catalog)) catalog = [];
+      const hits = !q ? catalog.slice(0, 40) : catalog.filter(function (t) {
+        const blob = JSON.stringify(t).toLowerCase();
+        return blob.indexOf(q) !== -1;
+      }).slice(0, 40);
+      return { ok: true, query: q, count: hits.length, tools: hits };
+    },
+    async text_hash(args) {
+      const s = String((args && (args.text || args.s)) || '');
+      let h = 0x811c9dc5;
+      for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+      return { ok: true, fnv1a: (h >>> 0).toString(16), length: s.length };
+    },
+    async text_stats(args) {
+      const s = String((args && (args.text || args.s)) || '');
+      const lines = s.length ? s.split(/\r\n|\n|\r/).length : 0;
+      const words = (s.match(/\S+/g) || []).length;
+      return { ok: true, chars: s.length, words: words, lines: lines };
+    },
+    async json_parse(args) {
+      try {
+        return { ok: true, value: JSON.parse(String((args && (args.text || args.json)) || '')) };
+      } catch (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      }
+    },
+    async json_get(args) {
+      try {
+        let v = typeof args.obj === 'string' ? JSON.parse(args.obj) : (args.obj || args.data);
+        const path = String(args.path || '').split('.').filter(Boolean);
+        for (const k of path) {
+          if (v == null) return { ok: false, error: 'null at ' + k };
+          v = v[k];
+        }
+        return { ok: true, value: v };
+      } catch (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      }
+    },
+    async url_parse(args) {
+      try {
+        const u = new URL(String((args && args.url) || ''), 'https://example.invalid');
+        return { ok: true, href: u.href, protocol: u.protocol, host: u.host, pathname: u.pathname, search: u.search, hash: u.hash };
+      } catch (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      }
+    },
+    async encode_uri(args) {
+      const s = String((args && (args.text || args.s)) || '');
+      return { ok: true, encoded: encodeURIComponent(s) };
+    },
+    async decode_uri(args) {
+      try {
+        return { ok: true, decoded: decodeURIComponent(String((args && (args.text || args.s)) || '')) };
+      } catch (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      }
+    },
+    async random_int(args) {
+      const min = Number(args && args.min != null ? args.min : 0);
+      const max = Number(args && args.max != null ? args.max : 100);
+      const n = Math.floor(min + Math.random() * (max - min + 1));
+      return { ok: true, value: n, min: min, max: max };
+    },
+    async string_split(args) {
+      const s = String((args && (args.text || args.s)) || '');
+      const sep = args && args.sep != null ? String(args.sep) : '\n';
+      const limit = args && args.limit != null ? Number(args.limit) : undefined;
+      return { ok: true, parts: s.split(sep, limit) };
+    },
+    async string_join(args) {
+      const parts = (args && args.parts) || [];
+      const sep = args && args.sep != null ? String(args.sep) : '\n';
+      return { ok: true, text: (Array.isArray(parts) ? parts : []).join(sep) };
+    },
+    async string_replace(args) {
+      const s = String((args && (args.text || args.s)) || '');
+      const find = String((args && args.find) || '');
+      const rep = String((args && (args.replace || args.with)) || '');
+      const all = !(args && args.all === false);
+      return { ok: true, text: all ? s.split(find).join(rep) : s.replace(find, rep) };
+    },
+    async sleep_ms(args) {
+      const ms = Math.min(30000, Math.max(0, Number((args && (args.ms || args.timeout)) || 0)));
+      await sleep(ms);
+      return { ok: true, slept: ms };
+    },
+    async now_iso(args) {
+      return { ok: true, iso: new Date().toISOString(), epochMs: Date.now() };
+    },
+    async workspace_count(args) {
+      const nat = N();
+      if (!nat || !nat.workspace) throw new Error('workspace requires native');
+      const path = (args && args.path) || '.';
+      const ls = await nat.workspace.ls(path);
+      const entries = (ls && ls.entries) || (ls && ls.files) || (Array.isArray(ls) ? ls : []);
+      return { ok: true, path: path, count: entries.length, entries: entries.slice(0, 50) };
+    },
+    async math_eval(args) {
+      const expr = String((args && (args.expr || args.expression)) || '');
+      if (!/^[\d\s+\-*/%().eE]+$/.test(expr)) return { ok: false, error: 'only basic arithmetic allowed' };
+      try {
+        // eslint-disable-next-line no-new-func
+        const v = Function('"use strict"; return (' + expr + ')')();
+        return { ok: true, value: v };
+      } catch (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      }
+    },
     async paste_box(args) {
       const nat = N();
       if (!nat || !nat.paste_box) throw new Error('paste_box requires native bridge');
@@ -1623,7 +1750,8 @@ async selftest() {
   }
 
   function extractDsmlToolCall(raw) {
-    if (!CONFIG.dsmlEnabled) return null;
+    // Always attempt DSML when present — CONFIG only gates panel preference
+    if (!raw) return null;
     if (!raw || typeof raw !== 'string') return null;
     let text = String(raw);
     // Normalize special tokens that web/font pipelines mangle
@@ -1732,12 +1860,181 @@ async selftest() {
   }
 
 
+
   const _extractToolCallPlain = extractToolCall;
+
+  /** Extract all DSML invoke blocks (not just the first). */
+  function extractAllDsmlToolCalls(raw) {
+    if (!CONFIG.dsmlEnabled) return [];
+    if (!raw || typeof raw !== 'string') return [];
+    let text = String(raw)
+      .replace(/\uFF5C/g, '|')
+      .replace(/<\|{0,2}\s*DSML\s*\|{0,2}/gi, '<|DSML|')
+      .replace(/<\/\s*\|{0,2}\s*DSML\s*\|{0,2}/gi, '</|DSML|');
+    if (!/DSML|function_calls|tool_calls|<\s*invoke\s+name\s*=/i.test(text)) return [];
+
+    let body = null;
+    const blockRe = /<\s*\|?DSML\|?\s*(tool[_\s]?calls|calls|function_calls)\s*>([\s\S]*?)<\/\s*\|?DSML\|?\s*(?:tool[_\s]?calls|calls|function_calls)\s*>/i;
+    let bm = text.match(blockRe);
+    if (bm) body = bm[2];
+    else {
+      bm = text.match(/<\s*\|?DSML\|?\s*(tool[_\s]?calls|calls|function_calls)\s*>([\s\S]+)/i);
+      if (bm) body = bm[2];
+    }
+    if (!body) {
+      const bare = text.match(/<\s*function_calls\s*>([\s\S]*?)<\/\s*function_calls\s*>/i)
+        || text.match(/<\s*tool_calls\s*>([\s\S]*?)<\/\s*tool_calls\s*>/i);
+      if (bare) body = bare[1];
+    }
+    if (!body) {
+      const compact = text.match(/<\s*\|?DSML\|?\s*(?:tool[_\s]?calls|calls|function_calls)\s*>([\s\S]{0,16000}?invoke[\s\S]{0,16000})/i);
+      if (compact) body = compact[1];
+    }
+    if (!body) {
+      // Entire message may be invokes without wrapper
+      if (/<\s*(?:\|?DSML\|?\s*)?invoke\s+name\s*=/i.test(text)) body = text;
+    }
+    if (!body) return [];
+
+    const nameMap = {
+      read_file: 'workspace.read', write_file: 'workspace.write', list_dir: 'workspace.ls',
+      search_files: 'workspace.grep', run_terminal_cmd: 'exec', shell: 'exec', bash: 'exec',
+      web_search: 'research.web', browse_page: 'research.html_text',
+    };
+    const out = [];
+    const invokeGlobal = /<\s*\|?DSML\|?\s*invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)<\/\s*\|?DSML\|?\s*invoke\s*>/gi;
+    const invokeBareGlobal = /<\s*invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)<\/\s*invoke\s*>/gi;
+    let im;
+    const seen = new Set();
+    function parseInvoke(toolName, invBody, full) {
+      const args = {};
+      const paramRe = /<\s*\|?DSML\|?\s*parameter\s+name\s*=\s*["']([^"']+)["']\s*(?:string\s*=\s*["'](true|false)["'])?\s*>([\s\S]*?)<\/\s*\|?DSML\|?\s*parameter\s*>/gi;
+      const paramBare = /<\s*parameter\s+name\s*=\s*["']([^"']+)["']\s*(?:string\s*=\s*["'](true|false)["'])?\s*>([\s\S]*?)<\/\s*parameter\s*>/gi;
+      let pm, found = false;
+      while ((pm = paramRe.exec(invBody)) !== null) {
+        found = true;
+        const key = pm[1];
+        const isStr = (pm[2] || 'true').toLowerCase() !== 'false';
+        let val = (pm[3] || '').replace(/<\/?\s*\|?DSML[^>]*>/gi, '').trim();
+        if (!isStr) { try { args[key] = JSON.parse(val); } catch (_) { args[key] = val; } }
+        else args[key] = val;
+      }
+      if (!found) {
+        while ((pm = paramBare.exec(invBody)) !== null) {
+          found = true;
+          const key = pm[1];
+          const isStr = (pm[2] || 'true').toLowerCase() !== 'false';
+          let val = (pm[3] || '').trim();
+          if (!isStr) { try { args[key] = JSON.parse(val); } catch (_) { args[key] = val; } }
+          else args[key] = val;
+        }
+      }
+      if (!found) {
+        const jm = invBody.match(/\{[\s\S]*\}/);
+        if (jm) { try { const o = JSON.parse(jm[0]); if (o && typeof o === 'object') Object.assign(args, o); } catch (_) {} }
+      }
+      const mapped = nameMap[toolName] || toolName;
+      return { obj: { tool: mapped, description: args.description || 'dsml', args: args }, full: (full || '').slice(0, 800), end: 0, format: 'dsml' };
+    }
+    while ((im = invokeGlobal.exec(body)) !== null) {
+      const key = im[0].slice(0, 120);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(parseInvoke((im[1] || '').trim(), im[2] || '', im[0]));
+    }
+    if (!out.length) {
+      while ((im = invokeBareGlobal.exec(body)) !== null) {
+        const key = im[0].slice(0, 120);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(parseInvoke((im[1] || '').trim(), im[2] || '', im[0]));
+      }
+    }
+    return out.filter(function (x) { return x && x.obj && x.obj.tool; });
+  }
+
+  /** Extract all JSON tool objects (array or sequential objects) + DSML. */
+  function extractAllToolCalls(raw) {
+    const results = [];
+    let text = normalizeToolText(raw);
+    text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
+    // JSON array of tools: [{"tool":...},{"tool":...}]
+    try {
+      const arrMatch = text.match(/\[\s*\{\s*"tool"\s*:[\s\S]*\}\s*\]/);
+      if (arrMatch) {
+        const arr = JSON.parse(arrMatch[0]);
+        if (Array.isArray(arr)) {
+          arr.forEach(function (obj, i) {
+            if (obj && typeof obj.tool === 'string') {
+              if (!obj.args || typeof obj.args !== 'object') obj.args = {};
+              results.push({ obj: obj, full: JSON.stringify(obj), end: 0, index: i });
+            }
+          });
+        }
+      }
+    } catch (_) {}
+    // Sequential JSON objects
+    if (!results.length) {
+      let idx = 0;
+      let n = 0;
+      while ((idx = text.indexOf('"tool"', idx)) !== -1 && n < 50) {
+        let start = text.lastIndexOf('{', idx);
+        if (start === -1) { idx += 6; continue; }
+        let depth = 0, str = false, esc = false;
+        for (let i = start; i < text.length; i++) {
+          const c = text[i];
+          if (str) {
+            if (esc) esc = false;
+            else if (c === '\\\\') esc = true;
+            else if (c === '"') str = false;
+          } else {
+            if (c === '"') str = true;
+            else if (c === '{') depth++;
+            else if (c === '}') {
+              depth--;
+              if (depth === 0) {
+                const cand = text.slice(start, i + 1);
+                try {
+                  const obj = JSON.parse(cand);
+                  if (obj && typeof obj.tool === 'string' && obj.tool.trim()) {
+                    if (obj.tool === 'run_js' && !(obj.args && typeof obj.args.code === 'string')) break;
+                    if (!obj.args || typeof obj.args !== 'object') obj.args = {};
+                    results.push({ obj: obj, full: cand, end: i + 1, index: n });
+                    n++;
+                    idx = i + 1;
+                    break;
+                  }
+                } catch (_) {}
+                break;
+              }
+            }
+          }
+        }
+        idx += 6;
+      }
+    }
+    // DSML
+    if (!results.length) {
+      const ds = extractAllDsmlToolCalls(raw);
+      ds.forEach(function (d, i) { d.index = i; results.push(d); });
+    }
+    return results;
+  }
+
   extractToolCall = function(raw) {
-    const a = _extractToolCallPlain(raw);
-    if (a) return a;
+    const all = extractAllToolCalls(raw);
+    if (all.length) return all[0];
+    // legacy single DSML fallback
     return extractDsmlToolCall(raw);
   };
+
+  // Force DSML path even if saved config disabled it previously for broken sessions
+  try {
+    if (CONFIG.dsmlEnabled === false && !localStorage.getItem('__ds_shim__cfg_v2')) {
+      CONFIG.dsmlEnabled = true;
+    }
+  } catch (_) {}
+
 
   function msgInfo(el) {
     try {
@@ -1818,7 +2115,7 @@ async selftest() {
     if (sub) sub.textContent = anyRun ? elapsed : (n + (n === 1 ? ' step' : ' steps'));
     const title = tl.querySelector('.ds-shim-panel-title');
     if (title) title.textContent = anyRun ? 'In progress' : ('Worked for ' + elapsed);
-    renderThoughtSteps(tl);
+    renderChainSteps(tl);
   }
 
   function getOrCreateChain(dsMessage) {
@@ -1880,7 +2177,7 @@ async selftest() {
     return el;
   }
 
-  function renderThoughtSteps(tagline) {
+  function renderChainSteps(tagline) {
     const box = tagline.querySelector('.ds-shim-steps');
     if (!box) return;
     const steps = tagline._dsSteps || [];
@@ -1908,7 +2205,7 @@ async selftest() {
     const headRun = n > 1 ? ('Thought for tools · ' + n) : (tagline._dsRunLabel || 'Running tools…');
     const headDone = n > 1 ? ('Used ' + n + ' tools') : (tagline._dsDoneLabel || 'Tools');
     tagline.querySelector('.ds-shim-txt').textContent = running ? headRun : headDone;
-    renderThoughtSteps(tagline);
+    renderChainSteps(tagline);
   }
 
   function applyHiding(wrapper, tagline) {
@@ -2008,6 +2305,22 @@ async selftest() {
     args = args || {};
     const name = String(tname || '').trim();
     if (!name) throw new Error('empty tool name');
+    if (name === 'tool.search' || name === 'search_tools') return await toolHandlers.tool_search(args);
+    if (name === 'text.hash') return await toolHandlers.text_hash(args);
+    if (name === 'text.stats') return await toolHandlers.text_stats(args);
+    if (name === 'json.parse') return await toolHandlers.json_parse(args);
+    if (name === 'json.get') return await toolHandlers.json_get(args);
+    if (name === 'url.parse') return await toolHandlers.url_parse(args);
+    if (name === 'encode.uri') return await toolHandlers.encode_uri(args);
+    if (name === 'decode.uri') return await toolHandlers.decode_uri(args);
+    if (name === 'random.int') return await toolHandlers.random_int(args);
+    if (name === 'string.split') return await toolHandlers.string_split(args);
+    if (name === 'string.join') return await toolHandlers.string_join(args);
+    if (name === 'string.replace') return await toolHandlers.string_replace(args);
+    if (name === 'sleep') return await toolHandlers.sleep_ms(args);
+    if (name === 'time.now') return await toolHandlers.now_iso(args);
+    if (name === 'workspace.count') return await toolHandlers.workspace_count(args);
+    if (name === 'math.eval') return await toolHandlers.math_eval(args);
     if (name === '__parse_error__') {
       const err = new Error((args && args.error) || 'tool JSON parse failed');
       err.hint = (args && args.hint) || 'Use paste_box or contentB64 for complex content';
@@ -2246,7 +2559,23 @@ async selftest() {
         meta: { tool: tname, truncated: true }
       });
     }
-    DONE[sig] = { ok: res.ok, preview, mk, sent: false, payload, t: Date.now(), desc: doneLabel };
+    const stepSnap = (toolChain && toolChain.tagline && toolChain.tagline._dsSteps)
+      ? toolChain.tagline._dsSteps.map(function (s) {
+          return { tool: s.tool, title: s.title, desc: s.desc, running: false, err: !!s.err };
+        })
+      : [];
+    DONE[sig] = {
+      ok: res.ok, preview, mk, sent: false, payload, t: Date.now(), desc: doneLabel,
+      steps: stepSnap, stepCount: stepSnap.length
+    };
+    // Also store chain aggregate for reload
+    try {
+      const chainKey = 'chain:' + mk.split(':').slice(0, 2).join(':');
+      DONE[chainKey] = {
+        ok: res.ok, preview: preview, mk: mk, t: Date.now(),
+        steps: stepSnap, stepCount: stepSnap.length, desc: doneLabel
+      };
+    } catch (_) {}
     const isChainHost = toolChain && toolChain.tagline && toolChain.tagline.isConnected
       && findWrapper(dsMessage) && findWrapper(dsMessage).contains(toolChain.tagline);
     collapsedByMsg.set(mk, {
@@ -2330,9 +2659,26 @@ async selftest() {
         hideMsgBody(el, toolChain && toolChain.tagline);
         continue;
       }
-      // Only restore a real chip if we have a meaningful preview
-      if (!c.preview && !c.desc) continue;
-      collapseToolMessage(el, c.preview || c.desc || 'Tools used', c.err, false);
+      // Only restore a real chip if we have a meaningful preview or steps
+      if (!c.preview && !c.desc && !(c.steps && c.steps.length)) continue;
+      const label = c.preview || c.desc || (c.stepCount ? (c.stepCount + ' tools used') : 'Tools used');
+      const tl = collapseToolMessage(el, label, c.err, false);
+      if (tl && c.steps && c.steps.length) {
+        tl._dsSteps = c.steps.map(function (s) {
+          return { tool: s.tool, title: s.title || s.tool, desc: s.desc || '', running: false, err: !!s.err };
+        });
+        try { renderChainSteps(tl); } catch (_) {}
+        try { refreshChainHeader(false); } catch (_) {}
+        // Update subtitle with real count
+        try {
+          const sub = tl.querySelector('.ds-shim-sub');
+          if (sub) sub.textContent = tl._dsSteps.length + (tl._dsSteps.length === 1 ? ' step' : ' steps');
+          const txt = tl.querySelector('.ds-shim-txt');
+          if (txt && (!c.preview || c.preview === 'Tools used')) {
+            txt.textContent = 'Tools used · ' + tl._dsSteps.length;
+          }
+        } catch (_) {}
+      }
     }
   }
 
@@ -2391,10 +2737,9 @@ async selftest() {
     if (!main) return;
     const text = (main.textContent || '').trim();
     if (!text) return;
-    const tool = extractToolCall(text);
-    if (!tool) {
+    const tools = extractAllToolCalls(text);
+    if (!tools.length) {
       const norm = normalizeToolText(text);
-      // Wait while JSON or DSML tool call is still streaming
       if (/"tool"\s*:/.test(norm) || /DSML|invoke\s+name\s*=/i.test(text)) {
         log('waiting for complete tool call', mk);
         return;
@@ -2402,38 +2747,53 @@ async selftest() {
       handled.add(mk);
       return;
     }
-    // Allow short trailing text (model chatter); only ignore if large tail after JSON
-    const tail = text.slice(text.lastIndexOf(tool.full) + tool.full.length).trim();
-    if (CONFIG.callMustBeLast && tail.length > 80) {
-      log('ignored: long text after tool call', mk, tail.slice(0, 40));
-      // still execute — model often adds a short note; only skip if huge
-    }
 
-    const sig = mk + ':' + hashStr(tool.full);
-    handled.add(mk);
-    const prev = DONE[sig];
-
-    if (CONFIG.dedupe && prev) {
-      log('deduped:', sig);
-      collapseToolMessage(el, prev.preview || '', !prev.ok, false);
-      setStatus(prev.ok ? 'idle' : 'warn');
-      if (prev.sent === false && prev.payload && !retried.has(sig)) {
-        retried.add(sig);
-        busy = true;
-        log('resending unsent result', sig);
-        sendMessage(prev.payload)
-          .then(ok => { if (ok && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); } })
-          .finally(() => { busy = false; });
+    // Dedupe: if every tool already done, restore chip only
+    const allDone = tools.every(function (tool) {
+      const sig = mk + ':' + hashStr(tool.full || JSON.stringify(tool.obj));
+      return CONFIG.dedupe && DONE[sig];
+    });
+    if (allDone) {
+      handled.add(mk);
+      const last = tools[tools.length - 1];
+      const sig = mk + ':' + hashStr(last.full || JSON.stringify(last.obj));
+      const prev = DONE[sig];
+      if (prev) {
+        collapseToolMessage(el, prev.preview || (tools.length + ' tools used'), !prev.ok, false);
+        if (prev.steps && prev.steps.length) {
+          const tl = el.parentElement && el.parentElement.querySelector('[data-ds-shim-tagline="1"]');
+          if (tl) {
+            tl._dsSteps = prev.steps;
+            try { renderChainSteps(tl); } catch (_) {}
+          }
+        }
       }
       return;
     }
 
     if (+info.id <= baseline.get(sid)) { log('skipped (was already on screen at load):', mk); return; }
 
+    handled.add(mk);
     busy = true;
-    processToolCall(el, tool, mk, sig)
-      .catch(e => { log('error:', e); setStatus('error'); })
-      .finally(() => { busy = false; });
+    (async function runQueue() {
+      try {
+        for (let i = 0; i < tools.length; i++) {
+          const tool = tools[i];
+          const sig = mk + ':' + hashStr(tool.full || JSON.stringify(tool.obj)) + ':' + i;
+          if (CONFIG.dedupe && DONE[sig] && DONE[sig].sent) {
+            log('skip already sent', sig);
+            continue;
+          }
+          log('tool queue', i + 1, '/', tools.length, tool.obj.tool);
+          await processToolCall(el, tool, mk, sig);
+        }
+      } catch (e) {
+        log('queue error:', e);
+        setStatus('error');
+      } finally {
+        busy = false;
+      }
+    })();
   }
 
   let lastTickAt = 0;
