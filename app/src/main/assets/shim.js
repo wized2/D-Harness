@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.17.0';
+  const VERSION = '1.18.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -28,25 +28,31 @@
     scanThrottleMs: 70,
     fallbackScanMs: 320,
     hideFlashMs: 100,
-    // DSML: detect V3.2 / V4 / V4.1 (and mangled <||DSML||>) tool calls from chat.deepseek.com
-    dsmlEnabled: true,
-    // Prefer instructing model to use JSON (false) or allow DSML in system prompt (true)
-    dsmlPreferred: false, // JSON preferred in prompt; DSML still detected
+    // DSML fully removed — JSON tool calls only
+    dsmlEnabled: false,
+    dsmlPreferred: false,
     showTaskBar: false,
     autoContinue: true,
     maxAutoContinue: 500,
-    maxSendAttempts: 6,
-    scanLastMessages: 40,
+    maxSendAttempts: 4,
+    scanLastMessages: 24,
     compactToolResults: true,
     compactMaxChars: 4000,
     hardReadBeforeEdit: false,
     slashCommands: true,
+    // Stability: slower scan + settle to avoid freeze loops / stale resends
+    scanThrottleMs: 220,
+    fallbackScanMs: 700,
+    settleMs: 420,
   }, window.__DS_SHIM_CONFIG__ || {});
   // Persist toggles
   try {
     const saved = JSON.parse(localStorage.getItem('__ds_shim__cfg_v2') || '{}');
     if (saved && typeof saved === 'object') Object.assign(CONFIG, saved);
   } catch (_) {}
+  // DSML removed in 1.18+ — never re-enable from old localStorage
+  CONFIG.dsmlEnabled = false;
+  CONFIG.dsmlPreferred = false;
   function persistConfig() {
     try {
       localStorage.setItem('__ds_shim__cfg_v2', JSON.stringify({
@@ -463,7 +469,7 @@
       <label class="ds-shim-toggle"><input type="checkbox" data-opt="dedupe" checked /><span>Dedupe executed tool calls</span></label>
       <label class="ds-shim-toggle"><input type="checkbox" data-opt="confirmSensitive" checked /><span>Confirm clipboard / geo / POST</span></label>
       <label style="display:flex;gap:8px;align-items:center;margin:6px 0;font-size:12px;color:#ccc">
-        <input type="checkbox" data-opt="dsmlEnabled"/> DSML V4/V4.1 detect
+        <!-- DSML removed -->
       </label>
       <label style="display:flex;gap:8px;align-items:center;margin:6px 0;font-size:12px;color:#ccc">
         <input type="checkbox" data-opt="autoContinue"/> Auto-continue chains</label>
@@ -1749,211 +1755,10 @@ async selftest() {
     return null;
   }
 
-  function extractDsmlToolCall(raw) {
-    // Always attempt DSML when present — CONFIG only gates panel preference
-    if (!raw) return null;
-    if (!raw || typeof raw !== 'string') return null;
-    let text = String(raw);
-    // Normalize special tokens that web/font pipelines mangle
-    // Canonical V4: <｜DSML｜tool_calls>  V4.1: <｜DSML｜ calls> (space)
-    // Mangled: <||DSML||tool_calls>  plain: <function_calls>
-    text = text
-      .replace(/\uFF5C/g, '|') // fullwidth vertical line
-      .replace(/<\|{0,2}\s*DSML\s*\|{0,2}/gi, '<|DSML|')
-      .replace(/<\/\s*\|{0,2}\s*DSML\s*\|{0,2}/gi, '</|DSML|');
+  function extractDsmlToolCall(raw) { return null; }
+  function extractAllDsmlToolCalls(raw) { return []; }
 
-    // Quick reject
-    if (!/DSML|function_calls|tool_calls|<\s*invoke\s+name\s*=/i.test(text)) return null;
-
-    // Prefer last tool_calls / calls / function_calls block
-    const blockRe = /<\s*\|?DSML\|?\s*(tool[_\s]?calls|calls|function_calls)\s*>([\s\S]*?)<\/\s*\|?DSML\|?\s*(?:tool[_\s]?calls|calls|function_calls)\s*>/i;
-    const blockReOpen = /<\s*\|?DSML\|?\s*(tool[_\s]?calls|calls|function_calls)\s*>([\s\S]+)/i;
-    let body = null;
-    let bm = text.match(blockRe);
-    if (bm) body = bm[2];
-    else {
-      bm = text.match(blockReOpen);
-      if (bm) body = bm[2];
-    }
-    // Also accept bare <function_calls> without DSML token (V3.2 leakage)
-    if (!body) {
-      const bare = text.match(/<\s*function_calls\s*>([\s\S]*?)<\/\s*function_calls\s*>/i)
-        || text.match(/<\s*tool_calls\s*>([\s\S]*?)<\/\s*tool_calls\s*>/i);
-      if (bare) body = bare[1];
-    }
-    if (!body) {
-      // Compact single-line mangled form without closing
-      const compact = text.match(/<\s*\|?DSML\|?\s*(?:tool[_\s]?calls|calls|function_calls)\s*>([\s\S]{0,8000}?invoke[\s\S]{0,8000})/i);
-      if (compact) body = compact[1];
-    }
-    if (!body) return null;
-
-    // Extract first complete invoke
-    // V4: <｜DSML｜invoke name="x">  V4.1: <｜DSML｜ invoke name="x">
-    const invokeRe = /<\s*\|?DSML\|?\s*invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)(?:<\/\s*\|?DSML\|?\s*invoke\s*>|$)/i;
-    const invokeBare = /<\s*invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)(?:<\/\s*invoke\s*>|$)/i;
-    let im = body.match(invokeRe) || body.match(invokeBare);
-    if (!im) return null;
-    const toolName = (im[1] || '').trim();
-    if (!toolName) return null;
-    let invBody = im[2] || '';
-
-    const args = {};
-    // Parameter tags (with/without DSML, with/without space, self-closing rare)
-    const paramRe = /<\s*\|?DSML\|?\s*parameter\s+name\s*=\s*["']([^"']+)["']\s*(?:string\s*=\s*["'](true|false)["'])?\s*>([\s\S]*?)<\/\s*\|?DSML\|?\s*parameter\s*>/gi;
-    const paramBare = /<\s*parameter\s+name\s*=\s*["']([^"']+)["']\s*(?:string\s*=\s*["'](true|false)["'])?\s*>([\s\S]*?)<\/\s*parameter\s*>/gi;
-    let pm;
-    let foundParam = false;
-    while ((pm = paramRe.exec(invBody)) !== null) {
-      foundParam = true;
-      const key = pm[1];
-      const isStr = (pm[2] || 'true').toLowerCase() !== 'false';
-      let val = (pm[3] || '').replace(/<\/?\s*\|?DSML[^>]*>/gi, '').trim();
-      if (!isStr) {
-        try { args[key] = JSON.parse(val); } catch (_) { args[key] = val; }
-      } else {
-        args[key] = val;
-      }
-    }
-    if (!foundParam) {
-      while ((pm = paramBare.exec(invBody)) !== null) {
-        foundParam = true;
-        const key = pm[1];
-        const isStr = (pm[2] || 'true').toLowerCase() !== 'false';
-        let val = (pm[3] || '').trim();
-        if (!isStr) {
-          try { args[key] = JSON.parse(val); } catch (_) { args[key] = val; }
-        } else {
-          args[key] = val;
-        }
-      }
-    }
-    // Format 2: raw JSON object inside invoke
-    if (!foundParam) {
-      const jm = invBody.match(/\{[\s\S]*\}/);
-      if (jm) {
-        try {
-          const o = JSON.parse(jm[0]);
-          if (o && typeof o === 'object') Object.assign(args, o);
-        } catch (_) {}
-      }
-    }
-
-    // Map common agent tool names to our dotted catalog when needed
-    const nameMap = {
-      read_file: 'workspace.read',
-      write_file: 'workspace.write',
-      list_dir: 'workspace.ls',
-      search_files: 'workspace.grep',
-      run_terminal_cmd: 'exec',
-      shell: 'exec',
-      bash: 'exec',
-    };
-    const mapped = nameMap[toolName] || toolName;
-
-    return {
-      obj: { tool: mapped, description: 'dsml', args: args },
-      full: im[0].slice(0, 500),
-      end: 0,
-      format: 'dsml',
-    };
-  }
-
-
-
-  const _extractToolCallPlain = extractToolCall;
-
-  /** Extract all DSML invoke blocks (not just the first). */
-  function extractAllDsmlToolCalls(raw) {
-    if (!CONFIG.dsmlEnabled) return [];
-    if (!raw || typeof raw !== 'string') return [];
-    let text = String(raw)
-      .replace(/\uFF5C/g, '|')
-      .replace(/<\|{0,2}\s*DSML\s*\|{0,2}/gi, '<|DSML|')
-      .replace(/<\/\s*\|{0,2}\s*DSML\s*\|{0,2}/gi, '</|DSML|');
-    if (!/DSML|function_calls|tool_calls|<\s*invoke\s+name\s*=/i.test(text)) return [];
-
-    let body = null;
-    const blockRe = /<\s*\|?DSML\|?\s*(tool[_\s]?calls|calls|function_calls)\s*>([\s\S]*?)<\/\s*\|?DSML\|?\s*(?:tool[_\s]?calls|calls|function_calls)\s*>/i;
-    let bm = text.match(blockRe);
-    if (bm) body = bm[2];
-    else {
-      bm = text.match(/<\s*\|?DSML\|?\s*(tool[_\s]?calls|calls|function_calls)\s*>([\s\S]+)/i);
-      if (bm) body = bm[2];
-    }
-    if (!body) {
-      const bare = text.match(/<\s*function_calls\s*>([\s\S]*?)<\/\s*function_calls\s*>/i)
-        || text.match(/<\s*tool_calls\s*>([\s\S]*?)<\/\s*tool_calls\s*>/i);
-      if (bare) body = bare[1];
-    }
-    if (!body) {
-      const compact = text.match(/<\s*\|?DSML\|?\s*(?:tool[_\s]?calls|calls|function_calls)\s*>([\s\S]{0,16000}?invoke[\s\S]{0,16000})/i);
-      if (compact) body = compact[1];
-    }
-    if (!body) {
-      // Entire message may be invokes without wrapper
-      if (/<\s*(?:\|?DSML\|?\s*)?invoke\s+name\s*=/i.test(text)) body = text;
-    }
-    if (!body) return [];
-
-    const nameMap = {
-      read_file: 'workspace.read', write_file: 'workspace.write', list_dir: 'workspace.ls',
-      search_files: 'workspace.grep', run_terminal_cmd: 'exec', shell: 'exec', bash: 'exec',
-      web_search: 'research.web', browse_page: 'research.html_text',
-    };
-    const out = [];
-    const invokeGlobal = /<\s*\|?DSML\|?\s*invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)<\/\s*\|?DSML\|?\s*invoke\s*>/gi;
-    const invokeBareGlobal = /<\s*invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)<\/\s*invoke\s*>/gi;
-    let im;
-    const seen = new Set();
-    function parseInvoke(toolName, invBody, full) {
-      const args = {};
-      const paramRe = /<\s*\|?DSML\|?\s*parameter\s+name\s*=\s*["']([^"']+)["']\s*(?:string\s*=\s*["'](true|false)["'])?\s*>([\s\S]*?)<\/\s*\|?DSML\|?\s*parameter\s*>/gi;
-      const paramBare = /<\s*parameter\s+name\s*=\s*["']([^"']+)["']\s*(?:string\s*=\s*["'](true|false)["'])?\s*>([\s\S]*?)<\/\s*parameter\s*>/gi;
-      let pm, found = false;
-      while ((pm = paramRe.exec(invBody)) !== null) {
-        found = true;
-        const key = pm[1];
-        const isStr = (pm[2] || 'true').toLowerCase() !== 'false';
-        let val = (pm[3] || '').replace(/<\/?\s*\|?DSML[^>]*>/gi, '').trim();
-        if (!isStr) { try { args[key] = JSON.parse(val); } catch (_) { args[key] = val; } }
-        else args[key] = val;
-      }
-      if (!found) {
-        while ((pm = paramBare.exec(invBody)) !== null) {
-          found = true;
-          const key = pm[1];
-          const isStr = (pm[2] || 'true').toLowerCase() !== 'false';
-          let val = (pm[3] || '').trim();
-          if (!isStr) { try { args[key] = JSON.parse(val); } catch (_) { args[key] = val; } }
-          else args[key] = val;
-        }
-      }
-      if (!found) {
-        const jm = invBody.match(/\{[\s\S]*\}/);
-        if (jm) { try { const o = JSON.parse(jm[0]); if (o && typeof o === 'object') Object.assign(args, o); } catch (_) {} }
-      }
-      const mapped = nameMap[toolName] || toolName;
-      return { obj: { tool: mapped, description: args.description || 'dsml', args: args }, full: (full || '').slice(0, 800), end: 0, format: 'dsml' };
-    }
-    while ((im = invokeGlobal.exec(body)) !== null) {
-      const key = im[0].slice(0, 120);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(parseInvoke((im[1] || '').trim(), im[2] || '', im[0]));
-    }
-    if (!out.length) {
-      while ((im = invokeBareGlobal.exec(body)) !== null) {
-        const key = im[0].slice(0, 120);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(parseInvoke((im[1] || '').trim(), im[2] || '', im[0]));
-      }
-    }
-    return out.filter(function (x) { return x && x.obj && x.obj.tool; });
-  }
-
-  /** Extract all JSON tool objects (array or sequential objects) + DSML. */
+  /** Extract JSON tool objects only (single object, array, or sequential). DSML removed. */
   function extractAllToolCalls(raw) {
     const results = [];
     let text = normalizeToolText(raw);
@@ -2013,22 +1818,17 @@ async selftest() {
         idx += 6;
       }
     }
-    // DSML
-    if (!results.length) {
-      const ds = extractAllDsmlToolCalls(raw);
-      ds.forEach(function (d, i) { d.index = i; results.push(d); });
-    }
+    // DSML removed — JSON only
     return results;
   }
 
   extractToolCall = function(raw) {
     const all = extractAllToolCalls(raw);
     if (all.length) return all[0];
-    // legacy single DSML fallback
-    return extractDsmlToolCall(raw);
+    return null;
   };
 
-  // Force DSML path even if saved config disabled it previously for broken sessions
+  // DSML disabled permanently (1.18+)
   try {
     if (CONFIG.dsmlEnabled === false && !localStorage.getItem('__ds_shim__cfg_v2')) {
       CONFIG.dsmlEnabled = true;
@@ -2248,12 +2048,47 @@ async selftest() {
 
   // ── Auto-continue (no hard 8-call cap) ─────────────────────
   let autoContinueCount = 0;
+  let resultSendLock = false;
+  const RESULT_SEND_COOLDOWN_MS = 900;
+  let lastResultSendAt = 0;
   const MAX_AUTO_CONTINUE = CONFIG.maxAutoContinue || 40;
   let lastToolChainAt = 0;
   let toolsSinceUser = 0;
 
-  async function maybeAutoContinue() {
+  
+  async function sendToolResultOnce(payload, sig) {
+    if (resultSendLock) {
+      log('result send skipped: lock');
+      return false;
+    }
+    if (sig && DONE[sig] && DONE[sig].sent) {
+      log('result send skipped: already sent', sig.slice(0, 24));
+      return false;
+    }
+    if (Date.now() - lastResultSendAt < RESULT_SEND_COOLDOWN_MS) {
+      log('result send skipped: cooldown');
+      return false;
+    }
+    resultSendLock = true;
+    try {
+      const ok = await sendMessage(payload);
+      lastResultSendAt = Date.now();
+      if (sig) {
+        DONE[sig] = DONE[sig] || {};
+        DONE[sig].sent = !!ok;
+        DONE[sig].at = Date.now();
+        try { persistDone(); } catch (_) {}
+      }
+      return !!ok;
+    } finally {
+      setTimeout(function () { resultSendLock = false; }, RESULT_SEND_COOLDOWN_MS);
+    }
+  }
+
+async function maybeAutoContinue() {
     if (!CONFIG.autoContinue) return;
+    if (resultSendLock || busy) return;
+    if (Date.now() - lastResultSendAt < RESULT_SEND_COOLDOWN_MS) return;
     if (busy || sendingLock || isGenerating()) return;
     if (autoContinueCount >= MAX_AUTO_CONTINUE) return;
     // Only if we recently ran tools and model produced a non-tool short stop
@@ -2605,12 +2440,14 @@ async selftest() {
       if (n && typeof n.agentEnd === 'function') n.agentEnd();
     } catch (e) { log('agentEnd', e); }
 
-    const sent = await sendMessage(payload);
+    const sent = await sendToolResultOnce(payload, sig);
     if (sent && DONE[sig]) { DONE[sig].sent = true; delete DONE[sig].payload; saveDone(); }
-    else {
-      // Allow re-detection so long agent chains don't die on a single failed send
-      handled.delete(mk);
-      log('send failed — unlocked for retry', mk);
+    else if (!sent) {
+      // Only unlock if not already marked sent (avoid resend storms)
+      if (!DONE[sig] || !DONE[sig].sent) {
+        handled.delete(mk);
+        log('send failed — unlocked for retry', mk);
+      }
     }
   }
 
@@ -2740,7 +2577,7 @@ async selftest() {
     const tools = extractAllToolCalls(text);
     if (!tools.length) {
       const norm = normalizeToolText(text);
-      if (/"tool"\s*:/.test(norm) || /DSML|invoke\s+name\s*=/i.test(text)) {
+      if (/"tool"\s*:/.test(norm)) {
         log('waiting for complete tool call', mk);
         return;
       }

@@ -1,3 +1,11 @@
+## 1.18.0
+
+- **DSML removed** — JSON-only tool protocol; model instructions enforce one schema
+- Stricter extract (no DSML invoke/function_calls path)
+- Result send lock + cooldown to stop stale TOOL_RESULT resend freezes
+- list_tools / describe examples + failure modes; protocol note JSON only
+- Scan throttle / settle tuned for chip stability
+
 ## 1.17.0
 
 - DSML detection enabled by default; multi-invoke DSML + multi JSON tool arrays

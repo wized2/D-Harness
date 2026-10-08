@@ -4,7 +4,7 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
 
-**Current: 1.16.0** — Robust DSML V4 / V4.1 detection (optional), unified workspace root, auto-continue, policy enforcement, multi-file patches, project/memory context.
+**Current: 1.18.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
 
 ## What works
 
@@ -22,7 +22,7 @@ Not a demo. Tools run on-device against a sandboxed workspace; the model drives 
 | **Code** | `code.search`, `outline`, `slice`, `find_todos`, `count_lines`, … |
 | **Archive** | `archive.zip_create` / `list` / `extract` |
 | **Device** | info, clipboard, notify, sensors, … |
-| **UI** | Claude-style theme, tool chips, FAB panel (DSML / auto-continue toggles) |
+| **UI** | Claude-style theme, tool chips, FAB panel (auto-continue toggles) |
 | **Background** | Foreground service during multi-step chains |
 
 ## Tool call formats
@@ -35,15 +35,6 @@ Not a demo. Tools run on-device against a sandboxed workspace; the model drives 
 
 Then stop and wait for `TOOL_RESULT`.
 
-### DSML V4 / V4.1 (optional)
-
-Enable **DSML V4/V4.1 detect** in the FAB panel. The shim accepts:
-
-- V4: `<|DSML|tool_calls>` … `<|DSML|invoke name="…">` … `<|DSML|parameter …>`
-- V4.1: spaced tags `<|DSML| calls>` / `<|DSML| invoke>` / `<|DSML| parameter>`
-- Mangled web forms: `<||DSML||tool_calls>`, bare `<function_calls>`
-
-JSON inside `invoke` is also supported.
 
 ## Build
 

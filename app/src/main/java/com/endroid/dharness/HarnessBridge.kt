@@ -152,7 +152,7 @@ class HarnessBridge(
             if (!example.isNullOrBlank()) o.put("example", example)
             tools.put(o)
         }
-        tool("list_tools", "Full tool catalog with params, call form, and examples. Call this before inventing APIs.", JSONObject(), example = "return await list_tools()")
+        tool("list_tools", "Full catalog: name, params, example, common failures. Call before inventing tool names. No args.", JSONObject(), example = "{"tool":"list_tools","description":"catalog","args":{}}")
         tool("run_js", "Execute custom JS in the tool sandbox (last resort). Prefer native dotted tools. args.code required.", JSONObject().put("code", "string"), example = "{\"tool\":\"run_js\",\"args\":{\"code\":\"return await workspace.ls()\"}}")
         tool("selftest", "Probe which tools are actually bound", JSONObject())
         tool("research.web", "Multi-source web research (DDG + Wikipedia + pages)", JSONObject().put("query", "string").put("maxSources", "number?"))
@@ -194,7 +194,7 @@ class HarnessBridge(
         tool("time.now", "ISO time + epochMs", JSONObject())
         tool("workspace.count", "Count entries in workspace path", JSONObject().put("path", "string?"))
         tool("math.eval", "Safe arithmetic only", JSONObject().put("expr", "string"))
-        tool("describe", "Full schema + examples for one tool or group (e.g. workspace, github.pr).", JSONObject().put("name", "string"), example = "return await describe('workspace.write')")
+        tool("describe", "Schema + example + failure modes for one tool or group. args.name required (e.g. workspace.write or github).", JSONObject().put("name", "string"), example = "{"tool":"describe","description":"schema","args":{"name":"workspace.write"}}")
         tool("http_request", "HTTP native. No GitHub PAT — use github.request for api.github.com auth.", JSONObject().put("url", "string").put("method", "string?").put("headers", "object?").put("body", "string?"))
         tool("fetch_url", "Alias of http_request", JSONObject().put("url", "string").put("headers", "object?"))
         tool("github.request", "GitHub REST with stored PAT (keys.github). Prefer over http_request for GitHub", JSONObject().put("method", "string?").put("path", "string").put("body", "object?"))
@@ -436,7 +436,24 @@ class HarnessBridge(
                 .put("via", "JavascriptInterface")
                 .toString()
         }
-        if (matches.length() == 1) return matches.getJSONObject(0).toString()
+        if (matches.length() == 1) {
+            val one = matches.getJSONObject(0)
+            if (!one.has("callForm")) {
+                one.put("callForm", JSONObject()
+                    .put("tool", one.optString("name"))
+                    .put("description", "short")
+                    .put("args", JSONObject()))
+            }
+            if (!one.has("failureModes")) {
+                one.put("failureModes", JSONArray()
+                    .put("unknown tool name — use list_tools")
+                    .put("missing required args — check params")
+                    .put("path/not found — ls/glob first")
+                    .put("policy deny — do not retry same call"))
+            }
+            one.put("protocol", "JSON only. Emit tool JSON then STOP for TOOL_RESULT. Never DSML.")
+            return one.toString()
+        }
         if (matches.length() > 1) {
             return JSONObject().put("name", raw).put("variants", matches).put("count", matches.length()).toString()
         }

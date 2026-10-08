@@ -6,7 +6,7 @@ All tools are invoked as:
 {"tool":"NAME","description":"short","args":{}}
 ```
 
-Or via optional DSML (FAB toggle). Roots: **workspace.*** → app workspace dir; **fs.*** → harness_fs.
+JSON only (DSML removed). Roots: **workspace.*** → app workspace dir; **fs.*** → harness_fs.
 
 ## Meta
 | Tool | Status | Notes |
