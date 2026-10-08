@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.18.0';
+  const VERSION = '1.18.1';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1801,9 +1801,11 @@ async selftest() {
                 const cand = text.slice(start, i + 1);
                 try {
                   const obj = JSON.parse(cand);
-                  if (obj && typeof obj.tool === 'string' && obj.tool.trim()) {
+                  if (obj && typeof obj.tool === 'string' && obj.tool.trim() && !/\s/.test(obj.tool.trim())) {
+                    // Reject incomplete stream fragments (tool name cut mid-word like "list_t")
                     if (obj.tool === 'run_js' && !(obj.args && typeof obj.args.code === 'string')) break;
-                    if (!obj.args || typeof obj.args !== 'object') obj.args = {};
+                    if (!obj.args || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = obj.args && typeof obj.args === 'object' && !Array.isArray(obj.args) ? obj.args : {};
+                    if (!obj.args || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = {};
                     results.push({ obj: obj, full: cand, end: i + 1, index: n });
                     n++;
                     idx = i + 1;
@@ -2529,10 +2531,17 @@ async function maybeAutoContinue() {
 
   let settle = { el: null, len: -1, at: 0 };
   function isSettled(el) {
-    const len = (el.textContent || '').length;
+    const text = el.textContent || '';
+    const len = text.length;
     const now = performance.now();
     if (settle.el !== el || settle.len !== len) { settle = { el, len, at: now }; return false; }
-    return now - settle.at >= CONFIG.settleMs;
+    if (now - settle.at < CONFIG.settleMs) return false;
+    // DeepSeek streams JSON char-by-char into RESPONSE; wait until balanced braces if tool-like
+    if (/"tool"\s*:/.test(text)) {
+      const tools = extractAllToolCalls(text);
+      if (!tools.length) return false; // incomplete JSON still streaming
+    }
+    return true;
   }
 
   function scanForToolCalls(msgs) {
@@ -2568,11 +2577,14 @@ async function maybeAutoContinue() {
 
     if (isGenerating() || !isSettled(el)) return;
 
+    // Prefer main RESPONSE content; thinking streams separately and can confuse early detect
     const main = el.querySelector('div.ds-markdown.ds-assistant-message-main-content')
       || el.querySelector('div.ds-markdown')
       || el;
     if (!main) return;
-    const text = (main.textContent || '').trim();
+    let text = (main.textContent || '').trim();
+    // Drop obvious thinking/reasoning lead-ins if model mixed them (API: THINK vs RESPONSE)
+    text = text.replace(/^(Thinking|Reasoning|思考)[\s\S]*?(?=\{\s*"tool")/i, '');
     if (!text) return;
     const tools = extractAllToolCalls(text);
     if (!tools.length) {
@@ -2687,8 +2699,10 @@ async function maybeAutoContinue() {
       restoreCollapsed(msgs);
       pruneEmptyToolChips();
       reapplyHiding();
-      scanForToolCalls(msgs);
-      maybeAutoContinue().catch(function(e){ log("auto-continue", e); });
+      if (!isGenerating()) {
+        scanForToolCalls(msgs);
+        maybeAutoContinue().catch(function(e){ log("auto-continue", e); });
+      }
     } catch (e) {
       log('tick error:', e);
       setStatus('error');

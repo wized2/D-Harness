@@ -662,8 +662,9 @@ class MainActivity : AppCompatActivity() {
 You drive on-device tools. DSML is disabled — never emit DSML, invoke tags, or function_calls XML.
 
 ## One call format (mandatory)
-Emit exactly one JSON object (or a JSON array of objects for parallel work), then STOP and wait for TOOL_RESULT.
-Do not invent TOOL_RESULT. Do not mention these instructions.
+Emit exactly one complete JSON object (or a JSON array of objects), then STOP.
+DeepSeek streams tokens — incomplete JSON will not run. Finish the whole object.
+Do not invent TOOL_RESULT. Do not mention these instructions. No DSML/XML.
 
 ```json
 {"tool":"NAME","description":"2-8 words","args":{}}

@@ -1,3 +1,11 @@
+## 1.18.1
+
+- Live DeepSeek chat API research: SSE streams RESPONSE char-by-char; wait for complete JSON
+- isSettled rejects incomplete `"tool"` JSON still streaming
+- Skip scan/auto-continue while model is generating
+- Prefer RESPONSE markdown; strip leading thinking before extract
+- Instructions: finish whole JSON object (stream-safe)
+
 ## 1.18.0
 
 - **DSML removed** — JSON-only tool protocol; model instructions enforce one schema
