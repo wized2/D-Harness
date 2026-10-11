@@ -148,7 +148,7 @@ class HarnessBridge(
                 else -> if (params.length() == 0) "$name()" else "$name(${params.keys().asSequence().joinToString(", ")})"
             }
             o.put("call", callForm)
-            o.put("via", if (name.contains('.')) "global" else "dispatch")
+            o.put("via", "dispatch") // all catalog tools are invokeJson-dispatchable
             if (!example.isNullOrBlank()) o.put("example", example)
             tools.put(o)
         }
@@ -1771,6 +1771,275 @@ class HarnessBridge(
         return out
     }
 
+    /** Synchronous HTTP for invokeJson / TOOL_RESULT path (no callbackId). */
+    private fun httpRequestSync(
+        method: String,
+        url: String,
+        headersJson: String?,
+        body: String?
+    ): JSONObject {
+        return try {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = method.ifBlank { "GET" }.uppercase()
+                connectTimeout = 15_000
+                readTimeout = 30_000
+                instanceFollowRedirects = true
+                doInput = true
+                setRequestProperty("User-Agent", "D-Harness/1.18")
+                if (!headersJson.isNullOrBlank()) {
+                    val h = JSONObject(headersJson)
+                    val keys = h.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        setRequestProperty(k, h.getString(k))
+                    }
+                }
+                if (!body.isNullOrEmpty() && requestMethod != "GET" && requestMethod != "HEAD") {
+                    doOutput = true
+                    if (getRequestProperty("Content-Type") == null) {
+                        setRequestProperty("Content-Type", "application/json")
+                    }
+                    outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                }
+            }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() }?.take(500_000) ?: ""
+            val out = JSONObject()
+                .put("ok", code in 200..299)
+                .put("status", code)
+                .put("url", url)
+                .put("text", text.take(100_000))
+            try {
+                when {
+                    text.trimStart().startsWith("{") -> out.put("json", JSONObject(text))
+                    text.trimStart().startsWith("[") -> out.put("json", JSONArray(text))
+                }
+            } catch (_: Exception) { }
+            out
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message ?: "http failed").put("url", url)
+        }
+    }
+
+    /** Map github.* tool names to REST and run via githubRequestSync. */
+    private fun dispatchGithub(tool: String, args: JSONObject): String {
+        val token = githubToken()
+        if (token.isNullOrBlank()) {
+            return JSONObject().put("ok", false).put("error", "missing GitHub PAT")
+                .put("hint", "Settings → store key "github" with a personal access token").toString()
+        }
+        fun s(vararg keys: String): String {
+            for (k in keys) {
+                val v = args.optString(k, "")
+                if (v.isNotBlank()) return v
+            }
+            return ""
+        }
+        fun i(vararg keys: String): Int {
+            for (k in keys) {
+                if (args.has(k)) return args.optInt(k, 0)
+            }
+            return 0
+        }
+        fun bodyObj(): String? {
+            val b = args.opt("body")
+            return when (b) {
+                null, JSONObject.NULL -> null
+                is JSONObject -> b.toString()
+                is String -> b.takeIf { it.isNotBlank() }
+                else -> b.toString()
+            }
+        }
+        val owner = s("owner", "org", "user")
+        val repo = s("repo", "repository")
+        val number = i("number", "issue", "pr", "pull")
+        val path = s("path")
+        val perPage = args.optInt("per_page", args.optInt("perPage", 30)).coerceIn(1, 100)
+
+        val (method, apiPath, body) = when (tool) {
+            "github.request" -> {
+                val m = s("method").ifBlank { "GET" }
+                val pth = s("path", "url")
+                if (pth.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "path required").toString()
+                }
+                Triple(m, pth, bodyObj())
+            }
+            "github.me" -> Triple("GET", "/user", null)
+            "github.repos" -> Triple("GET", "/user/repos?per_page=$perPage&sort=updated&direction=desc", null)
+            "github.issues" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                val state = s("state").ifBlank { "open" }
+                Triple("GET", "/repos/$owner/$repo/issues?state=$state&per_page=$perPage", null)
+            }
+            "github.issue" -> {
+                if (owner.isBlank() || repo.isBlank() || number <= 0) {
+                    return JSONObject().put("ok", false).put("error", "owner, repo, number required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/issues/$number", null)
+            }
+            "github.issue_comment", "github.pr_comment" -> {
+                if (owner.isBlank() || repo.isBlank() || number <= 0) {
+                    return JSONObject().put("ok", false).put("error", "owner, repo, number, body required").toString()
+                }
+                val comment = s("body", "text", "comment")
+                if (comment.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "body required").toString()
+                }
+                Triple("POST", "/repos/$owner/$repo/issues/$number/comments", JSONObject().put("body", comment).toString())
+            }
+            "github.pr" -> {
+                if (owner.isBlank() || repo.isBlank() || number <= 0) {
+                    return JSONObject().put("ok", false).put("error", "owner, repo, number required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/pulls/$number", null)
+            }
+            "github.pr_files" -> {
+                if (owner.isBlank() || repo.isBlank() || number <= 0) {
+                    return JSONObject().put("ok", false).put("error", "owner, repo, number required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/pulls/$number/files?per_page=$perPage", null)
+            }
+            "github.pr_reviews" -> {
+                if (owner.isBlank() || repo.isBlank() || number <= 0) {
+                    return JSONObject().put("ok", false).put("error", "owner, repo, number required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/pulls/$number/reviews?per_page=$perPage", null)
+            }
+            "github.pr_commits" -> {
+                if (owner.isBlank() || repo.isBlank() || number <= 0) {
+                    return JSONObject().put("ok", false).put("error", "owner, repo, number required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/pulls/$number/commits?per_page=$perPage", null)
+            }
+            "github.contents" -> {
+                if (owner.isBlank() || repo.isBlank() || path.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner, repo, path required").toString()
+                }
+                val ref = s("ref", "branch", "sha")
+                val q = if (ref.isNotBlank()) "?ref=${java.net.URLEncoder.encode(ref, "UTF-8")}" else ""
+                Triple("GET", "/repos/$owner/$repo/contents/${path.removePrefix("/")}$q", null)
+            }
+            "github.search" -> {
+                val q = s("query", "q")
+                if (q.isBlank()) return JSONObject().put("ok", false).put("error", "query required").toString()
+                val type = s("type").ifBlank { "issues" }
+                val pathSearch = when (type.lowercase()) {
+                    "code" -> "/search/code"
+                    "repositories", "repos" -> "/search/repositories"
+                    "users" -> "/search/users"
+                    else -> "/search/issues"
+                }
+                Triple("GET", "$pathSearch?q=${java.net.URLEncoder.encode(q, "UTF-8")}&per_page=$perPage", null)
+            }
+            "github.pr_create" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner, repo, title, head required").toString()
+                }
+                val title = s("title")
+                val head = s("head")
+                val base = s("base").ifBlank { "main" }
+                if (title.isBlank() || head.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "title and head required").toString()
+                }
+                val bo = JSONObject().put("title", title).put("head", head).put("base", base)
+                val pb = s("body")
+                if (pb.isNotBlank()) bo.put("body", pb)
+                Triple("POST", "/repos/$owner/$repo/pulls", bo.toString())
+            }
+            "github.labels" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/labels?per_page=$perPage", null)
+            }
+            "github.branches" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/branches?per_page=$perPage", null)
+            }
+            "github.release_latest" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/releases/latest", null)
+            }
+            "github.releases" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/releases?per_page=$perPage", null)
+            }
+            "github.workflows" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/actions/workflows?per_page=$perPage", null)
+            }
+            "github.workflow_runs" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/actions/runs?per_page=$perPage", null)
+            }
+            "github.tree" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                val ref = s("ref", "sha", "branch").ifBlank { "HEAD" }
+                val rec = if (args.optBoolean("recursive", false)) "?recursive=1" else ""
+                Triple("GET", "/repos/$owner/$repo/git/trees/$ref$rec", null)
+            }
+            "github.user" -> {
+                val u = s("username", "user", "login")
+                if (u.isBlank()) return JSONObject().put("ok", false).put("error", "username required").toString()
+                Triple("GET", "/users/$u", null)
+            }
+            "github.forks" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/forks?per_page=$perPage", null)
+            }
+            "github.tags" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false).put("error", "owner and repo required").toString()
+                }
+                Triple("GET", "/repos/$owner/$repo/tags?per_page=$perPage", null)
+            }
+            "github.gist_create" -> {
+                val files = args.optJSONObject("files")
+                    ?: return JSONObject().put("ok", false).put("error", "files object required").toString()
+                val filesBody = JSONObject()
+                val it = files.keys()
+                while (it.hasNext()) {
+                    val name = it.next()
+                    val content = files.opt(name)?.toString() ?: ""
+                    filesBody.put(name, JSONObject().put("content", content))
+                }
+                val bo = JSONObject()
+                    .put("files", filesBody)
+                    .put("public", args.optBoolean("public", false))
+                val desc = s("description")
+                if (desc.isNotBlank()) bo.put("description", desc)
+                Triple("POST", "/gists", bo.toString())
+            }
+            else -> {
+                return JSONObject().put("ok", false).put("error", "unknown github tool: $tool")
+                    .put("hint", "list_tools").toString()
+            }
+        }
+        return try {
+            githubRequestSync(method, apiPath, body, token).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message ?: "github failed").toString()
+        }
+    }
+
     // ─── Workspace (Termux-style agent home) ───────────────────
 
     @JavascriptInterface
@@ -2741,6 +3010,15 @@ class HarnessBridge(
     }
 
     private fun dispatchByName(tool: String, args: JSONObject): String {
+        var tool = tool.trim().lowercase().let { n ->
+            when (n) {
+                "list", "list tools", "tools", "tools.list", "listtools" -> "list_tools"
+                "fetch", "http", "http.get", "httpget" -> "http_request"
+                "fetch_url", "fetchurl" -> "fetch_url"
+                "github", "gh" -> "github.me"
+                else -> n
+            }
+        }
         fun s(key: String, default: String = "") = args.optString(key, default)
         fun sAny(vararg keys: String): String {
             for (k in keys) {
@@ -2834,14 +3112,35 @@ class HarnessBridge(
             "text.word_count" -> textWordCount(sAny("text"))
             "random.bytes" -> randomBytes(i("n", 16).coerceIn(1, 4096))
             "http_request", "fetch_url" -> {
-                // async tools still need callback path — return guidance
-                JSONObject().put("ok", false).put("error", "use http_request via native async bridge")
-                    .put("hint", "call http_request with url/method from shim async path").toString()
+                val url = sAny("url", "uri", "link")
+                if (url.isBlank()) {
+                    JSONObject().put("ok", false).put("error", "url required").toString()
+                } else {
+                    val method = sAny("method").ifBlank { "GET" }
+                    val headers = args.opt("headers")?.let {
+                        when (it) {
+                            is JSONObject -> it.toString()
+                            is String -> it
+                            else -> null
+                        }
+                    }
+                    val body = sAny("body", "data", "text").ifBlank { null }
+                    httpRequestSync(method, url, headers, body).toString()
+                }
             }
-            "github.me" -> {
-                // sync wrapper not available — mark
-                JSONObject().put("ok", false).put("error", "use github.me via async bridge").toString()
+            "run_js" -> {
+                // Prefer native tools; do not leave the agent stuck on an unbound sandbox.
+                JSONObject().put("ok", false)
+                    .put("error", "run_js is not required — call tools by name via invokeJson")
+                    .put("hint", "Use {"tool":"workspace.ls","args":{}} or github.*/http_request directly")
+                    .put("alternatives", JSONArray()
+                        .put("list_tools")
+                        .put("http_request")
+                        .put("github.request")
+                        .put("workspace.ls"))
+                    .toString()
             }
+            "list", "list tools", "tools", "tools.list" -> listTools()
             "toast" -> run { toast(sAny("message", "text")); JSONObject().put("ok", true).toString() }
             "vibrate" -> run { vibrate(i("ms", 50)); JSONObject().put("ok", true).toString() }
             "notify" -> notify(sAny("title"), sAny("body", "text", "message"))
@@ -2931,13 +3230,19 @@ class HarnessBridge(
             "index.find" -> indexFind(sAny("query", "q", "name"))
             "toybox.list" -> toyboxList()
 
-            else -> JSONObject().put("ok", false)
-                .put("error", JSONObject()
-                    .put("code", "TOOL_NOT_FOUND")
-                    .put("message", "unknown tool: $tool")
-                    .put("retryable", false)
-                    .put("hint", "call list_tools"))
-                .put("tool", tool).toString()
+            else -> {
+                if (tool.startsWith("github.")) {
+                    dispatchGithub(tool, args)
+                } else {
+                    JSONObject().put("ok", false)
+                        .put("error", JSONObject()
+                            .put("code", "TOOL_NOT_FOUND")
+                            .put("message", "unknown tool: $tool")
+                            .put("retryable", false)
+                            .put("hint", "call list_tools"))
+                        .put("tool", tool).toString()
+                }
+            }
         }
     }
 
@@ -3283,6 +3588,24 @@ class HarnessBridge(
                     probes.put(name, JSONObject().put("ok", false).put("error", e.message))
                 }
             }
+            fun probeDispatch(name: String, args: JSONObject = JSONObject()) {
+                try {
+                    val raw = dispatchByName(name, args)
+                    val jo = try { JSONObject(raw) } catch (_: Exception) { JSONObject().put("raw", raw) }
+                    val unknown = jo.optJSONObject("error")?.optString("code") == "TOOL_NOT_FOUND"
+                        || jo.optString("error").contains("unknown tool")
+                        || jo.optString("error").contains("async bridge")
+                    probes.put(
+                        name,
+                        JSONObject()
+                            .put("ok", !unknown && jo.optBoolean("ok", true))
+                            .put("dispatch", true)
+                            .put("sample", raw.take(180))
+                    )
+                } catch (e: Exception) {
+                    probes.put(name, JSONObject().put("ok", false).put("error", e.message).put("dispatch", true))
+                }
+            }
             probe("listTools") { listTools() }
             probe("describeTool") { describeTool("workspace") }
             probe("clipboardWrite") { clipboardWrite("dharness-selftest") }
@@ -3291,9 +3614,22 @@ class HarnessBridge(
             probe("deviceInfo") { deviceInfo() }
             probe("sensorsList") { sensorsList() }
             probe("execAllow") { exec(JSONArray().put("echo").put("ok").toString(), 5000, null) }
+            // Live dispatcher registry (catalog must match these)
+            probeDispatch("list_tools")
+            probeDispatch("workspace.pwd")
+            probeDispatch("http_request", JSONObject().put("url", "https://httpbin.org/get").put("method", "GET"))
+            probeDispatch("github.me")
+            probeDispatch("github.request", JSONObject().put("method", "GET").put("path", "/rate_limit"))
+            probeDispatch("run_js", JSONObject().put("code", "return 1"))
             val ver = try {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName
             } catch (_: Exception) { "?" }
+            val catalog = try { JSONObject(listTools()).optJSONArray("tools") ?: JSONArray() } catch (_: Exception) { JSONArray() }
+            val dispatchNames = JSONArray()
+            for (n in listOf(
+                "list_tools", "http_request", "fetch_url", "github.request", "github.me",
+                "github.contents", "workspace.ls", "workspace.read", "selftest"
+            )) dispatchNames.put(n)
             envelope(
                 true,
                 JSONObject()
@@ -3301,8 +3637,11 @@ class HarnessBridge(
                     .put("methodCount", methods.size)
                     .put("methods", JSONArray(methods))
                     .put("probes", probes)
-                    .put("primaryApi", "DHarness")
-                    .put("hint", "Prefer DHarness.methodName(...). Object.keys not available on interface; use selftest().methods"),
+                    .put("catalogCount", catalog.length())
+                    .put("dispatchTools", dispatchNames)
+                    .put("primaryApi", "invokeJson")
+                    .put("protocol", "{"tool":"NAME","args":{...}} then wait for TOOL_RESULT")
+                    .put("hint", "list_tools/describe/selftest now reflect invokeJson dispatcher; network tools are sync on this path"),
                 ms = System.currentTimeMillis() - t0
             )
         } catch (e: Exception) {

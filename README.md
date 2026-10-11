@@ -4,7 +4,7 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
 
-**Current: 1.18.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
+**Current: 1.18.2** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
 
 ## What works
 

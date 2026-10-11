@@ -1,3 +1,10 @@
+## 1.18.2
+
+* **Fix catalog/dispatcher split-brain:** `http_request`, `fetch_url`, and all `github.*` tools run on the `invokeJson` path (sync HTTP / GitHub)
+* `selftest` probes the live dispatcher (not only JavascriptInterface method names)
+* Aliases: `list`, `list tools`, `tools` → `list_tools`
+* Catalog `via` is `dispatch` for every advertised tool; `run_js` marked deprecated with clear hint
+
 ## 1.18.1
 
 - Live DeepSeek chat API research: SSE streams RESPONSE char-by-char; wait for complete JSON
