@@ -4,7 +4,7 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
 
-**Current: 1.20.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
+**Current: 1.21.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
 
 ## What works
 
@@ -29,7 +29,15 @@ Not a demo. Tools run on-device against a sandboxed workspace; the model drives 
 
 ## Tool call formats
 
-### JSON (recommended)
+### tool_call fence (required)
+
+````
+```tool_call
+{"tool":"workspace.ls","description":"list","args":{}}
+```
+````
+
+### JSON (inside fence only)
 
 ```json
 {"tool":"workspace.apply_patch","description":"fix typo","args":{"path":"Main.kt","edits":[{"old":"foo","new":"bar"}]}}

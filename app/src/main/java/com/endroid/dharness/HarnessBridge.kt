@@ -603,7 +603,7 @@ class HarnessBridge(
             val camel = parts[0] + parts[1].replaceFirstChar { it.uppercase() }
             if (boundNativeMethods().contains(camel)) return camel
             // githubRequest style
-            val joined = parts[0] + parts[1].split('_', '.').joinToString("") { s -> s.replaceFirstChar { c -> c.uppercase() } }
+            val joined = parts[0] + parts[1].split('_', '.').joinToString(separator = chr(10)) { s -> s.replaceFirstChar { c -> c.uppercase() } }
         }
         return null
     }
@@ -1629,7 +1629,7 @@ class HarnessBridge(
         val r = when (op.lowercase()) {
             "lower" -> text.lowercase()
             "upper" -> text.uppercase()
-            "title" -> text.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+            "title" -> text.split(" ").joinToString(separator = chr(10)) { it.replaceFirstChar { c -> c.uppercase() } }
             else -> return JSONObject().put("ok", false).put("error", "op").toString()
         }
         return JSONObject().put("ok", true).put("result", r).toString()
@@ -1755,7 +1755,7 @@ class HarnessBridge(
         return try {
             if (op == "to_rgb") {
                 var h = value.removePrefix("#")
-                if (h.length == 3) h = h.map { "$it$it" }.joinToString("")
+                if (h.length == 3) h = h.map { "$it$it" }.joinToString(separator = chr(10))
                 val n = h.toLong(16)
                 JSONObject().put("ok", true)
                     .put("r", (n shr 16) and 255).put("g", (n shr 8) and 255).put("b", n and 255).toString()
@@ -3543,15 +3543,12 @@ class HarnessBridge(
             }
             "ls" -> {
                 val path = sAny("path", "dir", "directory").ifBlank { "." }
-                val argv = mutableListOf("ls")
-                if (args.optBoolean("all", false) || args.optBoolean("a", false)) argv.add("-a")
-                if (args.optBoolean("long", true) || args.optBoolean("l", false)) argv.add("-la")
-                else if (!argv.contains("-la")) { /* default short */ }
-                // simplify: always useful long listing when long true default false
                 val list = mutableListOf("ls")
-                when {
-                    args.optBoolean("long", false) && args.optBoolean("all", false) -> list.addAll(listOf("-la"))
-                }
+                val long = args.optBoolean("long", false) || args.optBoolean("l", false)
+                val all = args.optBoolean("all", false) || args.optBoolean("a", false)
+                if (long && all) list.add("-la")
+                else if (long) list.add("-l")
+                else if (all) list.add("-a")
                 list.add(path)
                 execArgvList(list, i("timeout_ms", 10_000), sAny("cwd").ifBlank { null })
             }
@@ -4040,13 +4037,18 @@ class HarnessBridge(
             "service.list" -> {
                 val raw = execArgvList(listOf("service", "list"), 15_000, null)
                 val filter = sAny("filter", "q")
-                if (filter.isBlank()) raw
-                else try {
-                    val o = JSONObject(raw)
-                    val kept = o.optString("stdout", "").lines().filter { it.contains(filter, true) }
-                    o.put("stdout", kept.joinToString("
-").take(60_000)).put("matched", kept.size).toString()
-                } catch (_: Exception) { raw }
+                if (filter.isBlank()) {
+                    raw
+                } else {
+                    try {
+                        val o = JSONObject(raw)
+                        val kept = o.optString("stdout", "").lines().filter { it.contains(filter, true) }
+                        val joined = kept.joinToString(separator = chr(10))
+                        o.put("stdout", joined.take(60_000)).put("matched", kept.size).toString()
+                    } catch (_: Exception) {
+                        raw
+                    }
+                }
             }
             "input.text" -> execArgvList(listOf("input", "text", sAny("text")), 8_000, null)
             "input.key" -> execArgvList(listOf("input", "keyevent", "${i("code", i("key", 4))}"), 5_000, null)
@@ -4473,7 +4475,7 @@ class HarnessBridge(
                     .put("catalogCount", catalog.length())
                     .put("dispatchTools", dispatchNames)
                     .put("primaryApi", "invokeJson")
-                    .put("protocol", "{tool:NAME,args:{...}} then wait for TOOL_RESULT")
+                    .put("protocol", "markdown fence tool_call containing JSON; then wait for TOOL_RESULT")
                     .put("hint", "list_tools/describe/selftest now reflect invokeJson dispatcher; network tools are sync on this path"),
                 ms = System.currentTimeMillis() - t0
             )

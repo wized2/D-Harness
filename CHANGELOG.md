@@ -1,3 +1,12 @@
+## 1.21.0
+
+* **Breaking tool protocol:** tool calls must be inside a markdown `tool_call` code fence
+* Shim validates fence JSON; invalid calls return detailed TOOL_RESULT errors (not silent / not raw JSON in chat)
+* Bare `{"tool":...}` is detected, hidden, and rejected with MISSING_TOOL_CALL_FENCE
+* UI: hide `tool_call` code blocks + placeholder chip; stronger hide of auto-injected system instructions (user text only)
+* Agent instructions / catalog notes updated for tool_call format
+* Compile: service.list joinToString / ls when-branch fixes (1.20.1 CI red)
+
 ## 1.20.1
 
 * Fix CI: corrupted when-branches (unzip list, tools.suggest, am return@run), term example string

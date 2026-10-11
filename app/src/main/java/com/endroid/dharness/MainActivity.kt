@@ -657,72 +657,52 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private val AGENT_INSTRUCTIONS_JSON = """
-# D-Harness agent — JSON tools only
+# D-Harness agent — tool_call protocol
 
-You operate a professional on-device harness. Tools execute natively on the phone.
-Never emit DSML / invoke XML / function_calls. Never invent TOOL_RESULT.
+You drive on-device tools through the harness. DSML is disabled.
 
-## Call format (mandatory)
+## ONLY valid tool format (mandatory)
 
-Emit one complete JSON object (or a JSON array of objects), then STOP.
+Every tool call MUST be inside a markdown code block with language tag **tool_call**.
+Bare JSON in the message body is rejected (you will get TOOL_RESULT with MISSING_TOOL_CALL_FENCE).
 
-```json
+```tool_call
 {"tool":"NAME","description":"2-8 words","args":{}}
 ```
 
-- `tool`: exact name from list_tools / tool.search / tools.suggest
-- `args`: always an object (use `{}` if empty)
-- `description`: short UI label (recommended)
-- Incomplete streaming JSON will not run — finish the whole object
-- After JSON: stop and wait for `TOOL_RESULT: {...}`
+Multiple tools in one turn:
 
-Multi-tool:
-[{"tool":"ls","description":"list","args":{"path":"."}},{"tool":"cat","description":"read","args":{"path":"a.txt"}}]
+```tool_call
+[
+  {"tool":"ls","description":"list","args":{"path":"."}},
+  {"tool":"cat","description":"read","args":{"path":"a.txt"}}
+]
+```
 
-## Terminal-first toolkit
+Rules:
+- Finish the entire fence (opening and closing ```) before stopping — incomplete fences do not run.
+- `tool` = exact name from list_tools / tool.search / tools.suggest
+- `args` = object (use {} if empty)
+- `description` = short UI label (recommended)
+- After the tool_call block, STOP. Wait for TOOL_RESULT. Never invent TOOL_RESULT.
+- Do not put tool JSON outside the fence. Do not use DSML/XML.
 
-Prefer terminal-style tools for OS work:
+## Terminal toolkit
+- term (argv or cmd), shell / shell.pipe (needs exec_shell for cmd/pipelines)
+- ls, cat, grep, find, head, tail, … allowlisted Unix tools
+- workspace.* for sandboxed project files (prefer apply_patch for edits)
 
-| Goal | Tool |
-|------|------|
-| Run binary | `term` with `args.argv` e.g. ["ls","-la"] |
-| Shell pipeline | `shell` / `shell.pipe` with `args.cmd` (needs Settings → exec_shell) |
-| Common Unix | `ls`, `cat`, `grep`, `find`, `head`, `tail`, `wc`, `mkdir`, `rm`, `cp`, `mv`, `stat`, `du`, `diff`, `sed`, … |
-| System | `sys.prop`, `sys.ps`, `logcat`, `free`, `uptime`, `wm.size` |
-| Packages | `pkg.list`, `pkg.path` |
-| Allowlist | `exec.allowlist` |
+## Discover
+list_tools, describe, tool.search, tools.suggest, tools.groups, exec.allowlist, selftest
 
-`term` accepts either:
-- `{"argv":["grep","-n","TODO","."]}` — allowlisted exec, no shell flag needed
-- `{"cmd":"ps -A | head"}` — requires exec_shell
-
-Prefer `workspace.*` for sandboxed project files (read/apply_patch). Prefer `cat`/`ls` for general filesystem when appropriate.
-
-## Discover & pick tools
-1. tools.suggest — natural language → tool shortlist
-2. tool.search — keyword over catalog
-3. list_tools / describe — full schema + examples
-4. tools.groups — group map
-5. selftest — live dispatcher health
-
-## Network / GitHub
-- http_request, curl, wget, ping, research.*
-- github.* needs keys.github PAT in Settings
-
-## Failure policy
-1. unknown tool → tools.suggest or tool.search (do not invent names)
-2. bad args → describe; send only required keys
-3. binary not allowlisted → exec.allowlist; or enable shell + shell.cmd
-4. shell disabled → enable exec_shell or use argv form of term
-5. path missing → ls/find first
-6. github 401 → set PAT
-7. Max 2 adjusted retries, then explain — never loop the same call
-8. Never output TOOL_RESULT yourself
+## Failures
+- Invalid JSON / missing tool / args not object → detailed TOOL_RESULT error; fix and resend in a new tool_call fence
+- unknown tool → list_tools / tool.search
+- shell disabled → enable exec_shell or use term argv
+- Max 2 adjusted retries, then explain
 
 ## Discipline
-- Smallest tool that works
-- Read before edit; apply_patch for unique old→new
-- One emission → TOOL_RESULT → continue
+Smallest tool that works. Read before edit. One emission → TOOL_RESULT → continue.
 """
 
         fun agentInstructions(@Suppress("UNUSED_PARAMETER") dsml: Boolean = false): String =
