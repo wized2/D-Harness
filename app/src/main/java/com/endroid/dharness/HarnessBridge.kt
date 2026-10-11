@@ -98,7 +98,7 @@ class HarnessBridge(
         "pm", "cmd", "service", "am", "input", "wm", "settings", "logcat", "dumpsys",
         "printenv", "env", "sysctl", "getconf", "nproc", "free", "uptime",
         "ip", "ifconfig", "netstat", "ping", "curl", "wget", "nslookup",
-        "seq", "sh", "mksh", "bash", "ash", "toybox", "busybox", "timeout", "nice", "nohup"
+        "seq", "rev", "file", "strings", "hexdump", "nl", "sh", "mksh", "bash", "ash", "toybox", "busybox", "timeout", "nice", "nohup"
     )
 
     private fun deliver(callbackId: String, json: String) {
@@ -246,6 +246,38 @@ class HarnessBridge(
         tool("tools.suggest", "Suggest tools for a natural-language task", JSONObject().put("task", "string"))
         tool("tools.groups", "List tool groups (workspace, shell, github, …)", JSONObject())
         tool("exec.allowlist", "List allowlisted binaries for term/exec", JSONObject())
+
+        tool("tools.help", "Protocol help: fence format, schema, common errors", JSONObject())
+        tool("tools.examples", "Worked tool_call examples for common tasks", JSONObject().put("topic", "string?"))
+        tool("tools.count", "Count tools in live catalog", JSONObject())
+        tool("harness.info", "Harness version, workspace, flags summary", JSONObject())
+        tool("session.info", "Conversation/session helper info", JSONObject())
+        tool("env", "Print environment (printenv)", JSONObject().put("name", "string?"))
+        tool("uname", "uname -a", JSONObject())
+        tool("printf", "printf FORMAT via shell (exec_shell)", JSONObject().put("format", "string").put("args", "array?"))
+        tool("rev", "Reverse lines of text or file", JSONObject().put("path", "string?").put("text", "string?"))
+        tool("file", "file(1) magic type probe", JSONObject().put("path", "string"))
+        tool("strings", "strings binary/text", JSONObject().put("path", "string").put("min", "number?"))
+        tool("hexdump", "hexdump -C truncated", JSONObject().put("path", "string").put("n", "number?"))
+        tool("nl", "Number lines", JSONObject().put("path", "string"))
+        tool("json.pretty", "Pretty-print JSON string", JSONObject().put("json", "string").put("indent", "number?"))
+        tool("json.min", "Minify JSON string", JSONObject().put("json", "string"))
+        tool("text.count", "Count chars/words/lines", JSONObject().put("text", "string"))
+        tool("url.encode", "URL-encode string", JSONObject().put("text", "string"))
+        tool("url.decode", "URL-decode string", JSONObject().put("text", "string"))
+        tool("path.join", "Join path segments under workspace rules", JSONObject().put("parts", "array"))
+        tool("path.split", "Split path into dir/name/ext", JSONObject().put("path", "string"))
+        tool("dns.lookup", "DNS via getaddrinfo/InetAddress", JSONObject().put("host", "string"))
+        tool("sys.meminfo", "Read /proc/meminfo head", JSONObject())
+        tool("sys.cpuinfo", "Read /proc/cpuinfo head", JSONObject())
+        tool("logcat.clear", "logcat -c clear buffer", JSONObject())
+        tool("note.set", "Save a named note (persisted)", JSONObject().put("key", "string").put("value", "string"))
+        tool("note.get", "Read a named note", JSONObject().put("key", "string"))
+        tool("note.list", "List note keys", JSONObject())
+        tool("workspace.mv", "Rename/move within workspace", JSONObject().put("from", "string").put("to", "string"))
+        tool("workspace.cp", "Copy within workspace", JSONObject().put("from", "string").put("to", "string"))
+        tool("test.file", "test -e/-f/-d path", JSONObject().put("path", "string").put("mode", "string?"))
+
 
         tool("shell.cd", "Resolve path under workspace (does not persist shell state)", JSONObject().put("path", "string"))
         tool("shell.test", "Test path: exists/file/dir (test -e/-f/-d)", JSONObject().put("path", "string").put("mode", "string?"))
@@ -559,7 +591,7 @@ class HarnessBridge(
                     .put("path/not found — ls/glob first")
                     .put("policy deny — do not retry same call"))
             }
-            one.put("protocol", "JSON only. Emit tool JSON then STOP for TOOL_RESULT. Never DSML.")
+            one.put("protocol", "```tool_call … ~~~``` only. Never DSML. See tools.help / tools.examples.")
             return one.toString()
         }
         if (matches.length() > 1) {
@@ -3624,8 +3656,8 @@ class HarnessBridge(
             "whoami" -> execArgvList(listOf("whoami"), 3_000, null)
             "id" -> execArgvList(listOf("id"), 3_000, null)
             "which" -> execArgvList(listOf("which", sAny("bin", "name", "cmd")), 3_000, null)
-            "sha256sum" -> execArgvList(listOf("sha256sum", sAny("path", "file")), 60_000, null)
             "md5sum" -> execArgvList(listOf("md5sum", sAny("path", "file")), 60_000, null)
+            "sha256sum" -> execArgvList(listOf("sha256sum", sAny("path", "file")), 60_000, null)
             "base64" -> {
                 val op = sAny("op").ifBlank { "encode" }.lowercase()
                 val path = sAny("path", "file")
@@ -4051,6 +4083,251 @@ class HarnessBridge(
                 }
             }
             "input.text" -> execArgvList(listOf("input", "text", sAny("text")), 8_000, null)
+
+            "tools.help" -> {
+                val rules = JSONArray()
+                rules.put("Only emit tools inside the fence")
+                rules.put("Close with ~~~``` so payload may contain normal ```")
+                rules.put("STOP after fence; wait for TOOL_RESULT")
+                rules.put("Never invent TOOL_RESULT or use DSML")
+                JSONObject()
+                    .put("ok", true)
+                    .put("protocol", "tool_call_v2")
+                    .put("open", "```tool_call")
+                    .put("close", "~~~```")
+                    .put("alt_close", "end_tool_call")
+                    .put("schema", JSONObject()
+                        .put("tool", "string exact catalog name")
+                        .put("args", "object (required, may be empty {})")
+                        .put("description", "string optional UI label"))
+                    .put("rules", rules)
+                    .put("common_errors", JSONObject()
+                        .put("MISSING_TOOL_CALL_FENCE", "Bare JSON without fence")
+                        .put("JSON_PARSE_ERROR", "Invalid JSON body")
+                        .put("MISSING_TOOL", "tool field missing")
+                        .put("ARGS_NOT_OBJECT", "args must be object"))
+                    .put("example", "```tool_call\n{\"tool\":\"list_tools\",\"description\":\"catalog\",\"args\":{}}\n~~~```")
+                    .toString()
+            }
+            "tools.examples" -> {
+                val topic = sAny("topic", "q", "for").lowercase()
+                val examples = JSONArray()
+                fun ex(title: String, body: String) { examples.put(JSONObject().put("title", title).put("fence", body)) }
+                if (topic.isBlank() || topic.contains("list") || topic.contains("workspace")) {
+                    ex("list workspace", "```tool_call\n{\"tool\":\"workspace.ls\",\"description\":\"list\",\"args\":{}}\n~~~```")
+                    ex("read file", "```tool_call\n{\"tool\":\"workspace.read\",\"description\":\"read\",\"args\":{\"path\":\"README.md\"}}\n~~~```")
+                }
+                if (topic.isBlank() || topic.contains("shell") || topic.contains("term")) {
+                    ex("term argv", "```tool_call\n{\"tool\":\"term\",\"description\":\"ls\",\"args\":{\"argv\":[\"ls\",\"-la\"]}}\n~~~```")
+                    ex("shell pipe", "```tool_call\n{\"tool\":\"shell\",\"description\":\"pipe\",\"args\":{\"cmd\":\"ps -A | head -n 5\"}}\n~~~```")
+                }
+                if (topic.isBlank() || topic.contains("http") || topic.contains("net")) {
+                    ex("http GET", "```tool_call\n{\"tool\":\"http_request\",\"description\":\"GET\",\"args\":{\"url\":\"https://example.com\",\"method\":\"GET\"}}\n~~~```")
+                }
+                if (topic.isBlank() || topic.contains("github")) {
+                    ex("github me", "```tool_call\n{\"tool\":\"github.me\",\"description\":\"auth\",\"args\":{}}\n~~~```")
+                }
+                if (examples.length() == 0) {
+                    ex("discover", "```tool_call\n{\"tool\":\"tool.search\",\"description\":\"search\",\"args\":{\"query\":\"workspace\"}}\n~~~```")
+                }
+                JSONObject().put("ok", true).put("topic", topic).put("examples", examples).toString()
+            }
+            "tools.count" -> {
+                try {
+                    val o = JSONObject(listTools())
+                    val n = o.optJSONArray("tools")?.length() ?: o.optInt("count", 0)
+                    JSONObject().put("ok", true).put("count", n).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "harness.info" -> {
+                JSONObject()
+                    .put("ok", true)
+                    .put("name", "D-Harness")
+                    .put("workspace", workspaceRoot.absolutePath)
+                    .put("exec_shell", settings.getBoolean("exec_shell", false))
+                    .put("protocol", "tool_call_v2")
+                    .put("close", "~~~```")
+                    .toString()
+            }
+            "session.info" -> {
+                JSONObject()
+                    .put("ok", true)
+                    .put("workspace", workspaceRoot.absolutePath)
+                    .put("time", System.currentTimeMillis())
+                    .put("protocol", "tool_call_v2")
+                    .toString()
+            }
+            "env" -> {
+                val name = sAny("name", "key", "var")
+                if (name.isBlank()) execArgvList(listOf("printenv"), 5_000, null)
+                else execArgvList(listOf("printenv", name), 3_000, null)
+            }
+            "uname" -> execArgvList(listOf("uname", "-a"), 3_000, null)
+            "printf" -> {
+                val fmt = sAny("format", "fmt", "text")
+                val arr = args.optJSONArray("args")
+                val cmd = StringBuilder("printf ")
+                cmd.append(shellQuote(fmt))
+                if (arr != null) for (i0 in 0 until arr.length()) {
+                    cmd.append(' ').append(shellQuote(arr.getString(i0)))
+                }
+                dispatchShell(JSONObject().put("cmd", cmd.toString()))
+            }
+            "rev" -> {
+                val path = sAny("path", "file")
+                if (path.isNotBlank()) execArgvList(listOf("rev", path), 10_000, null)
+                else {
+                    val text = sAny("text", "data")
+                    dispatchShell(JSONObject().put("cmd", "printf %s " + shellQuote(text) + " | rev"))
+                }
+            }
+            "file" -> execArgvList(listOf("file", sAny("path", "file")), 8_000, null)
+            "strings" -> {
+                val min = i("min", 4).coerceIn(2, 32)
+                execArgvList(listOf("strings", "-n", min.toString(), sAny("path", "file")), 20_000, null)
+            }
+            "hexdump" -> {
+                val n = i("n", 256).coerceIn(16, 4096)
+                dispatchShell(JSONObject().put("cmd", "hexdump -C " + shellQuote(sAny("path", "file")) + " | head -n " + (n / 16 + 2)))
+            }
+            "nl" -> execArgvList(listOf("nl", "-ba", sAny("path", "file")), 10_000, null)
+            "json.pretty" -> {
+                try {
+                    val raw = sAny("json", "text", "data")
+                    val indent = i("indent", 2).coerceIn(0, 8)
+                    val parsed: Any = if (raw.trim().startsWith("[")) JSONArray(raw) else JSONObject(raw)
+                    val pretty = when (parsed) {
+                        is JSONObject -> parsed.toString(indent)
+                        is JSONArray -> parsed.toString(indent)
+                        else -> raw
+                    }
+                    JSONObject().put("ok", true).put("json", pretty).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "json.min" -> {
+                try {
+                    val raw = sAny("json", "text", "data")
+                    val parsed: Any = if (raw.trim().startsWith("[")) JSONArray(raw) else JSONObject(raw)
+                    val mini = when (parsed) {
+                        is JSONObject -> parsed.toString()
+                        is JSONArray -> parsed.toString()
+                        else -> raw
+                    }
+                    JSONObject().put("ok", true).put("json", mini).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "text.count" -> {
+                val text = sAny("text", "data", "content")
+                val lines = if (text.isEmpty()) 0 else text.split('\n').size
+                val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.size
+                JSONObject().put("ok", true).put("chars", text.length).put("words", words).put("lines", lines).toString()
+            }
+            "url.encode" -> JSONObject().put("ok", true).put("result", java.net.URLEncoder.encode(sAny("text", "value", "q"), "UTF-8")).toString()
+            "url.decode" -> {
+                try {
+                    JSONObject().put("ok", true).put("result", java.net.URLDecoder.decode(sAny("text", "value", "q"), "UTF-8")).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "path.join" -> {
+                val parts = args.optJSONArray("parts") ?: JSONArray()
+                val sb = StringBuilder()
+                for (i0 in 0 until parts.length()) {
+                    val p = parts.getString(i0).trim('/').trim()
+                    if (p.isEmpty()) continue
+                    if (sb.isNotEmpty()) sb.append('/')
+                    sb.append(p)
+                }
+                try {
+                    val f = safeWorkspace(sb.toString())
+                    JSONObject().put("ok", true).put("path", f.absolutePath).put("relative", sb.toString()).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "path.split" -> {
+                val path = sAny("path", "file")
+                val f = java.io.File(path)
+                val name = f.name
+                val dot = name.lastIndexOf('.')
+                val ext = if (dot > 0) name.substring(dot + 1) else ""
+                val base = if (dot > 0) name.substring(0, dot) else name
+                JSONObject().put("ok", true).put("dir", f.parent ?: "").put("name", name).put("base", base).put("ext", ext).toString()
+            }
+            "dns.lookup" -> {
+                try {
+                    val host = sAny("host", "name", "domain")
+                    val addrs = java.net.InetAddress.getAllByName(host)
+                    val arr = JSONArray()
+                    for (a in addrs) arr.put(a.hostAddress)
+                    JSONObject().put("ok", true).put("host", host).put("addresses", arr).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "sys.meminfo" -> execArgvList(listOf("head", "-n", "20", "/proc/meminfo"), 5_000, null)
+            "sys.cpuinfo" -> execArgvList(listOf("head", "-n", "40", "/proc/cpuinfo"), 5_000, null)
+            "logcat.clear" -> execArgvList(listOf("logcat", "-c"), 5_000, null)
+            "note.set" -> {
+                val key = sAny("key", "name", "id")
+                val value = sAny("value", "text", "content")
+                if (key.isBlank()) JSONObject().put("ok", false).put("error", "key required").toString()
+                else {
+                    mem.edit().putString("note_$key", value).apply()
+                    JSONObject().put("ok", true).put("key", key).put("bytes", value.length).toString()
+                }
+            }
+            "note.get" -> {
+                val key = sAny("key", "name", "id")
+                val v = mem.getString("note_$key", null)
+                if (v == null) JSONObject().put("ok", false).put("error", "not found").put("key", key).toString()
+                else JSONObject().put("ok", true).put("key", key).put("value", v).toString()
+            }
+            "note.list" -> {
+                val arr = JSONArray()
+                for (e in mem.all.entries) {
+                    if (e.key.startsWith("note_")) arr.put(e.key.removePrefix("note_"))
+                }
+                JSONObject().put("ok", true).put("keys", arr).put("count", arr.length()).toString()
+            }
+            "workspace.mv" -> {
+                try {
+                    val from = safeWorkspace(sAny("from", "src", "source"))
+                    val to = safeWorkspace(sAny("to", "dest", "destination"))
+                    val ok = from.renameTo(to)
+                    JSONObject().put("ok", ok).put("from", from.absolutePath).put("to", to.absolutePath).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "workspace.cp" -> {
+                try {
+                    val from = safeWorkspace(sAny("from", "src", "source"))
+                    val to = safeWorkspace(sAny("to", "dest", "destination"))
+                    from.copyTo(to, overwrite = true)
+                    JSONObject().put("ok", true).put("from", from.absolutePath).put("to", to.absolutePath).put("bytes", to.length()).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "test.file" -> {
+                val path = sAny("path")
+                val mode = sAny("mode", "op").ifBlank { "exists" }
+                val flag = when (mode.lowercase()) {
+                    "file", "f", "-f" -> "-f"
+                    "dir", "d", "-d" -> "-d"
+                    else -> "-e"
+                }
+                execArgvList(listOf("test", flag, path), 3_000, null)
+            }
+
             "input.key" -> execArgvList(listOf("input", "keyevent", "${i("code", i("key", 4))}"), 5_000, null)
 
             else -> {
@@ -4062,7 +4339,7 @@ class HarnessBridge(
                             .put("code", "TOOL_NOT_FOUND")
                             .put("message", "unknown tool: $tool")
                             .put("retryable", false)
-                            .put("hint", "call list_tools"))
+                            .put("hint", "call list_tools, tool.search, or tools.help"))
                         .put("tool", tool).toString()
                 }
             }
@@ -4475,7 +4752,7 @@ class HarnessBridge(
                     .put("catalogCount", catalog.length())
                     .put("dispatchTools", dispatchNames)
                     .put("primaryApi", "invokeJson")
-                    .put("protocol", "markdown fence tool_call containing JSON; then wait for TOOL_RESULT")
+                    .put("protocol", "```tool_call JSON ~~~``` then wait for TOOL_RESULT; see tools.help")
                     .put("hint", "list_tools/describe/selftest now reflect invokeJson dispatcher; network tools are sync on this path"),
                 ms = System.currentTimeMillis() - t0
             )

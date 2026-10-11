@@ -1757,7 +1757,7 @@ async selftest() {
         message: 'Invalid JSON inside tool_call: ' + (e && e.message ? e.message : String(e)),
         source: source,
         raw: text.slice(0, 2000),
-        hint: 'Emit complete JSON: {"tool":"NAME","description":"…","args":{}}. No trailing commas, no comments.'
+        hint: 'Emit complete JSON inside the fence. Example:\n```tool_call\n{"tool":"list_tools","description":"catalog","args":{}}\n~~~```\nNo trailing commas, no comments, no DSML.'
       };
     }
     var list = [];
@@ -1832,7 +1832,7 @@ async selftest() {
     var text = normalizeToolText(raw);
     var results = [];
     // Match open ```tool_call ... body ... ~~~``` OR end_tool_call
-    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:~~~```|(?:^|\n)\s*end_tool_call\s*(?=\n|$))/gi;
+    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:\s*~~~```|(?:^|\n)\s*end_tool_call\s*(?=\n|$))/gi;
     var m;
     var n = 0;
     while ((m = re.exec(text)) !== null && n < 40) {
@@ -1856,7 +1856,7 @@ async selftest() {
   /** Bare JSON tool objects (legacy) — not executed; returned as format errors so UI can hide + report. */
   function extractLegacyBareToolJson(raw) {
     var text = normalizeToolText(raw);
-    text = text.replace(/```tool_call[\s\S]*?(?:~~~```|(?:^|\n)\s*end_tool_call\s*(?=\n|$))/gi, ' ');
+    text = text.replace(/```tool_call[\s\S]*?(?:\s*~~~```|(?:^|\n)\s*end_tool_call\s*(?=\n|$))/gi, ' ');
     text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
     var results = [];
     var idx = 0;
@@ -2822,14 +2822,21 @@ async function maybeAutoContinue() {
                 code: tool.code || 'TOOL_CALL_INVALID',
                 message: tool.message || 'Invalid tool_call',
                 hint: tool.hint || 'Use ```tool_call … ~~~``` with valid JSON (or end_tool_call)',
+                recovery: {
+                  open: '```tool_call',
+                  close: '~~~```',
+                  altClose: 'end_tool_call',
+                  minimalExample: {'tool':'list_tools','description':'catalog','args':{}}
+                },
                 details: {
                   source: tool.source || 'unknown',
                   tool: tool.tool || null,
                   receivedKeys: tool.receivedKeys || null,
-                  raw: (tool.raw || '').toString().slice(0, 800)
+                  raw: (tool.raw || '').toString().slice(0, 1200)
                 }
               },
-              tool: tool.tool || (tool.obj && tool.obj.tool) || null
+              tool: tool.tool || (tool.obj && tool.obj.tool) || null,
+              protocol: 'tool_call_v2'
             };
             const preview = 'Invalid tool_call: ' + (tool.code || 'error');
             collapseToolMessage(el, preview, true, false, preview, preview);

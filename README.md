@@ -4,7 +4,7 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
 
-**Current: 1.22.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
+**Current: 1.23.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
 
 ## What works
 
@@ -28,6 +28,10 @@ Not a demo. Tools run on-device against a sandboxed workspace; the model drives 
 | **Background** | Foreground service during multi-step chains |
 
 ## Tool call formats
+
+### tool_call fence (required)
+
+Close with `~~~``` or `end_tool_call`. Use `tools.help` / `tools.examples` at runtime.
 
 ### tool_call fence (required)
 

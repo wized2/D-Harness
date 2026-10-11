@@ -1,3 +1,12 @@
+## 1.23.0
+
+* Professional DeepSeek-oriented system instructions (identity, hard protocol, tool policy, workflow, errors, examples)
+* Stronger tool_call validation errors with recovery examples and protocol version
+* New tools: tools.help/examples/count, harness.info, session.info, env/uname/printf/rev/file/strings/hexdump/nl,
+  md5sum/sha256sum, json.pretty/min, text.count, url.encode/decode, path.join/split, dns.lookup,
+  sys.meminfo/cpuinfo, logcat.clear, note.set/get/list, workspace.mv/cp, test.file
+* Catalog and dispatcher verified (0 unbound)
+
 ## 1.22.0
 
 * Tool fence closer is now `~~~``` (three tildes + three backticks) or `end_tool_call`
