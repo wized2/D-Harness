@@ -1,3 +1,9 @@
+## 1.22.0
+
+* Tool fence closer is now `~~~``` (three tildes + three backticks) or `end_tool_call`
+* Opening remains ```tool_call — payload may contain normal ``` without early close
+* Shim settle/incomplete detection, legacy strip, error hints, and agent instructions updated
+
 ## 1.21.1
 * Fix CI: replace Python chr(10) with Kotlin \\u000A newline in joinToString
 

@@ -663,29 +663,31 @@ You drive on-device tools through the harness. DSML is disabled.
 
 ## ONLY valid tool format (mandatory)
 
-Every tool call MUST be inside a markdown code block with language tag **tool_call**.
-Bare JSON in the message body is rejected (you will get TOOL_RESULT with MISSING_TOOL_CALL_FENCE).
+Open with ```tool_call then JSON then close with ~~~``` (three tildes + three backticks).
+Optional closer: a line with only end_tool_call.
 
 ```tool_call
 {"tool":"NAME","description":"2-8 words","args":{}}
-```
+~~~```
 
-Multiple tools in one turn:
+Multiple tools:
 
 ```tool_call
 [
   {"tool":"ls","description":"list","args":{"path":"."}},
   {"tool":"cat","description":"read","args":{"path":"a.txt"}}
 ]
-```
+~~~```
 
 Rules:
-- Finish the entire fence (opening and closing ```) before stopping — incomplete fences do not run.
-- `tool` = exact name from list_tools / tool.search / tools.suggest
-- `args` = object (use {} if empty)
-- `description` = short UI label (recommended)
+- Closer MUST be ~~~``` or end_tool_call — a plain ``` alone does NOT end the block.
+- Payload may contain normal ``` code fences; they will not terminate the tool_call.
+- Finish the full block before stopping — incomplete opens do not run.
+- tool = exact name from list_tools / tool.search / tools.suggest
+- args = object (use {} if empty)
+- description = short UI label (recommended)
 - After the tool_call block, STOP. Wait for TOOL_RESULT. Never invent TOOL_RESULT.
-- Do not put tool JSON outside the fence. Do not use DSML/XML.
+- Bare {"tool":...} outside this fence is rejected (MISSING_TOOL_CALL_FENCE).
 
 ## Terminal toolkit
 - term (argv or cmd), shell / shell.pipe (needs exec_shell for cmd/pipelines)
@@ -696,7 +698,7 @@ Rules:
 list_tools, describe, tool.search, tools.suggest, tools.groups, exec.allowlist, selftest
 
 ## Failures
-- Invalid JSON / missing tool / args not object → detailed TOOL_RESULT error; fix and resend in a new tool_call fence
+- Invalid JSON / missing tool / args not object → detailed TOOL_RESULT error; fix and resend in a new tool_call block
 - unknown tool → list_tools / tool.search
 - shell disabled → enable exec_shell or use term argv
 - Max 2 adjusted retries, then explain

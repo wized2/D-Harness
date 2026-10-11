@@ -1728,13 +1728,22 @@ async selftest() {
   }
 
 
-  /** Required format: markdown fence language tool_call containing JSON object or array. */
-  var TOOL_CALL_FENCE_RE = /```tool_call[ \t]*\r?\n([\s\S]*?)```/gi;
+  /**
+   * Required tool format:
+   * ```tool_call
+   * {"tool":"NAME","description":"…","args":{}}
+   * ~~~```
+   * Closer is ~~~``` (three tildes + three backticks) OR a line end_tool_call.
+   * Payload may contain normal ``` safely until the custom closer.
+   */
+  var TOOL_CALL_OPEN_RE = /```tool_call\b[^\n]*\r?\n/i;
+  // Body until ~~~``` or end_tool_call (line)
+  var TOOL_CALL_FENCE_RE = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:~~~```|^\s*end_tool_call\s*$)/gim;
 
   function parseToolCallBody(body, source) {
     var text = String(body || '').trim();
     if (!text) {
-      return { error: true, code: 'EMPTY_TOOL_CALL', message: 'tool_call block is empty', source: source, hint: 'Put a JSON object inside the tool_call fence' };
+      return { error: true, code: 'EMPTY_TOOL_CALL', message: 'tool_call block is empty', source: source, hint: 'Put JSON between ```tool_call and ~~~``` (or end_tool_call)' };
     }
     // Strip optional leading "json" language residue
     if (/^json\s*\n/i.test(text)) text = text.replace(/^json\s*\n/i, '');
@@ -1822,7 +1831,8 @@ async selftest() {
   function extractToolCallFences(raw) {
     var text = normalizeToolText(raw);
     var results = [];
-    var re = /```tool_call[ \t]*\r?\n([\s\S]*?)```/gi;
+    // Match open ```tool_call ... body ... ~~~``` OR end_tool_call
+    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:~~~```|(?:^|\n)\s*end_tool_call\s*(?=\n|$))/gi;
     var m;
     var n = 0;
     while ((m = re.exec(text)) !== null && n < 40) {
@@ -1846,7 +1856,7 @@ async selftest() {
   /** Bare JSON tool objects (legacy) — not executed; returned as format errors so UI can hide + report. */
   function extractLegacyBareToolJson(raw) {
     var text = normalizeToolText(raw);
-    text = text.replace(/```tool_call[\s\S]*?```/gi, ' ');
+    text = text.replace(/```tool_call[\s\S]*?(?:~~~```|(?:^|\n)\s*end_tool_call\s*(?=\n|$))/gi, ' ');
     text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
     var results = [];
     var idx = 0;
@@ -1878,7 +1888,7 @@ async selftest() {
                     source: 'legacy-bare',
                     raw: cand.slice(0, 1500),
                     tool: obj.tool,
-                    hint: 'Wrap as:\\n```tool_call\\n{"tool":"' + obj.tool + '","args":{}}\\n```'
+                    hint: 'Wrap as: ```tool_call\n{"tool":"' + obj.tool + '","args":{}}\n~~~```'
                   });
                   n++;
                   idx = i + 1;
@@ -1897,8 +1907,10 @@ async selftest() {
 
   function isIncompleteToolJson(t) {
     t = normalizeToolText(t || '');
-    if (/```tool_call/i.test(t) && !/```tool_call[\s\S]*```/i.test(t)) return true;
-    return false;
+    if (!/```tool_call/i.test(t)) return false;
+    // Complete only when custom closer present
+    if (/```tool_call[\s\S]*?(?:~~~```|(?:^|\n)\s*end_tool_call\s*(?:\n|$))/i.test(t)) return false;
+    return true;
   }
 
   function extractToolCall(raw) {
@@ -2704,8 +2716,8 @@ async function maybeAutoContinue() {
     if (settle.el !== el || settle.len !== len) { settle = { el, len, at: now }; return false; }
     if (now - settle.at < CONFIG.settleMs) return false;
     // DeepSeek streams JSON char-by-char into RESPONSE; wait until balanced braces if tool-like
-    // Wait until tool_call fence is closed (streaming)
-    if (/```tool_call/i.test(text) && !/```tool_call[\s\S]*```/i.test(text)) return false;
+    // Wait until tool_call fence is closed with ~~~``` or end_tool_call
+    if (isIncompleteToolJson(text)) return false;
     if (/"tool"\s*:/.test(text) && /```tool_call/i.test(text)) {
       const tools = extractAllToolCalls(text);
       if (!tools.length) return false;
@@ -2809,7 +2821,7 @@ async function maybeAutoContinue() {
               error: {
                 code: tool.code || 'TOOL_CALL_INVALID',
                 message: tool.message || 'Invalid tool_call',
-                hint: tool.hint || 'Use a ```tool_call fence with valid JSON',
+                hint: tool.hint || 'Use ```tool_call … ~~~``` with valid JSON (or end_tool_call)',
                 details: {
                   source: tool.source || 'unknown',
                   tool: tool.tool || null,
