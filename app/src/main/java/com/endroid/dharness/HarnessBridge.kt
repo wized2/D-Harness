@@ -89,7 +89,7 @@ class HarnessBridge(
     private val execAllow = setOf(
         "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date",
         "uname", "id", "which", "true", "false", "sha256sum", "md5sum", "base64",
-        "toybox", "busybox", "dirname", "basename", "cut", "sort", "uniq", "tr",
+        "toybox", "busybox", "getprop", "uname", "df", "ps", "pm", "id", "printenv", "sysctl", "dirname", "basename", "cut", "sort", "uniq", "tr",
         "cmp", "stat", "df", "du", "sleep", "printf", "test", "[", "rm", "mkdir",
         "touch", "cp", "mv", "ln", "chmod"
     , "sh", "mksh", "bash", "toybox", "busybox")
@@ -162,6 +162,22 @@ class HarnessBridge(
         tool("exec.lang", "Run a short script in an on-device runtime. Check exec.langs() first. cwd=workspace.", JSONObject().put("lang", "string").put("code", "string").put("timeoutMs", "number?"), example = "return await exec.lang('node', 'console.log(1+1)')")
         tool("exec.which", "Locate binary on PATH", JSONObject().put("bin", "string"))
         tool("exec.langs", "List available script runtimes on device", JSONObject())
+        tool("shell", "Run a shell command in workspace (requires Settings → exec_shell). args.cmd required. Returns exitCode/stdout/stderr.", JSONObject().put("cmd", "string").put("timeout_ms", "number?").put("cwd", "string?"), example = "{\"tool\":\"shell\",\"description\":\"list files\",\"args\":{\"cmd\":\"ls -la\"}}")
+        tool("sh", "Alias of shell", JSONObject().put("cmd", "string").put("timeout_ms", "number?").put("cwd", "string?"))
+        tool("cmd", "Alias of shell", JSONObject().put("cmd", "string").put("timeout_ms", "number?"))
+        tool("shell.which", "Resolve binary on PATH via command -v", JSONObject().put("bin", "string"))
+        tool("shell.env", "Environment snapshot for child processes (HOME/TMPDIR/PATH subset)", JSONObject())
+        tool("shell.pwd", "Shell working directory (= workspace root or cwd)", JSONObject().put("cwd", "string?"))
+        tool("shell.lines", "Run shell cmd; return stdout split into lines (max 2000)", JSONObject().put("cmd", "string").put("timeout_ms", "number?"))
+        tool("shell.ok", "Run cmd; ok=true only if exitCode==0", JSONObject().put("cmd", "string").put("timeout_ms", "number?"))
+        tool("sys.prop", "Read one Android system property (getprop)", JSONObject().put("name", "string"))
+        tool("sys.props", "Read common props (ro.build.*, ril, etc.)", JSONObject())
+        tool("sys.uname", "Kernel uname -a via shell/toybox", JSONObject())
+        tool("sys.df", "Disk free (df -h) for workspace/storage", JSONObject())
+        tool("sys.ps", "Process snapshot (ps -A) truncated", JSONObject().put("filter", "string?"))
+        tool("pkg.list", "List installed packages (pm list packages) optional filter", JSONObject().put("filter", "string?").put("limit", "number?"))
+        tool("pkg.path", "Path of an installed package (pm path)", JSONObject().put("package", "string"))
+
         tool("text.regex_find", "Regex findall", JSONObject().put("text", "string").put("pattern", "string").put("flags", "string?"))
         tool("text.regex_replace", "Regex replace", JSONObject().put("text", "string").put("pattern", "string").put("replacement", "string"))
         tool("util.base64", "encode|decode", JSONObject().put("op", "string").put("data", "string"))
@@ -1827,7 +1843,7 @@ class HarnessBridge(
         val token = githubToken()
         if (token.isNullOrBlank()) {
             return JSONObject().put("ok", false).put("error", "missing GitHub PAT")
-                .put("hint", "Settings → store key "github" with a personal access token").toString()
+                .put("hint", "Settings → store key github with a personal access token").toString()
         }
         fun s(vararg keys: String): String {
             for (k in keys) {
@@ -3089,6 +3105,79 @@ class HarnessBridge(
         }
     }
 
+
+    /** Shell-centric harness entry: sh -c with workspace cwd. */
+    private fun dispatchShell(args: JSONObject): String {
+        val cmd = sequenceOf("cmd", "command", "c", "line", "script")
+            .map { args.optString(it, "") }
+            .firstOrNull { it.isNotBlank() }
+            ?: return JSONObject().put("ok", false).put("error", "cmd required")
+                .put("hint", "args.cmd is the shell command string").toString()
+        val timeout = args.optInt("timeout_ms", args.optInt("timeoutMs", 20_000)).coerceIn(500, 120_000)
+        val cwd = args.optString("cwd", args.optString("workdir", "")).ifBlank { null }
+        val argv = JSONArray().put("sh").put("-c").put(cmd)
+        return exec(argv.toString(), timeout, cwd)
+    }
+
+    private fun shellWhich(bin: String): String {
+        if (bin.isBlank()) return JSONObject().put("ok", false).put("error", "bin required").toString()
+        val r = exec(JSONArray().put("sh").put("-c").put("command -v ${bin.replace("'", "")} 2>/dev/null").toString(), 5000, null)
+        return try {
+            val o = JSONObject(r)
+            val out = o.optString("stdout", o.optString("out", "")).trim()
+            o.put("bin", bin).put("path", out).put("found", out.isNotBlank())
+            o.toString()
+        } catch (_: Exception) { r }
+    }
+
+    private fun shellEnv(): String {
+        return try {
+            val home = workspaceRoot.absolutePath
+            val path = System.getenv("PATH") ?: "/system/bin:/system/xbin:/vendor/bin"
+            JSONObject().put("ok", true)
+                .put("HOME", home)
+                .put("TMPDIR", context.cacheDir.absolutePath)
+                .put("PATH", path)
+                .put("workspace", home)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun sysProp(name: String): String {
+        if (name.isBlank()) return JSONObject().put("ok", false).put("error", "name required").toString()
+        // getprop is allowlisted on most devices via toybox
+        val safe = name.filter { it.isLetterOrDigit() || it == '.' || it == '_' || it == '-' }
+        if (safe != name) return JSONObject().put("ok", false).put("error", "invalid prop name").toString()
+        return exec(JSONArray().put("getprop").put(safe).toString(), 5000, null).let { raw ->
+            try {
+                val o = JSONObject(raw)
+                val v = o.optString("stdout", "").trim()
+                o.put("name", name).put("value", v)
+                o.toString()
+            } catch (_: Exception) { raw }
+        }
+    }
+
+    private fun sysPropsCommon(): String {
+        val keys = listOf(
+            "ro.build.version.release", "ro.build.version.sdk", "ro.product.model",
+            "ro.product.manufacturer", "ro.product.device", "ro.build.display.id",
+            "ro.hardware", "ro.board.platform"
+        )
+        val obj = JSONObject()
+        for (k in keys) {
+            try {
+                val r = JSONObject(sysProp(k))
+                obj.put(k, r.optString("value", r.optString("stdout", "")).trim())
+            } catch (_: Exception) {
+                obj.put(k, JSONObject.NULL)
+            }
+        }
+        return JSONObject().put("ok", true).put("props", obj).toString()
+    }
+
     private fun dispatchByName(tool: String, args: JSONObject): String {
         var tool = tool.trim().lowercase().let { n ->
             when (n) {
@@ -3212,7 +3301,7 @@ class HarnessBridge(
                 // Prefer native tools; do not leave the agent stuck on an unbound sandbox.
                 JSONObject().put("ok", false)
                     .put("error", "run_js is not required — call tools by name via invokeJson")
-                    .put("hint", "Use {"tool":"workspace.ls","args":{}} or github.*/http_request directly")
+                    .put("hint", "Use {tool:workspace.ls,args:{}} or github.*/http_request directly")
                     .put("alternatives", JSONArray()
                         .put("list_tools")
                         .put("http_request")
@@ -3304,6 +3393,68 @@ class HarnessBridge(
             "intent.open_url" -> intentOpenUrl(sAny("url", "uri", "link"))
             "index.build" -> indexBuild(sAny("path").ifBlank { null })
             "index.find" -> indexFind(sAny("query", "q", "name"))
+            "shell", "sh", "cmd", "bash" -> dispatchShell(args)
+            "shell.which" -> shellWhich(sAny("bin", "name", "cmd"))
+            "shell.env" -> shellEnv()
+            "shell.pwd" -> {
+                try {
+                    val cwd = sAny("cwd").ifBlank { null }
+                    val dir = if (cwd.isNullOrBlank()) workspaceRoot else safeWorkspace(cwd)
+                    JSONObject().put("ok", true).put("path", dir.absolutePath).put("exists", dir.exists()).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "shell.lines" -> {
+                val raw = dispatchShell(args)
+                try {
+                    val o = JSONObject(raw)
+                    val text = o.optString("stdout", o.optString("out", ""))
+                    val lines = JSONArray()
+                    for (line in text.lines().take(2000)) lines.put(line)
+                    o.put("lines", lines).put("lineCount", lines.length()).toString()
+                } catch (_: Exception) { raw }
+            }
+            "shell.ok" -> {
+                val raw = dispatchShell(args)
+                try {
+                    val o = JSONObject(raw)
+                    val code = o.optInt("exitCode", o.optInt("code", -1))
+                    o.put("ok", code == 0).put("exitCode", code).toString()
+                } catch (_: Exception) { raw }
+            }
+            "sys.prop" -> sysProp(sAny("name", "key", "prop"))
+            "sys.props" -> sysPropsCommon()
+            "sys.uname" -> exec(JSONArray().put("uname").put("-a").toString(), 5000, null)
+            "sys.df" -> exec(JSONArray().put("df").put("-h").toString(), 8000, null)
+            "sys.ps" -> {
+                val raw = exec(JSONArray().put("ps").put("-A").toString(), 8000, null)
+                val filter = sAny("filter", "q", "grep")
+                if (filter.isBlank()) raw
+                else try {
+                    val o = JSONObject(raw)
+                    val lines = o.optString("stdout", "").lines().filter { it.contains(filter, true) }
+                    o.put("stdout", lines.joinToString("\n").take(60_000)).put("matched", lines.size).toString()
+                } catch (_: Exception) { raw }
+            }
+            "pkg.list" -> {
+                val filter = sAny("filter", "q", "package")
+                val limit = i("limit", 80).coerceIn(1, 500)
+                val raw = exec(JSONArray().put("pm").put("list").put("packages").toString(), 15_000, null)
+                try {
+                    val o = JSONObject(raw)
+                    var lines = o.optString("stdout", "").lines().map { it.removePrefix("package:").trim() }.filter { it.isNotBlank() }
+                    if (filter.isNotBlank()) lines = lines.filter { it.contains(filter, true) }
+                    val arr = JSONArray()
+                    lines.take(limit).forEach { arr.put(it) }
+                    JSONObject().put("ok", true).put("packages", arr).put("count", arr.length()).put("truncated", lines.size > limit).toString()
+                } catch (_: Exception) { raw }
+            }
+            "pkg.path" -> {
+                val pkg = sAny("package", "pkg", "name")
+                if (pkg.isBlank()) JSONObject().put("ok", false).put("error", "package required").toString()
+                else exec(JSONArray().put("pm").put("path").put(pkg).toString(), 8000, null)
+            }
             "toybox.list" -> toyboxList()
 
             // ── previously catalog-only (now bound) ──
@@ -3806,7 +3957,7 @@ class HarnessBridge(
                     .put("catalogCount", catalog.length())
                     .put("dispatchTools", dispatchNames)
                     .put("primaryApi", "invokeJson")
-                    .put("protocol", "{"tool":"NAME","args":{...}} then wait for TOOL_RESULT")
+                    .put("protocol", "{tool:NAME,args:{...}} then wait for TOOL_RESULT")
                     .put("hint", "list_tools/describe/selftest now reflect invokeJson dispatcher; network tools are sync on this path"),
                 ms = System.currentTimeMillis() - t0
             )

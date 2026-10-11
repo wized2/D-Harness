@@ -1,3 +1,12 @@
+## 1.19.0
+
+* **Shell-first harness:** `shell` / `sh` / `cmd`, `shell.which|env|pwd|lines|ok`
+* **System tools:** `sys.prop`, `sys.props`, `sys.uname`, `sys.df`, `sys.ps`
+* **Packages:** `pkg.list`, `pkg.path`
+* Expanded exec allowlist: getprop, uname, df, ps, pm, id, printenv, sysctl
+* Stronger JSON-only agent instructions (format table, shell workflow, failure policy)
+* Compile: remaining unescaped string literals in dispatcher hints fixed
+
 ## 1.18.3
 
 * Bind remaining catalog tools into `dispatchByName` (research.*, sensors.*, device.*, fs.*, archive.*, process.*, file.*, paste_box, math.eval, tool.search, …)
