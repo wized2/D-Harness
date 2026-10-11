@@ -4,12 +4,13 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
 
-**Current: 1.19.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
+**Current: 1.20.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
 
 ## What works
 
 | Area | Capabilities |
 |------|----------------|
+| **Terminal** | term/argv, ls/cat/grep/find, shell pipelines |
 | **Shell** | `shell` / `sh` / `cmd`, sys.*, pkg.*, toybox, exec |
 | **Workspace** | `ls`, `read`, `write` (atomic + sha256), `apply_patch`, `apply_patch_multi`, `replace`, `grep`, `glob`, `head`/`tail`, `diff`, `mkdir`/`rm` |
 | **Agent loop** | JSON + optional DSML tool detect → native execute → `TOOL_RESULT` → continue / auto-continue |

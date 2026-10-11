@@ -1,3 +1,12 @@
+## 1.20.0
+
+* **Terminal toolkit:** `term`/`terminal`/`run` (argv or cmd), `shell.pipe`, `shell.script`
+* **Unix tools as first-class:** ls, cat, head, tail, wc, grep, find, mkdir, rm, cp, mv, touch, stat, du, pwd, echo, date, whoami, id, which, sha256sum, md5sum, base64, diff, sort, uniq, cut, tr, sed, chmod, ln, realpath, readlink, dirname, basename, tar, gzip, unzip, ping, curl, wget
+* **Device CLI:** logcat, dumpsys, am, settings.get/put, wm.size/density, free, uptime, nproc, printenv, pm.install
+* **Discovery:** tools.suggest, tools.groups, exec.allowlist
+* Expanded exec allowlist (sed/awk/tar/curl/pm/am/logcat/…)
+* Agent instructions rewritten for terminal-first JSON tool calling
+
 ## 1.19.0
 
 * **Shell-first harness:** `shell` / `sh` / `cmd`, `shell.which|env|pwd|lines|ok`

@@ -87,12 +87,19 @@ class HarnessBridge(
     private val childProcs = ConcurrentHashMap<Int, java.lang.Process>()
 
     private val execAllow = setOf(
-        "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date",
-        "uname", "id", "which", "true", "false", "sha256sum", "md5sum", "base64",
-        "toybox", "busybox", "getprop", "uname", "df", "ps", "pm", "id", "printenv", "sysctl", "dirname", "basename", "cut", "sort", "uniq", "tr",
-        "cmp", "stat", "df", "du", "sleep", "printf", "test", "[", "rm", "mkdir",
-        "touch", "cp", "mv", "ln", "chmod"
-    , "sh", "mksh", "bash", "toybox", "busybox")
+        // core
+        "ls", "cat", "grep", "egrep", "fgrep", "find", "echo", "pwd", "wc", "head", "tail",
+        "date", "uname", "id", "whoami", "which", "true", "false", "yes", "printf", "test", "[",
+        "sha256sum", "md5sum", "base64", "cksum", "cmp", "diff", "stat", "du", "df", "sleep",
+        "rm", "mkdir", "rmdir", "touch", "cp", "mv", "ln", "chmod", "chown", "readlink", "realpath",
+        "dirname", "basename", "cut", "sort", "uniq", "tr", "tee", "xargs", "sed", "awk",
+        "tar", "gzip", "gunzip", "zcat", "bzip2", "xz", "unzip", "zipinfo",
+        "toybox", "busybox", "getprop", "setprop", "ps", "top", "kill", "killall", "pidof",
+        "pm", "cmd", "service", "am", "input", "wm", "settings", "logcat", "dumpsys",
+        "printenv", "env", "sysctl", "getconf", "nproc", "free", "uptime",
+        "ip", "ifconfig", "netstat", "ping", "curl", "wget", "nslookup",
+        "sh", "mksh", "bash", "ash", "toybox", "busybox", "timeout", "nice", "nohup"
+    )
 
     private fun deliver(callbackId: String, json: String) {
         val idQ = JSONObject.quote(callbackId)
@@ -177,6 +184,69 @@ class HarnessBridge(
         tool("sys.ps", "Process snapshot (ps -A) truncated", JSONObject().put("filter", "string?"))
         tool("pkg.list", "List installed packages (pm list packages) optional filter", JSONObject().put("filter", "string?").put("limit", "number?"))
         tool("pkg.path", "Path of an installed package (pm path)", JSONObject().put("package", "string"))
+
+        tool("term", "Unified terminal: args.argv=[bin,...] (allowlisted, no shell) OR args.cmd for sh -c (needs exec_shell). Optional timeout_ms, cwd.", JSONObject().put("argv", "array?").put("cmd", "string?").put("timeout_ms", "number?").put("cwd", "string?"), example = "{\\"tool\\":\\"term\\",\\"description\\":\\"ls\\",\\"args\\":{\\"argv\\":[\\"ls\\",\\"-la\\"]}}")
+        tool("terminal", "Alias of term", JSONObject().put("argv", "array?").put("cmd", "string?"))
+        tool("run", "Alias of term", JSONObject().put("argv", "array?").put("cmd", "string?"))
+        tool("shell.pipe", "Run pipeline via shell (needs exec_shell). args.cmd e.g. \"ps -A | grep system\"", JSONObject().put("cmd", "string").put("timeout_ms", "number?"))
+        tool("shell.script", "Multiline shell script via sh -c (needs exec_shell)", JSONObject().put("script", "string").put("timeout_ms", "number?"))
+        tool("ls", "List directory (exec ls). args.path optional, args.long for -la", JSONObject().put("path", "string?").put("long", "boolean?").put("all", "boolean?"))
+        tool("cat", "Read file via cat (prefer workspace.read for UTF-8 sandbox files)", JSONObject().put("path", "string").put("max_bytes", "number?"))
+        tool("head", "First N lines of file", JSONObject().put("path", "string").put("n", "number?"))
+        tool("tail", "Last N lines of file", JSONObject().put("path", "string").put("n", "number?"))
+        tool("wc", "Word/line/byte count", JSONObject().put("path", "string").put("flags", "string?"))
+        tool("grep", "grep -n pattern path (or -r dir)", JSONObject().put("pattern", "string").put("path", "string?").put("recursive", "boolean?").put("ignore_case", "boolean?"))
+        tool("find", "find path -name pattern", JSONObject().put("path", "string?").put("name", "string?").put("type", "string?").put("maxdepth", "number?"))
+        tool("mkdir", "mkdir -p path", JSONObject().put("path", "string"))
+        tool("rm", "Remove path (file or -r dir). Destructive.", JSONObject().put("path", "string").put("recursive", "boolean?").put("force", "boolean?"))
+        tool("cp", "Copy src to dest", JSONObject().put("src", "string").put("dest", "string").put("recursive", "boolean?"))
+        tool("mv", "Move/rename src to dest", JSONObject().put("src", "string").put("dest", "string"))
+        tool("touch", "Touch file", JSONObject().put("path", "string"))
+        tool("stat", "stat path", JSONObject().put("path", "string"))
+        tool("du", "du -sh path", JSONObject().put("path", "string?"))
+        tool("pwd", "Print workspace/cwd", JSONObject().put("cwd", "string?"))
+        tool("echo", "Echo text to stdout", JSONObject().put("text", "string"))
+        tool("date", "Current date string", JSONObject().put("format", "string?"))
+        tool("whoami", "Current user id", JSONObject())
+        tool("id", "id command", JSONObject())
+        tool("which", "which binary", JSONObject().put("bin", "string"))
+        tool("sha256sum", "SHA-256 of file", JSONObject().put("path", "string"))
+        tool("md5sum", "MD5 of file", JSONObject().put("path", "string"))
+        tool("base64", "base64 encode/decode file or data", JSONObject().put("op", "encode|decode").put("path", "string?").put("data", "string?"))
+        tool("diff", "diff two files", JSONObject().put("a", "string").put("b", "string").put("unified", "boolean?"))
+        tool("sort", "sort file lines", JSONObject().put("path", "string").put("unique", "boolean?"))
+        tool("uniq", "uniq file", JSONObject().put("path", "string").put("count", "boolean?"))
+        tool("cut", "cut fields from file", JSONObject().put("path", "string").put("fields", "string").put("delimiter", "string?"))
+        tool("tr", "tr set1 set2 on file content via shell", JSONObject().put("path", "string").put("set1", "string").put("set2", "string"))
+        tool("sed", "sed expression on file (allowlisted sed)", JSONObject().put("expr", "string").put("path", "string").put("in_place", "boolean?"))
+        tool("chmod", "chmod mode path", JSONObject().put("mode", "string").put("path", "string"))
+        tool("ln", "ln -s target link", JSONObject().put("target", "string").put("link", "string").put("symbolic", "boolean?"))
+        tool("realpath", "Resolve absolute path", JSONObject().put("path", "string"))
+        tool("readlink", "readlink path", JSONObject().put("path", "string"))
+        tool("dirname", "dirname path", JSONObject().put("path", "string"))
+        tool("basename", "basename path", JSONObject().put("path", "string"))
+        tool("tar", "tar list/extract/create (c|x|t)", JSONObject().put("op", "string").put("archive", "string").put("path", "string?"))
+        tool("gzip", "gzip -k file", JSONObject().put("path", "string").put("decompress", "boolean?"))
+        tool("unzip", "unzip -l or extract", JSONObject().put("archive", "string").put("list", "boolean?").put("dest", "string?"))
+        tool("ping", "ping -c count host", JSONObject().put("host", "string").put("count", "number?"))
+        tool("curl", "curl -sS url (allowlisted)", JSONObject().put("url", "string").put("method", "string?").put("output", "string?").put("headers", "object?"))
+        tool("wget", "wget -q url", JSONObject().put("url", "string").put("output", "string?"))
+        tool("logcat", "logcat -d snapshot (truncated). Optional filter.", JSONObject().put("filter", "string?").put("lines", "number?"))
+        tool("dumpsys", "dumpsys service (short). args.service required.", JSONObject().put("service", "string").put("args", "array?"))
+        tool("am", "am command (start/force-stop/...). args.argv after am", JSONObject().put("argv", "array"))
+        tool("pm.install", "pm install -r apk path (may need elevated)", JSONObject().put("path", "string"))
+        tool("settings.get", "settings get namespace key", JSONObject().put("namespace", "string").put("key", "string"))
+        tool("settings.put", "settings put namespace key value", JSONObject().put("namespace", "string").put("key", "string").put("value", "string"))
+        tool("wm.size", "wm size", JSONObject())
+        tool("wm.density", "wm density", JSONObject())
+        tool("free", "free -h memory", JSONObject())
+        tool("uptime", "uptime", JSONObject())
+        tool("nproc", "CPU count", JSONObject())
+        tool("printenv", "printenv or one var", JSONObject().put("name", "string?"))
+        tool("tools.suggest", "Suggest tools for a natural-language task", JSONObject().put("task", "string"))
+        tool("tools.groups", "List tool groups (workspace, shell, github, …)", JSONObject())
+        tool("exec.allowlist", "List allowlisted binaries for term/exec", JSONObject())
+
 
         tool("text.regex_find", "Regex findall", JSONObject().put("text", "string").put("pattern", "string").put("flags", "string?"))
         tool("text.regex_replace", "Regex replace", JSONObject().put("text", "string").put("pattern", "string").put("replacement", "string"))
@@ -3107,6 +3177,51 @@ class HarnessBridge(
 
 
     /** Shell-centric harness entry: sh -c with workspace cwd. */
+
+    /** Build argv JSONArray and run allowlisted exec (no shell required). */
+    private fun execArgvList(argv: List<String>, timeoutMs: Int = 15_000, cwd: String? = null): String {
+        if (argv.isEmpty()) return JSONObject().put("ok", false).put("error", "empty argv").toString()
+        val arr = JSONArray()
+        for (a in argv) arr.put(a)
+        return exec(arr.toString(), timeoutMs.coerceIn(500, 120_000), cwd)
+    }
+
+    private fun termFromArgs(args: JSONObject): String {
+        // Prefer argv array; else cmd string via shell
+        val argvAny = args.opt("argv") ?: args.opt("args")
+        if (argvAny != null) {
+            val list = mutableListOf<String>()
+            when (argvAny) {
+                is JSONArray -> for (i in 0 until argvAny.length()) list.add(argvAny.getString(i))
+                is String -> {
+                    try {
+                        val ja = JSONArray(argvAny)
+                        for (i in 0 until ja.length()) list.add(ja.getString(i))
+                    } catch (_: Exception) {
+                        return dispatchShell(args)
+                    }
+                }
+                else -> return JSONObject().put("ok", false).put("error", "argv must be array").toString()
+            }
+            val timeout = args.optInt("timeout_ms", args.optInt("timeoutMs", 20_000))
+            val cwd = args.optString("cwd", "").ifBlank { null }
+            return execArgvList(list, timeout, cwd)
+        }
+        val cmd = sequenceOf("cmd", "command", "c", "line", "script")
+            .map { args.optString(it, "") }.firstOrNull { it.isNotBlank() }
+        if (cmd != null) return dispatchShell(args)
+        return JSONObject().put("ok", false)
+            .put("error", "provide args.argv (array) or args.cmd (string)")
+            .put("hint", "term: {\"argv\":[\"ls\",\"-la\"]} or {\"cmd\":\"ls -la | head\"}")
+            .toString()
+    }
+
+    private fun shellQuote(s: String): String {
+        if (s.isEmpty()) return "''"
+        if (s.all { it.isLetterOrDigit() || it in "._-/=:@+,%" }) return s
+        return "'" + s.replace("'", "'\\''") + "'"
+    }
+
     private fun dispatchShell(args: JSONObject): String {
         val cmd = sequenceOf("cmd", "command", "c", "line", "script")
             .map { args.optString(it, "") }
@@ -3185,6 +3300,9 @@ class HarnessBridge(
                 "fetch", "http", "http.get", "httpget" -> "http_request"
                 "fetch_url", "fetchurl" -> "fetch_url"
                 "github", "gh" -> "github.me"
+                "terminal", "run", "cli" -> "term"
+                "shell.pipe", "pipeline" -> "shell.pipe"
+                "exec.allow", "allowlist" -> "exec.allowlist"
                 else -> n
             }
         }
@@ -3393,7 +3511,295 @@ class HarnessBridge(
             "intent.open_url" -> intentOpenUrl(sAny("url", "uri", "link"))
             "index.build" -> indexBuild(sAny("path").ifBlank { null })
             "index.find" -> indexFind(sAny("query", "q", "name"))
-            "shell", "sh", "cmd", "bash" -> dispatchShell(args)
+
+            "term", "terminal", "run" -> termFromArgs(args)
+            "shell.pipe" -> dispatchShell(JSONObject(args.toString()).put("cmd", sAny("cmd", "command", "pipeline", "line")))
+            "shell.script" -> {
+                val script = sAny("script", "cmd", "command", "code")
+                if (script.isBlank()) JSONObject().put("ok", false).put("error", "script required").toString()
+                else dispatchShell(JSONObject().put("cmd", script).put("timeout_ms", i("timeout_ms", i("timeoutMs", 30_000))))
+            }
+            "ls" -> {
+                val path = sAny("path", "dir", "directory").ifBlank { "." }
+                val argv = mutableListOf("ls")
+                if (args.optBoolean("all", false) || args.optBoolean("a", false)) argv.add("-a")
+                if (args.optBoolean("long", true) || args.optBoolean("l", false)) argv.add("-la")
+                else if (!argv.contains("-la")) { /* default short */ }
+                // simplify: always useful long listing when long true default false
+                val list = mutableListOf("ls")
+                when {
+                    args.optBoolean("long", false) && args.optBoolean("all", false) -> list.addAll(listOf("-la"))
+                }
+                list.add(path)
+                execArgvList(list, i("timeout_ms", 10_000), sAny("cwd").ifBlank { null })
+            }
+            "cat" -> execArgvList(listOf("cat", sAny("path", "file")), i("timeout_ms", 15_000), null)
+            "head" -> execArgvList(listOf("head", "-n", "${i("n", i("lines", 20)).coerceIn(1, 5000)}", sAny("path", "file")), 10_000, null)
+            "tail" -> execArgvList(listOf("tail", "-n", "${i("n", i("lines", 20)).coerceIn(1, 5000)}", sAny("path", "file")), 10_000, null)
+            "wc" -> {
+                val path = sAny("path", "file")
+                val flags = sAny("flags").ifBlank { "-lwc" }
+                val argv = mutableListOf("wc")
+                if (flags.isNotBlank()) for (f in flags.split(Regex("\\s+"))) if (f.isNotBlank()) argv.add(f)
+                argv.add(path)
+                execArgvList(argv, 10_000, null)
+            }
+            "grep" -> {
+                val pat = sAny("pattern", "query", "q", "regex")
+                val path = sAny("path", "file", "dir").ifBlank { "." }
+                val argv = mutableListOf("grep", "-n")
+                if (args.optBoolean("ignore_case", false) || args.optBoolean("i", false)) argv.add("-i")
+                if (args.optBoolean("recursive", false) || args.optBoolean("r", false)) argv.add("-r")
+                argv.add(pat); argv.add(path)
+                execArgvList(argv, i("timeout_ms", 20_000), null)
+            }
+            "find" -> {
+                val path = sAny("path", "dir").ifBlank { "." }
+                val argv = mutableListOf("find", path)
+                val md = i("maxdepth", 0)
+                if (md > 0) { argv.add("-maxdepth"); argv.add(md.toString()) }
+                val name = sAny("name", "pattern", "glob")
+                if (name.isNotBlank()) { argv.add("-name"); argv.add(name) }
+                val typ = sAny("type")
+                if (typ.isNotBlank()) { argv.add("-type"); argv.add(typ.take(1)) }
+                execArgvList(argv, i("timeout_ms", 30_000), null)
+            }
+            "mkdir" -> execArgvList(listOf("mkdir", "-p", sAny("path", "dir")), 8_000, null)
+            "rm" -> {
+                val path = sAny("path", "file", "dir")
+                if (path.isBlank() || path == "/" || path == ".") {
+                    JSONObject().put("ok", false).put("error", "refusing unsafe rm path").toString()
+                } else {
+                    val argv = mutableListOf("rm")
+                    if (args.optBoolean("recursive", false) || args.optBoolean("r", false)) argv.add("-r")
+                    if (args.optBoolean("force", true) || args.optBoolean("f", true)) argv.add("-f")
+                    argv.add(path)
+                    execArgvList(argv, 15_000, null)
+                }
+            }
+            "cp" -> {
+                val argv = mutableListOf("cp")
+                if (args.optBoolean("recursive", false) || args.optBoolean("r", false)) argv.add("-r")
+                argv.add(sAny("src", "from", "source")); argv.add(sAny("dest", "to", "destination"))
+                execArgvList(argv, 30_000, null)
+            }
+            "mv" -> execArgvList(listOf("mv", sAny("src", "from"), sAny("dest", "to")), 15_000, null)
+            "touch" -> execArgvList(listOf("touch", sAny("path", "file")), 5_000, null)
+            "stat" -> execArgvList(listOf("stat", sAny("path", "file")), 5_000, null)
+            "du" -> execArgvList(listOf("du", "-sh", sAny("path").ifBlank { "." }), 30_000, null)
+            "pwd" -> {
+                val cwd = sAny("cwd").ifBlank { null }
+                try {
+                    val dir = if (cwd == null) workspaceRoot else safeWorkspace(cwd)
+                    JSONObject().put("ok", true).put("path", dir.absolutePath).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "echo" -> execArgvList(listOf("echo", sAny("text", "message", "msg")), 3_000, null)
+            "date" -> {
+                val fmt = sAny("format", "fmt")
+                if (fmt.isBlank()) execArgvList(listOf("date"), 3_000, null)
+                else execArgvList(listOf("date", fmt), 3_000, null)
+            }
+            "whoami" -> execArgvList(listOf("whoami"), 3_000, null)
+            "id" -> execArgvList(listOf("id"), 3_000, null)
+            "which" -> execArgvList(listOf("which", sAny("bin", "name", "cmd")), 3_000, null)
+            "sha256sum" -> execArgvList(listOf("sha256sum", sAny("path", "file")), 60_000, null)
+            "md5sum" -> execArgvList(listOf("md5sum", sAny("path", "file")), 60_000, null)
+            "base64" -> {
+                val op = sAny("op").ifBlank { "encode" }.lowercase()
+                val path = sAny("path", "file")
+                when {
+                    path.isNotBlank() && op.startsWith("dec") -> execArgvList(listOf("base64", "-d", path), 30_000, null)
+                    path.isNotBlank() -> execArgvList(listOf("base64", path), 30_000, null)
+                    else -> {
+                        val data = sAny("data", "text")
+                        dispatchShell(JSONObject().put("cmd", "printf %s " + shellQuote(data) + " | base64" + if (op.startsWith("dec")) " -d" else ""))
+                    }
+                }
+            }
+            "diff" -> {
+                val argv = mutableListOf("diff")
+                if (args.optBoolean("unified", true)) argv.add("-u")
+                argv.add(sAny("a", "left", "from")); argv.add(sAny("b", "right", "to"))
+                execArgvList(argv, 30_000, null)
+            }
+            "sort" -> {
+                val argv = mutableListOf("sort")
+                if (args.optBoolean("unique", false) || args.optBoolean("u", false)) argv.add("-u")
+                argv.add(sAny("path", "file"))
+                execArgvList(argv, 30_000, null)
+            }
+            "uniq" -> {
+                val argv = mutableListOf("uniq")
+                if (args.optBoolean("count", false) || args.optBoolean("c", false)) argv.add("-c")
+                argv.add(sAny("path", "file"))
+                execArgvList(argv, 15_000, null)
+            }
+            "cut" -> {
+                val argv = mutableListOf("cut", "-f", sAny("fields", "f", "field").ifBlank { "1" })
+                val d = sAny("delimiter", "d", "sep")
+                if (d.isNotBlank()) { argv.add("-d"); argv.add(d) }
+                argv.add(sAny("path", "file"))
+                execArgvList(argv, 15_000, null)
+            }
+            "tr" -> {
+                val path = sAny("path", "file")
+                val s1 = sAny("set1", "from"); val s2 = sAny("set2", "to")
+                dispatchShell(JSONObject().put("cmd", "tr " + shellQuote(s1) + " " + shellQuote(s2) + " < " + shellQuote(path)))
+            }
+            "sed" -> {
+                val expr = sAny("expr", "expression", "e")
+                val path = sAny("path", "file")
+                val argv = mutableListOf("sed")
+                if (args.optBoolean("in_place", false) || args.optBoolean("i", false)) argv.add("-i")
+                argv.add(expr); argv.add(path)
+                execArgvList(argv, 30_000, null)
+            }
+            "chmod" -> execArgvList(listOf("chmod", sAny("mode", "perm"), sAny("path", "file")), 5_000, null)
+            "ln" -> {
+                val argv = mutableListOf("ln")
+                if (args.optBoolean("symbolic", true) || args.optBoolean("s", true)) argv.add("-s")
+                argv.add(sAny("target", "src")); argv.add(sAny("link", "dest", "path"))
+                execArgvList(argv, 5_000, null)
+            }
+            "realpath" -> execArgvList(listOf("realpath", sAny("path")), 5_000, null)
+            "readlink" -> execArgvList(listOf("readlink", sAny("path")), 5_000, null)
+            "dirname" -> execArgvList(listOf("dirname", sAny("path")), 3_000, null)
+            "basename" -> execArgvList(listOf("basename", sAny("path")), 3_000, null)
+            "tar" -> {
+                val op = sAny("op", "mode").ifBlank { "t" }.lowercase()
+                val archive = sAny("archive", "file", "tar")
+                val path = sAny("path", "dir")
+                val argv = mutableListOf("tar")
+                when {
+                    op.startsWith("c") -> { argv.addAll(listOf("-czf", archive)); if (path.isNotBlank()) argv.add(path) else argv.add(".") }
+                    op.startsWith("x") -> { argv.addAll(listOf("-xzf", archive)); if (path.isNotBlank()) argv.addAll(listOf("-C", path)) }
+                    else -> argv.addAll(listOf("-tzf", archive))
+                }
+                execArgvList(argv, 120_000, null)
+            }
+            "gzip" -> {
+                val path = sAny("path", "file")
+                if (args.optBoolean("decompress", false) || args.optBoolean("d", false))
+                    execArgvList(listOf("gzip", "-d", "-k", path), 60_000, null)
+                else execArgvList(listOf("gzip", "-k", path), 60_000, null)
+            }
+            "unzip" -> {
+                val archive = sAny("archive", "path", "file")
+                when {
+            "l" ->
+                        execArgvList(listOf("unzip", "-l", archive), 30_000, null)
+                    else -> {
+                        val dest = sAny("dest", "to", "dir")
+                        if (dest.isNotBlank()) execArgvList(listOf("unzip", "-o", archive, "-d", dest), 120_000, null)
+                        else execArgvList(listOf("unzip", "-o", archive), 120_000, null)
+                    }
+                }
+            }
+            "ping" -> execArgvList(listOf("ping", "-c", "${i("count", 3).coerceIn(1, 20)}", sAny("host", "target", "ip")), 30_000, null)
+            "curl" -> {
+                val url = sAny("url", "uri", "link")
+                val argv = mutableListOf("curl", "-sS", "-L", "--max-time", "25")
+                val method = sAny("method").uppercase()
+                if (method.isNotBlank() && method != "GET") { argv.add("-X"); argv.add(method) }
+                val out = sAny("output", "o", "file")
+                if (out.isNotBlank()) { argv.add("-o"); argv.add(out) }
+                val headers = args.optJSONObject("headers")
+                if (headers != null) {
+                    val it = headers.keys()
+                    while (it.hasNext()) {
+                        val k = it.next()
+                        argv.add("-H"); argv.add("$k: ${headers.getString(k)}")
+                    }
+                }
+                argv.add(url)
+                execArgvList(argv, 60_000, null)
+            }
+            "wget" -> {
+                val url = sAny("url", "uri")
+                val out = sAny("output", "o", "file")
+                if (out.isNotBlank()) execArgvList(listOf("wget", "-q", "-O", out, url), 60_000, null)
+                else execArgvList(listOf("wget", "-q", url), 60_000, null)
+            }
+            "logcat" -> {
+                val lines = i("lines", 100).coerceIn(20, 2000)
+                val filter = sAny("filter", "query", "tag")
+                val raw = execArgvList(listOf("logcat", "-d", "-t", lines.toString()), 20_000, null)
+                if (filter.isBlank()) raw
+                else try {
+                    val o = JSONObject(raw)
+                    val kept = o.optString("stdout", "").lines().filter { it.contains(filter, true) }
+                    o.put("stdout", kept.joinToString("\n").take(80_000)).put("matched", kept.size).toString()
+                } catch (_: Exception) { raw }
+            }
+            "dumpsys" -> {
+                val svc = sAny("service", "name")
+                if (svc.isBlank()) JSONObject().put("ok", false).put("error", "service required").toString()
+                else {
+                    val argv = mutableListOf("dumpsys", svc)
+                    val extra = args.opt("args")
+                    if (extra is JSONArray) for (i0 in 0 until extra.length()) argv.add(extra.getString(i0))
+                    execArgvList(argv, 30_000, null)
+                }
+            }
+            "am" -> {
+                val argvAny = args.opt("argv") ?: args.opt("args")
+                val list = mutableListOf("am")
+                when (argvAny) {
+                    is JSONArray -> for (i0 in 0 until argvAny.length()) list.add(argvAny.getString(i0))
+                    is String -> list.addAll(argvAny.split(Regex("\\s+")).filter { it.isNotBlank() })
+                    else -> return@run JSONObject().put("ok", false).put("error", "argv required").toString()
+                }
+                // fix: can't return@run in when - use if
+                execArgvList(list, 20_000, null)
+            }
+            "pm.install" -> execArgvList(listOf("pm", "install", "-r", sAny("path", "apk")), 120_000, null)
+            "settings.get" -> execArgvList(listOf("settings", "get", sAny("namespace", "ns").ifBlank { "system" }, sAny("key", "name")), 8_000, null)
+            "settings.put" -> execArgvList(listOf("settings", "put", sAny("namespace", "ns").ifBlank { "system" }, sAny("key", "name"), sAny("value")), 8_000, null)
+            "wm.size" -> execArgvList(listOf("wm", "size"), 5_000, null)
+            "wm.density" -> execArgvList(listOf("wm", "density"), 5_000, null)
+            "free" -> execArgvList(listOf("free", "-h"), 5_000, null)
+            "uptime" -> execArgvList(listOf("uptime"), 3_000, null)
+            "nproc" -> execArgvList(listOf("nproc"), 3_000, null)
+            "printenv" -> {
+                val name = sAny("name", "key", "var")
+                if (name.isBlank()) execArgvList(listOf("printenv"), 5_000, null)
+                else execArgvList(listOf("printenv", name), 3_000, null)
+            }
+            "exec.allowlist" -> JSONObject().put("ok", true).put("allow", JSONArray(execAllow.sorted())).put("count", execAllow.size).toString()
+            "tools.suggest" -> {
+                val task = sAny("task", "query", "q", "goal").lowercase()
+                val suggestions = JSONArray()
+                fun add(tool: String, why: String) { suggestions.put(JSONObject().put("tool", tool).put("why", why)) }
+                when {
+                    task.contains("github") || task.contains("pr") || task.contains("issue") -> {
+                        add("github.me", "auth check"); add("github.request", "raw API"); add("github.contents", "read file")
+                    }
+                    task.contains("http") || task.contains("url") || task.contains("fetch") -> {
+                        add("http_request", "native HTTP"); add("curl", "CLI HTTP"); add("research.preview", "URL preview")
+                    }
+                    task.contains("file") || task.contains("edit") || task.contains("patch") -> {
+                        add("workspace.read", "read"); add("workspace.apply_patch", "edit"); add("workspace.grep", "search")
+                    }
+            "shell", "command" -> {
+                        add("term", "argv or cmd"); add("shell", "sh -c"); add("exec.allowlist", "see bins")
+                    }
+                    task.contains("package") || task.contains("apk") -> {
+                        add("pkg.list", "list packages"); add("pkg.path", "apk path")
+                    }
+                    task.contains("log") || task.contains("crash") -> {
+                        add("logcat", "device logs"); add("sys.ps", "processes")
+                    }
+                    else -> {
+                        add("list_tools", "full catalog"); add("tool.search", "keyword search"); add("term", "terminal")
+                    }
+                }
+                JSONObject().put("ok", true).put("task", task).put("suggestions", suggestions).toString()
+            }
+
+            "sh", "cmd", "bash" -> dispatchShell(args)
             "shell.which" -> shellWhich(sAny("bin", "name", "cmd"))
             "shell.env" -> shellEnv()
             "shell.pwd" -> {
@@ -3938,6 +4344,11 @@ class HarnessBridge(
             probeDispatch("device.memory")
             probeDispatch("sensors.list")
             probeDispatch("research.plan", JSONObject().put("topic", "test"))
+            probeDispatch("tools.groups")
+            probeDispatch("exec.allowlist")
+            probeDispatch("tools.suggest", JSONObject().put("task", "list files"))
+            probeDispatch("pwd")
+            probeDispatch("echo", JSONObject().put("text", "ok"))
             val ver = try {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName
             } catch (_: Exception) { "?" }
