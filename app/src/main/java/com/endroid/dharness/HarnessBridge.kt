@@ -98,7 +98,7 @@ class HarnessBridge(
         "pm", "cmd", "service", "am", "input", "wm", "settings", "logcat", "dumpsys",
         "printenv", "env", "sysctl", "getconf", "nproc", "free", "uptime",
         "ip", "ifconfig", "netstat", "ping", "curl", "wget", "nslookup",
-        "sh", "mksh", "bash", "ash", "toybox", "busybox", "timeout", "nice", "nohup"
+        "seq", "sh", "mksh", "bash", "ash", "toybox", "busybox", "timeout", "nice", "nohup"
     )
 
     private fun deliver(callbackId: String, json: String) {
@@ -185,10 +185,10 @@ class HarnessBridge(
         tool("pkg.list", "List installed packages (pm list packages) optional filter", JSONObject().put("filter", "string?").put("limit", "number?"))
         tool("pkg.path", "Path of an installed package (pm path)", JSONObject().put("package", "string"))
 
-        tool("term", "Unified terminal: args.argv=[bin,...] (allowlisted, no shell) OR args.cmd for sh -c (needs exec_shell). Optional timeout_ms, cwd.", JSONObject().put("argv", "array?").put("cmd", "string?").put("timeout_ms", "number?").put("cwd", "string?"), example = "{\\"tool\\":\\"term\\",\\"description\\":\\"ls\\",\\"args\\":{\\"argv\\":[\\"ls\\",\\"-la\\"]}}")
+        tool("term", "Unified terminal: args.argv=[bin,...] (allowlisted) OR args.cmd for sh -c (needs exec_shell).", JSONObject().put("argv", "array?").put("cmd", "string?").put("timeout_ms", "number?").put("cwd", "string?"), example = "term argv:[ls,-la] or cmd:ls -la")
         tool("terminal", "Alias of term", JSONObject().put("argv", "array?").put("cmd", "string?"))
         tool("run", "Alias of term", JSONObject().put("argv", "array?").put("cmd", "string?"))
-        tool("shell.pipe", "Run pipeline via shell (needs exec_shell). args.cmd e.g. \"ps -A | grep system\"", JSONObject().put("cmd", "string").put("timeout_ms", "number?"))
+        tool("shell.pipe", "Run pipeline via shell (needs exec_shell). args.cmd e.g. ps -A | grep system", JSONObject().put("cmd", "string").put("timeout_ms", "number?"))
         tool("shell.script", "Multiline shell script via sh -c (needs exec_shell)", JSONObject().put("script", "string").put("timeout_ms", "number?"))
         tool("ls", "List directory (exec ls). args.path optional, args.long for -la", JSONObject().put("path", "string?").put("long", "boolean?").put("all", "boolean?"))
         tool("cat", "Read file via cat (prefer workspace.read for UTF-8 sandbox files)", JSONObject().put("path", "string").put("max_bytes", "number?"))
@@ -246,6 +246,28 @@ class HarnessBridge(
         tool("tools.suggest", "Suggest tools for a natural-language task", JSONObject().put("task", "string"))
         tool("tools.groups", "List tool groups (workspace, shell, github, …)", JSONObject())
         tool("exec.allowlist", "List allowlisted binaries for term/exec", JSONObject())
+
+        tool("shell.cd", "Resolve path under workspace (does not persist shell state)", JSONObject().put("path", "string"))
+        tool("shell.test", "Test path: exists/file/dir (test -e/-f/-d)", JSONObject().put("path", "string").put("mode", "string?"))
+        tool("shell.cat_head", "head -n via shell for remote paths", JSONObject().put("path", "string").put("n", "number?"))
+        tool("true", "Always exit 0", JSONObject())
+        tool("false", "Always exit 1", JSONObject())
+        tool("seq", "Print sequence: seq start end", JSONObject().put("start", "number").put("end", "number"))
+        tool("yes", "yes truncated via head", JSONObject().put("text", "string?").put("lines", "number?"))
+        tool("cmp", "cmp two files", JSONObject().put("a", "string").put("b", "string"))
+        tool("tee", "Write stdin file via shell echo", JSONObject().put("path", "string").put("text", "string").put("append", "boolean?"))
+        tool("xargs", "xargs helper: run bin with args from lines", JSONObject().put("bin", "string").put("lines", "array").put("max_args", "number?"))
+        tool("timeout", "Run argv with timeout binary if present", JSONObject().put("seconds", "number").put("argv", "array"))
+        tool("kill", "kill pid (SIGTERM default)", JSONObject().put("pid", "number").put("signal", "string?"))
+        tool("pidof", "pidof name", JSONObject().put("name", "string"))
+        tool("getprop", "Alias of sys.prop", JSONObject().put("name", "string"))
+        tool("ifconfig", "ifconfig snapshot", JSONObject())
+        tool("ip", "ip addr / route", JSONObject().put("args", "array?"))
+        tool("netstat", "netstat -n truncated", JSONObject())
+        tool("service.list", "service list (Android)", JSONObject().put("filter", "string?"))
+        tool("input.text", "input text (may need elevated)", JSONObject().put("text", "string"))
+        tool("input.key", "input keyevent code", JSONObject().put("code", "number"))
+
 
 
         tool("text.regex_find", "Regex findall", JSONObject().put("text", "string").put("pattern", "string").put("flags", "string?"))
@@ -3688,14 +3710,12 @@ class HarnessBridge(
             }
             "unzip" -> {
                 val archive = sAny("archive", "path", "file")
-                when {
-            "l" ->
-                        execArgvList(listOf("unzip", "-l", archive), 30_000, null)
-                    else -> {
-                        val dest = sAny("dest", "to", "dir")
-                        if (dest.isNotBlank()) execArgvList(listOf("unzip", "-o", archive, "-d", dest), 120_000, null)
-                        else execArgvList(listOf("unzip", "-o", archive), 120_000, null)
-                    }
+                if (args.optBoolean("list", false) || args.optBoolean("l", false)) {
+                    execArgvList(listOf("unzip", "-l", archive), 30_000, null)
+                } else {
+                    val dest = sAny("dest", "to", "dir")
+                    if (dest.isNotBlank()) execArgvList(listOf("unzip", "-o", archive, "-d", dest), 120_000, null)
+                    else execArgvList(listOf("unzip", "-o", archive), 120_000, null)
                 }
             }
             "ping" -> execArgvList(listOf("ping", "-c", "${i("count", 3).coerceIn(1, 20)}", sAny("host", "target", "ip")), 30_000, null)
@@ -3750,9 +3770,9 @@ class HarnessBridge(
                 when (argvAny) {
                     is JSONArray -> for (i0 in 0 until argvAny.length()) list.add(argvAny.getString(i0))
                     is String -> list.addAll(argvAny.split(Regex("\\s+")).filter { it.isNotBlank() })
-                    else -> return@run JSONObject().put("ok", false).put("error", "argv required").toString()
+                    else -> { }
                 }
-                // fix: can't return@run in when - use if
+                
                 execArgvList(list, 20_000, null)
             }
             "pm.install" -> execArgvList(listOf("pm", "install", "-r", sAny("path", "apk")), 120_000, null)
@@ -3774,7 +3794,7 @@ class HarnessBridge(
                 val suggestions = JSONArray()
                 fun add(tool: String, why: String) { suggestions.put(JSONObject().put("tool", tool).put("why", why)) }
                 when {
-                    task.contains("github") || task.contains("pr") || task.contains("issue") -> {
+                    task.contains("github") || task.contains("pr ") || task.contains("issue") -> {
                         add("github.me", "auth check"); add("github.request", "raw API"); add("github.contents", "read file")
                     }
                     task.contains("http") || task.contains("url") || task.contains("fetch") -> {
@@ -3783,7 +3803,7 @@ class HarnessBridge(
                     task.contains("file") || task.contains("edit") || task.contains("patch") -> {
                         add("workspace.read", "read"); add("workspace.apply_patch", "edit"); add("workspace.grep", "search")
                     }
-            "shell", "command" -> {
+                    task.contains("shell") || task.contains("command") || task.contains("terminal") -> {
                         add("term", "argv or cmd"); add("shell", "sh -c"); add("exec.allowlist", "see bins")
                     }
                     task.contains("package") || task.contains("apk") -> {
@@ -3799,7 +3819,7 @@ class HarnessBridge(
                 JSONObject().put("ok", true).put("task", task).put("suggestions", suggestions).toString()
             }
 
-            "sh", "cmd", "bash" -> dispatchShell(args)
+            "shell", "sh", "cmd", "bash" -> dispatchShell(args)
             "shell.which" -> shellWhich(sAny("bin", "name", "cmd"))
             "shell.env" -> shellEnv()
             "shell.pwd" -> {
@@ -3945,6 +3965,91 @@ class HarnessBridge(
             "device.locale" -> deviceLocale()
             "device.timezone" -> deviceTimezone()
             "device.sensors" -> deviceSensors(i("limit", 50).coerceIn(1, 200))
+
+
+            "shell.cd" -> {
+                try {
+                    val dir = safeWorkspace(sAny("path", "dir").ifBlank { "." })
+                    JSONObject().put("ok", true).put("path", dir.absolutePath).put("exists", dir.exists()).put("isDirectory", dir.isDirectory).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", e.message).toString()
+                }
+            }
+            "shell.test" -> {
+                val path = sAny("path")
+                val mode = sAny("mode", "op").ifBlank { "exists" }
+                val flag = when (mode.lowercase()) {
+                    "file", "f", "-f" -> "-f"
+                    "dir", "d", "-d" -> "-d"
+                    else -> "-e"
+                }
+                execArgvList(listOf("test", flag, path), 3_000, null)
+            }
+            "shell.cat_head" -> execArgvList(listOf("head", "-n", "${i("n", 40).coerceIn(1, 2000)}", sAny("path")), 10_000, null)
+            "true" -> execArgvList(listOf("true"), 2_000, null)
+            "false" -> execArgvList(listOf("false"), 2_000, null)
+            "seq" -> execArgvList(listOf("seq", "${i("start", 1)}", "${i("end", 10)}"), 5_000, null)
+            "yes" -> {
+                val n = i("lines", 5).coerceIn(1, 100)
+                val text = sAny("text").ifBlank { "y" }
+                dispatchShell(JSONObject().put("cmd", "yes " + shellQuote(text) + " | head -n " + n))
+            }
+            "cmp" -> execArgvList(listOf("cmp", sAny("a", "left"), sAny("b", "right")), 15_000, null)
+            "tee" -> {
+                val path = sAny("path"); val text = sAny("text", "content")
+                val op = if (args.optBoolean("append", false)) ">>" else ">"
+                dispatchShell(JSONObject().put("cmd", "printf %s " + shellQuote(text) + " " + op + " " + shellQuote(path)))
+            }
+            "xargs" -> {
+                val bin = sAny("bin", "cmd")
+                val lines = args.optJSONArray("lines") ?: JSONArray()
+                val maxA = i("max_args", 20).coerceIn(1, 100)
+                val argv = mutableListOf(bin)
+                for (i0 in 0 until minOf(lines.length(), maxA)) argv.add(lines.getString(i0))
+                execArgvList(argv, 30_000, null)
+            }
+            "timeout" -> {
+                val sec = i("seconds", i("s", 10)).coerceIn(1, 120)
+                val argvAny = args.opt("argv")
+                val list = mutableListOf("timeout", sec.toString())
+                if (argvAny is JSONArray) {
+                    for (i0 in 0 until argvAny.length()) list.add(argvAny.getString(i0))
+                    execArgvList(list, (sec + 5) * 1000, null)
+                } else {
+                    JSONObject().put("ok", false).put("error", "argv required").toString()
+                }
+            }
+            "kill" -> {
+                val pid = i("pid", 0)
+                val sig = sAny("signal", "sig").ifBlank { "TERM" }
+                if (pid <= 0) JSONObject().put("ok", false).put("error", "pid required").toString()
+                else execArgvList(listOf("kill", "-$sig", pid.toString()), 5_000, null)
+            }
+            "pidof" -> execArgvList(listOf("pidof", sAny("name", "process")), 5_000, null)
+            "getprop" -> sysProp(sAny("name", "key", "prop"))
+            "ifconfig" -> execArgvList(listOf("ifconfig"), 8_000, null)
+            "ip" -> {
+                val argvAny = args.opt("args") ?: args.opt("argv")
+                val list = mutableListOf("ip")
+                if (argvAny is JSONArray && argvAny.length() > 0) {
+                    for (i0 in 0 until argvAny.length()) list.add(argvAny.getString(i0))
+                } else list.add("addr")
+                execArgvList(list, 8_000, null)
+            }
+            "netstat" -> execArgvList(listOf("netstat", "-n"), 10_000, null)
+            "service.list" -> {
+                val raw = execArgvList(listOf("service", "list"), 15_000, null)
+                val filter = sAny("filter", "q")
+                if (filter.isBlank()) raw
+                else try {
+                    val o = JSONObject(raw)
+                    val kept = o.optString("stdout", "").lines().filter { it.contains(filter, true) }
+                    o.put("stdout", kept.joinToString("
+").take(60_000)).put("matched", kept.size).toString()
+                } catch (_: Exception) { raw }
+            }
+            "input.text" -> execArgvList(listOf("input", "text", sAny("text")), 8_000, null)
+            "input.key" -> execArgvList(listOf("input", "keyevent", "${i("code", i("key", 4))}"), 5_000, null)
 
             else -> {
                 if (tool.startsWith("github.")) {

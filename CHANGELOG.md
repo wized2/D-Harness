@@ -1,3 +1,9 @@
+## 1.20.1
+
+* Fix CI: corrupted when-branches (unzip list, tools.suggest, am return@run), term example string
+* More terminal tools: shell.cd/test/cat_head, true/false/seq/yes/cmp/tee/xargs/timeout, kill/pidof, getprop, ifconfig/ip/netstat, service.list, input.text/key
+* Allowlist: seq, yes, kill, pidof, service, input, network utils, timeout
+
 ## 1.20.0
 
 * **Terminal toolkit:** `term`/`terminal`/`run` (argv or cmd), `shell.pipe`, `shell.script`
