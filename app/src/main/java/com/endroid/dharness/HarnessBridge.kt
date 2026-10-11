@@ -603,7 +603,7 @@ class HarnessBridge(
             val camel = parts[0] + parts[1].replaceFirstChar { it.uppercase() }
             if (boundNativeMethods().contains(camel)) return camel
             // githubRequest style
-            val joined = parts[0] + parts[1].split('_', '.').joinToString(separator = chr(10)) { s -> s.replaceFirstChar { c -> c.uppercase() } }
+            val joined = parts[0] + parts[1].split('_', '.').joinToString(separator = "\u000A") { s -> s.replaceFirstChar { c -> c.uppercase() } }
         }
         return null
     }
@@ -1629,7 +1629,7 @@ class HarnessBridge(
         val r = when (op.lowercase()) {
             "lower" -> text.lowercase()
             "upper" -> text.uppercase()
-            "title" -> text.split(" ").joinToString(separator = chr(10)) { it.replaceFirstChar { c -> c.uppercase() } }
+            "title" -> text.split(" ").joinToString(separator = "\u000A") { it.replaceFirstChar { c -> c.uppercase() } }
             else -> return JSONObject().put("ok", false).put("error", "op").toString()
         }
         return JSONObject().put("ok", true).put("result", r).toString()
@@ -1755,7 +1755,7 @@ class HarnessBridge(
         return try {
             if (op == "to_rgb") {
                 var h = value.removePrefix("#")
-                if (h.length == 3) h = h.map { "$it$it" }.joinToString(separator = chr(10))
+                if (h.length == 3) h = h.map { "$it$it" }.joinToString(separator = "\u000A")
                 val n = h.toLong(16)
                 JSONObject().put("ok", true)
                     .put("r", (n shr 16) and 255).put("g", (n shr 8) and 255).put("b", n and 255).toString()
@@ -4043,7 +4043,7 @@ class HarnessBridge(
                     try {
                         val o = JSONObject(raw)
                         val kept = o.optString("stdout", "").lines().filter { it.contains(filter, true) }
-                        val joined = kept.joinToString(separator = chr(10))
+                        val joined = kept.joinToString(separator = "\u000A")
                         o.put("stdout", joined.take(60_000)).put("matched", kept.size).toString()
                     } catch (_: Exception) {
                         raw

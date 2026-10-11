@@ -1,3 +1,6 @@
+## 1.21.1
+* Fix CI: replace Python chr(10) with Kotlin \\u000A newline in joinToString
+
 ## 1.21.0
 
 * **Breaking tool protocol:** tool calls must be inside a markdown `tool_call` code fence
