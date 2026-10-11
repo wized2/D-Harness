@@ -1,3 +1,9 @@
+## 1.18.3
+
+* Bind remaining catalog tools into `dispatchByName` (research.*, sensors.*, device.*, fs.*, archive.*, process.*, file.*, paste_box, math.eval, tool.search, …)
+* Helpers: toolSearchCatalog, textHashFnv, jsonGetPath, urlParseSimple
+* Full catalog ↔ dispatcher coverage audit (no more “ready but unknown tool” for listed tools)
+
 ## 1.18.2
 
 * **Fix catalog/dispatcher split-brain:** `http_request`, `fetch_url`, and all `github.*` tools run on the `invokeJson` path (sync HTTP / GitHub)

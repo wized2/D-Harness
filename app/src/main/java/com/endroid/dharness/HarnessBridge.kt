@@ -3009,6 +3009,86 @@ class HarnessBridge(
         }
     }
 
+
+    private fun toolSearchCatalog(query: String): String {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return JSONObject().put("ok", false).put("error", "query required").toString()
+        return try {
+            val arr = JSONObject(listTools()).getJSONArray("tools")
+            val hits = JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val blob = (o.optString("name") + " " + o.optString("description") + " " + o.opt("params")).lowercase()
+                if (blob.contains(q)) {
+                    hits.put(JSONObject()
+                        .put("name", o.optString("name"))
+                        .put("description", o.optString("description"))
+                        .put("status", o.optString("status", "ready")))
+                }
+            }
+            JSONObject().put("ok", true).put("query", query).put("count", hits.length()).put("tools", hits).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun textHashFnv(text: String): String {
+        var h = 0x811c9dc5L
+        for (b in text.toByteArray(Charsets.UTF_8)) {
+            h = h xor (b.toLong() and 0xff)
+            h = (h * 0x01000193L) and 0xffffffffL
+        }
+        return JSONObject().put("ok", true).put("algo", "fnv1a32").put("hex", java.lang.Long.toHexString(h)).put("textLen", text.length).toString()
+    }
+
+    private fun jsonGetPath(objRaw: Any?, path: String): String {
+        return try {
+            var cur: Any? = when (objRaw) {
+                is JSONObject -> objRaw
+                is String -> {
+                    val s = objRaw.trim()
+                    when {
+                        s.startsWith("{") -> JSONObject(s)
+                        s.startsWith("[") -> JSONArray(s)
+                        else -> return JSONObject().put("ok", false).put("error", "obj must be JSON").toString()
+                    }
+                }
+                else -> return JSONObject().put("ok", false).put("error", "obj required").toString()
+            }
+            if (path.isBlank()) return JSONObject().put("ok", true).put("value", cur).toString()
+            for (part in path.split('.', '/').filter { it.isNotBlank() }) {
+                cur = when (cur) {
+                    is JSONObject -> if (cur.has(part)) cur.get(part) else return JSONObject().put("ok", false).put("error", "missing $part").toString()
+                    is JSONArray -> {
+                        val idx = part.toIntOrNull() ?: return JSONObject().put("ok", false).put("error", "bad index $part").toString()
+                        if (idx < 0 || idx >= cur.length()) return JSONObject().put("ok", false).put("error", "oob $idx").toString()
+                        cur.get(idx)
+                    }
+                    else -> return JSONObject().put("ok", false).put("error", "cannot traverse").toString()
+                }
+            }
+            JSONObject().put("ok", true).put("path", path).put("value", cur).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun urlParseSimple(url: String): String {
+        return try {
+            val u = java.net.URI(url)
+            JSONObject().put("ok", true)
+                .put("scheme", u.scheme ?: JSONObject.NULL)
+                .put("host", u.host ?: JSONObject.NULL)
+                .put("port", u.port)
+                .put("path", u.path ?: "")
+                .put("query", u.query ?: JSONObject.NULL)
+                .put("fragment", u.fragment ?: JSONObject.NULL)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
     private fun dispatchByName(tool: String, args: JSONObject): String {
         var tool = tool.trim().lowercase().let { n ->
             when (n) {
@@ -3182,10 +3262,7 @@ class HarnessBridge(
             "workspace.count" -> workspaceCount(sAny("path").ifBlank { null })
             "workspace.which" -> workspaceWhich(sAny("name", "file", "query"))
             "hash.file" -> hashFile(sAny("path"))
-            "text.word_count" -> textWordCount(sAny("text", "content"))
             "util.sleep" -> timeSleep(i("ms", 100).coerceIn(0, 10000))
-            "keys.set" -> keysSet(sAny("key", "name"), sAny("value", "val"))
-            "keys.list" -> keysList()
             "notify.simple" -> notifySimple(sAny("title").ifBlank { "D-Harness" }, sAny("body", "text", "message"))
             "selftest.deep" -> selftestDeep()
             "agent.metrics" -> agentMetrics()
@@ -3197,7 +3274,6 @@ class HarnessBridge(
             "memory.append" -> memoryAppend(sAny("text", "content", "note"))
             "workspace.diff" -> workspaceDiff(sAny("path"), sAny("content", "text"))
             "code.outline" -> codeOutline(sAny("path").ifBlank { null }, sAny("content").ifBlank { null }, i("max", 80))
-            "time.sleep" -> timeSleep(i("ms", 100).coerceIn(0, 10000))
             "util.base64" -> utilBase64(sAny("op").ifBlank { "encode" }, sAny("data", "text"))
             "json.merge" -> jsonMerge(sAny("a", "json"), sAny("b"))
             "json.keys" -> jsonKeys(sAny("json", "text", "data"))
@@ -3229,6 +3305,85 @@ class HarnessBridge(
             "index.build" -> indexBuild(sAny("path").ifBlank { null })
             "index.find" -> indexFind(sAny("query", "q", "name"))
             "toybox.list" -> toyboxList()
+
+            // ── previously catalog-only (now bound) ──
+            "research.web" -> researchWeb(sAny("query", "q"), i("maxSources", i("max_sources", 6)).coerceIn(1, 12))
+            "research.preview" -> researchPreview(sAny("url", "uri", "link"))
+            "research.html_text" -> researchHtmlText(sAny("url", "uri"), i("maxChars", i("max_chars", 12000)).coerceIn(500, 200_000))
+            "research.plan" -> researchPlan(sAny("topic", "query", "q"))
+            "exec.lang" -> execLang(sAny("lang", "language"), sAny("code", "source", "script"), i("timeout_ms", i("timeoutMs", 15000)))
+            "text.regex_replace" -> textRegexReplace(sAny("text", "content"), sAny("pattern", "regex"), sAny("replacement", "replace", "with"))
+            "util.uuid" -> utilUuid()
+            "util.time" -> utilTime()
+            "sensors.list" -> sensorsList()
+            "sensors.read" -> sensorsRead(sAny("type", "name", "sensor"))
+            "torch.set" -> torchSet(args.optBoolean("on", sAny("on", "value", "state") in listOf("1", "true", "on", "yes")))
+            "audio.volume" -> audioVolume(sAny("stream").ifBlank { null }, i("level", i("volume", 5)))
+            "audio.ringer" -> audioRinger(sAny("mode").ifBlank { null })
+            "wakelock.acquire" -> wakelockAcquire(i("ms", 5000).coerceIn(100, 60_000))
+            "wakelock.release" -> wakelockRelease()
+            "toybox.run" -> toyboxRun(sAny("applet", "cmd", "name"), args.opt("args")?.toString())
+            "tool.search" -> toolSearchCatalog(sAny("query", "q", "text"))
+            "text.hash" -> textHashFnv(sAny("text", "data", "content"))
+            "json.get" -> jsonGetPath(args.opt("obj") ?: args.opt("json") ?: args.opt("data"), sAny("path", "key"))
+            "url.parse" -> urlParseSimple(sAny("url", "uri", "link"))
+            "encode.uri" -> textUrl("encode", sAny("data", "text", "url", "value"))
+            "decode.uri" -> textUrl("decode", sAny("data", "text", "url", "value"))
+            "random.int" -> {
+                val lo = i("min", 0)
+                val hi = i("max", 100)
+                val a = minOf(lo, hi); val b = maxOf(lo, hi)
+                val v = if (b <= a) a else a + java.util.concurrent.ThreadLocalRandom.current().nextInt(b - a + 1)
+                JSONObject().put("ok", true).put("value", v).put("min", a).put("max", b).toString()
+            }
+            "string.split" -> textSplit(sAny("text"), sAny("sep", "separator", "delimiter"), i("limit", 0))
+            "string.join" -> textJoin(args.opt("parts")?.toString() ?: "[]", sAny("sep", "separator"))
+            "string.replace" -> textReplace(sAny("text"), sAny("find", "old"), sAny("replace", "new", "with"))
+            "sleep" -> timeSleep(i("ms", 100).coerceIn(0, 30_000))
+            "math.eval" -> {
+                val expr = sAny("expr", "expression", "math")
+                try { calcEval(expr) } catch (_: Exception) { evalExpr(expr) }
+            }
+            "file.commit" -> fileCommit(sAny("path"), sAny("contentB64", "content_b64", "b64"), sAny("expectedSha", "sha", "sha256").ifBlank { null })
+            "file.read_b64" -> fileReadB64(sAny("path"))
+            "file.verify_roundtrip" -> fileVerifyRoundtrip()
+            "file.save" -> {
+                val path = sAny("path", "name")
+                val content = sAny("content", "text", "data")
+                if (path.isBlank()) JSONObject().put("ok", false).put("error", "path required").toString()
+                else workspaceWrite(path, content)
+            }
+            "file.append" -> fileAppend(sAny("path"), sAny("content", "text"))
+            "paste_box" -> {
+                // UI tool: async dialog; return pending + use deliver path when callback provided
+                val cb = sAny("callbackId", "requestId", "id").ifBlank { "paste-" + System.currentTimeMillis() }
+                pasteBox(sAny("path").ifBlank { null }, sAny("title").ifBlank { null }, sAny("hint").ifBlank { null }, cb)
+                JSONObject().put("ok", true).put("pending", true).put("callbackId", cb)
+                    .put("hint", "User dialog open; result arrives as TOOL_RESULT when Done/Cancel").toString()
+            }
+            "sqlite.query" -> sqliteQuery(sAny("path", "db"), sAny("sql", "query"), args.opt("args")?.toString())
+            "archive.zip_list" -> archiveZipList(sAny("path", "zip"))
+            "archive.zip_extract" -> archiveZipExtract(sAny("path", "zip"), sAny("dest", "to").ifBlank { null })
+            "archive.zip_create" -> archiveZipCreate(sAny("path", "src", "from"), sAny("dest", "zip", "to").ifBlank { null })
+            "process.list" -> processList()
+            "process.kill" -> processKill(i("pid", 0))
+            "share" -> shareText(sAny("text", "content", "message"))
+            "appInfo" -> appInfo()
+            "geo.get" -> geoGet(i("timeout_ms", i("timeoutMs", 8000)).coerceIn(1000, 30_000))
+            "fs.stat" -> fsStat(sAny("path"))
+            "fs.exists" -> fsExists(sAny("path"))
+            "fs.append" -> fsAppend(sAny("path"), sAny("content", "text"))
+            "fs.mkdir" -> fsMkdir(sAny("path"))
+            "fs.touch" -> fsTouch(sAny("path"))
+            "fs.copy" -> fsCopy(sAny("from", "src", "source"), sAny("to", "dest", "destination"))
+            "fs.move" -> fsMove(sAny("from", "src", "source"), sAny("to", "dest", "destination"))
+            "device.display" -> deviceDisplay()
+            "device.uptime" -> deviceUptime()
+            "device.storage" -> deviceStorage()
+            "device.memory" -> deviceMemory()
+            "device.locale" -> deviceLocale()
+            "device.timezone" -> deviceTimezone()
+            "device.sensors" -> deviceSensors(i("limit", 50).coerceIn(1, 200))
 
             else -> {
                 if (tool.startsWith("github.")) {
@@ -3621,6 +3776,13 @@ class HarnessBridge(
             probeDispatch("github.me")
             probeDispatch("github.request", JSONObject().put("method", "GET").put("path", "/rate_limit"))
             probeDispatch("run_js", JSONObject().put("code", "return 1"))
+            probeDispatch("util.uuid")
+            probeDispatch("util.time")
+            probeDispatch("tool.search", JSONObject().put("query", "github"))
+            probeDispatch("math.eval", JSONObject().put("expr", "1+2*3"))
+            probeDispatch("device.memory")
+            probeDispatch("sensors.list")
+            probeDispatch("research.plan", JSONObject().put("topic", "test"))
             val ver = try {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName
             } catch (_: Exception) { "?" }
