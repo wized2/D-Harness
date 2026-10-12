@@ -3300,12 +3300,25 @@ async function maybeAutoContinue() {
       if (type === 'hbar' || type === 'horizontal') return svgBarChart(labels, values, Object.assign({ hbar: true }, opts));
       return svgBarChart(labels, values, opts);
     } catch {}
+    const lines = body.split(/\n+/).map(function (l) { return l.trim(); }).filter(Boolean);
+    let type = 'bar';
+    let start = 0;
+    if (lines[0] && /^type\s*[:=]/i.test(lines[0])) {
+      type = (lines[0].split(/[:=]/)[1] || 'bar').trim().toLowerCase();
+      start = 1;
+    }
     const labels = [], values = [];
-    body.split(/\n+/).forEach(line => {
-      const m = line.trim().match(/^([^,]+),\s*([0-9.]+)\s*$/);
+    for (let i = start; i < lines.length; i++) {
+      const m = lines[i].match(/^([^,]+),\s*(-?[0-9.]+)\s*$/);
       if (m) { labels.push(m[1].trim()); values.push(Number(m[2])); }
-    });
-    return values.length ? svgBarChart(labels, values, {}) : null;
+    }
+    if (!values.length) return null;
+    const opts = {};
+    if (type.indexOf('line') >= 0) return svgLineChart(labels, values, opts);
+    if (type === 'area') return svgLineChart(labels, values, Object.assign({ area: true }, opts));
+    if (type.indexOf('pie') >= 0) return svgPieChart(labels, values, opts);
+    if (type.indexOf('hbar') >= 0) return svgBarChart(labels, values, Object.assign({ hbar: true }, opts));
+    return svgBarChart(labels, values, opts);
   }
   function isChartComplete(text) {
     const s = text.trim();
