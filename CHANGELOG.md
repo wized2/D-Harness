@@ -1,3 +1,11 @@
+## 1.24.0
+
+* Restore/strengthen in-chat **artifacts** and **charts** (html/artifact/simulation, chart JSON + CSV, tables)
+* Enhance pipeline: render complete artifacts while streaming continues; skip tool_call fences
+* Chart types: bar, hbar, line, area, pie; type: header CSV
+* Tool-call compatibility: extra closers (```~~~, END_TOOL_CALL); list/describe aliases
+* Instructions: discover-first (list_tools, describe, tools.examples/help); artifact/chart authoring guide
+
 ## 1.23.0
 
 * Professional DeepSeek-oriented system instructions (identity, hard protocol, tool policy, workflow, errors, examples)

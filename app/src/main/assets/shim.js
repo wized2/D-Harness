@@ -1832,7 +1832,7 @@ async selftest() {
     var text = normalizeToolText(raw);
     var results = [];
     // Match open ```tool_call ... body ... ~~~``` OR end_tool_call
-    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:\s*~~~```|(?:^|\n)\s*end_tool_call\s*(?=\n|$))/gi;
+    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:\s*~~~```|\s*```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$))/gi;
     var m;
     var n = 0;
     while ((m = re.exec(text)) !== null && n < 40) {
@@ -1856,7 +1856,7 @@ async selftest() {
   /** Bare JSON tool objects (legacy) — not executed; returned as format errors so UI can hide + report. */
   function extractLegacyBareToolJson(raw) {
     var text = normalizeToolText(raw);
-    text = text.replace(/```tool_call[\s\S]*?(?:\s*~~~```|(?:^|\n)\s*end_tool_call\s*(?=\n|$))/gi, ' ');
+    text = text.replace(/```tool_call[\s\S]*?(?:\s*~~~```|\s*```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$))/gi, ' ');
     text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
     var results = [];
     var idx = 0;
@@ -1909,7 +1909,7 @@ async selftest() {
     t = normalizeToolText(t || '');
     if (!/```tool_call/i.test(t)) return false;
     // Complete only when custom closer present
-    if (/```tool_call[\s\S]*?(?:~~~```|(?:^|\n)\s*end_tool_call\s*(?:\n|$))/i.test(t)) return false;
+    if (/```tool_call[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$))/i.test(t)) return false;
     return true;
   }
 
@@ -2616,6 +2616,7 @@ async function maybeAutoContinue() {
       collapseToolMessage(dsMessage, preview, !res.ok, false, runLabel, doneLabel);
     }
     setStatus(res.ok ? 'idle' : 'error');
+    try { enhanceAllMessages(); } catch (_) {}
     try {
       const n = typeof N === 'function' ? N() : null;
       if (n && typeof n.agentEnd === 'function') n.agentEnd();
@@ -3452,29 +3453,35 @@ async function maybeAutoContinue() {
     const pres = Array.from(root.querySelectorAll('pre'));
     for (const pre of pres) {
       if (pre.getAttribute('data-dh-done')) continue;
-      if (pre.closest('.dh-artifact') || pre.closest('#__ds_shim_panel')) continue;
+      if (pre.closest('.dh-artifact') || pre.closest('.dh-chart') || pre.closest('#__ds_shim_panel')) continue;
       const codeEl = pre.querySelector('code') || pre;
       const text = (codeEl.textContent || '').trim();
       if (!text) continue;
-      const lang = ((codeEl.className || '') + ' ' + (pre.className || '')).toLowerCase();
+      const lang = ((codeEl.className || '') + ' ' + (pre.className || '') + ' ' + (codeEl.getAttribute('data-language') || '')).toLowerCase();
 
-      const isArtifactLang = /html-artifact|language-html|\bhtml\b|artifact|simulation|interactive/.test(lang) ||
-        (/^\s*<(!doctype|html|div|section|canvas|svg|body)/i.test(text) && text.length > 30);
+      // Never treat tool_call fences as charts/artifacts/code polish
+      if (/tool_call|language-tool_call/.test(lang) || /^\s*\{\s*"tool"\s*:/.test(text)) {
+        pre.setAttribute('data-dh-done', 'tool');
+        continue;
+      }
+
+      const isArtifactLang = /html-artifact|language-html|language-artifact|\bartifact\b|simulation|interactive|language-xml/.test(lang) ||
+        (/^\s*<(!doctype|html[\s>]|div[\s>]|section[\s>]|canvas[\s>]|svg[\s>]|body[\s>])/i.test(text) && text.length > 40) ||
+        (/<!doctype html/i.test(text) || /<html[\s>]/i.test(text));
       if (isArtifactLang) {
         const kind = /simulation/.test(lang) ? 'simulation' : (/interactive/.test(lang) ? 'interactive' : 'html');
-        if (!isHtmlComplete(text) || isGenerating()) {
-          if (!isHtmlComplete(text)) {
-            showLoadingCard(pre, kind);
-            continue;
-          }
+        if (!isHtmlComplete(text)) {
+          showLoadingCard(pre, kind);
+          continue;
         }
+        // Render complete HTML even while model is still generating later text
         try { renderArtifactCard(pre, text, kind); } catch (e) { console.warn('artifact', e); }
         continue;
       }
 
-      const isChartLang = /chart|dh-chart/.test(lang) ||
-        (text.startsWith('{') && /"values"\s*:/.test(text)) ||
-        (/^[^,\n]+,\s*[0-9.]+/m.test(text) && text.split('\n').filter(l => /,\s*[0-9.]+/.test(l)).length >= 2 && !text.includes('function'));
+      const isChartLang = /chart|dh-chart|language-chart|language-json|bar-chart|line-chart|pie-chart|csv/.test(lang) ||
+        (text.startsWith('{') && (/"values"\s*:/.test(text) || /"type"\s*:\s*"(bar|line|pie|area|hbar)"/.test(text))) ||
+        (/^[^,\n]+,\s*-?[0-9.]+/m.test(text) && text.split('\n').filter(function (l) { return /,\s*-?[0-9.]+/.test(l); }).length >= 2 && !text.includes('function') && !text.includes('tool'));
       if (isChartLang) {
         if (!isChartComplete(text)) {
           showLoadingCard(pre, 'chart');
@@ -3485,10 +3492,40 @@ async function maybeAutoContinue() {
           removeLoadingCard(pre);
           const div = document.createElement('div');
           div.innerHTML = html;
-          pre.setAttribute('data-dh-done', 'chart');
-          pre.replaceWith(div.firstChild);
+          const node = div.firstChild;
+          if (node) {
+            pre.setAttribute('data-dh-done', 'chart');
+            pre.replaceWith(node);
+          }
         }
         continue;
+      }
+
+      // Markdown-ish tables inside pre (pipe tables)
+      if (text.indexOf('|') !== -1 && /^\s*\|.+\|/m.test(text) && text.split('\n').length >= 2) {
+        try {
+          const rows = text.trim().split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+          if (rows.length >= 2 && rows[0].indexOf('|') !== -1) {
+            const parseRow = function (line) {
+              return line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+            };
+            let i0 = 0;
+            const head = parseRow(rows[0]);
+            if (rows[1] && /^[\s|:-]+$/.test(rows[1])) i0 = 2; else i0 = 1;
+            let h = '<div class="dh-table-wrap"><table><thead><tr>' + head.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>';
+            for (let r = i0; r < rows.length; r++) {
+              if (/^[\s|:-]+$/.test(rows[r])) continue;
+              const cells = parseRow(rows[r]);
+              h += '<tr>' + cells.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>';
+            }
+            h += '</tbody></table></div>';
+            const div = document.createElement('div');
+            div.innerHTML = h;
+            pre.setAttribute('data-dh-done', 'table');
+            pre.replaceWith(div.firstChild);
+            continue;
+          }
+        } catch (_) {}
       }
 
       pre.setAttribute('data-dh-done', 'code');
@@ -3521,7 +3558,7 @@ async function maybeAutoContinue() {
     clearInterval(enhanceTimer);
     enhanceTimer = setInterval(enhanceAllMessages, isGenerating() ? 300 : 1200);
   }, 2000);
-  const uiObs = new MutationObserver(() => enhanceAllMessages());
+  const uiObs = new MutationObserver(function () { enhanceAllMessages(); try { hideToolCallCodeBlocks(); } catch (_) {} });
   try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
   enhanceAllMessages();
 

@@ -159,6 +159,7 @@ class HarnessBridge(
             if (!example.isNullOrBlank()) o.put("example", example)
             tools.put(o)
         }
+        tool("list", "Alias of list_tools — full catalog", JSONObject())
         tool("list_tools", "Full catalog: name, params, example, common failures. Call before inventing tool names. No args.", JSONObject(), example = "{\"tool\":\"list_tools\",\"description\":\"catalog\",\"args\":{}}")
         tool("run_js", "Execute custom JS in the tool sandbox (last resort). Prefer native dotted tools. args.code required.", JSONObject().put("code", "string"), example = "{\"tool\":\"run_js\",\"args\":{\"code\":\"return await workspace.ls()\"}}")
         tool("selftest", "Probe which tools are actually bound", JSONObject())
@@ -3381,8 +3382,8 @@ class HarnessBridge(
         fun b(key: String, default: Boolean = false) = args.optBoolean(key, default)
 
         return when (tool) {
-            "list_tools" -> listTools()
-            "describe" -> describeTool(sAny("name", "tool"))
+            "list_tools", "list", "list tools" -> listTools()
+            "describe", "tool.describe", "help.tool" -> describeTool(sAny("name", "tool", "id"))
             "selftest" -> selftest()
             "time.now" -> timeNow()
             "time.format" -> timeFormat(l("ms"), s("pattern").ifBlank { null })
