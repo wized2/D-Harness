@@ -1,3 +1,13 @@
+# Tools
+
+## Protocol (tool_call v2)
+
+```tool_call
+{"tool":"NAME","description":"short","args":{}}
+~~~```
+
+Close with `~~~``` or `end_tool_call`. Prefer `list_tools` / `describe` before guessing args.
+
 # D-Harness Tools
 
 All tools are invoked as:
