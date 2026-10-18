@@ -522,9 +522,10 @@ class MainActivity : AppCompatActivity() {
                     scanThrottleMs: 100,
                     fallbackScanMs: 400
                   });
-                  // Skip full re-inject if same stable shim already live (avoids clearing session state)
+                  // Only skip reinject when the LIVE shim version matches this APK's shim
                   var existing = window.__DS_TOOL_SHIM__;
-                  if (existing && existing.version && !window.__DS_FORCE_REINJECT__) {
+                  var wantVer = '1.26.3-beta';
+                  if (existing && existing.version === wantVer && !window.__DS_FORCE_REINJECT__) {
                     console.log('[D-Harness] shim already live', existing.version);
                     try {
                       if (window.__DH_M3_THEME__ && window.__DH_M3_THEME__.reinject) {
@@ -534,6 +535,12 @@ class MainActivity : AppCompatActivity() {
                       }
                     } catch(e) { console.error('theme-live', e); }
                     return 'already';
+                  }
+                  if (existing) {
+                    console.log('[D-Harness] replacing shim', existing.version, '->', wantVer);
+                    try { window.__DS_FORCE_REINJECT__ = true; } catch(e) {}
+                    try { existing.stop && existing.stop(); } catch(e) {}
+                    try { delete window.__DS_TOOL_SHIM__; } catch(e) {}
                   }
                   try {
                     if (existing && existing.stop) existing.stop();

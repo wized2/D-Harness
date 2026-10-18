@@ -1,8 +1,11 @@
 (function () {
   'use strict';
   if (window.top !== window.self) return;
+  var VERSION = '1.26.3-beta';
   if (window.__DS_TOOL_SHIM__) {
-    if (!window.__DS_FORCE_REINJECT__) { console.log('[shim] already loaded'); return; }
+    var _live = window.__DS_TOOL_SHIM__.version;
+    if (!window.__DS_FORCE_REINJECT__ && _live === VERSION) { console.log('[shim] already loaded', _live); return; }
+    console.log('[shim] upgrading', _live, '->', VERSION);
     try { window.__DS_TOOL_SHIM__.stop && window.__DS_TOOL_SHIM__.stop(); } catch (e) {}
     try {
       document.getElementById('__ds_shim_style__')?.remove();
@@ -13,7 +16,6 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.18.1';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1713,200 +1715,112 @@ async selftest() {
   } catch (_) {}
 
   function normalizeToolText(text) {
-    // Smart quotes only — NEVER strip ``` fences (tool_call detection depends on them).
+    // Smart quotes only — keep backticks so ```tool_call can be matched in raw text
     return String(text || '')
       .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
       .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
   }
 
-  /** Strip generic code fences for legacy bare-JSON scanning only (not used for execution). */
-  function stripGenericFences(text) {
-    return String(text || '')
-      .replace(/```tool_call\b[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$))/gi, ' ')
-      .replace(/```[a-zA-Z0-9_-]*\s*/g, '\n')
-      .replace(/```/g, '\n');
-  }
-
-  function looksLikeToolJson(text) {
-    const t = normalizeToolText(text);
-    if (!/"tool"\s*:/.test(t)) return false;
-    // incomplete if has "tool" but no parseable object yet
-    return extractToolCall(t) == null;
-  }
-
-
-  /**
-   * Required tool format:
-   * ```tool_call
-   * {"tool":"NAME","description":"…","args":{}}
-   * ~~~```
-   * Closer is ~~~``` (three tildes + three backticks) OR a line end_tool_call.
-   * Payload may contain normal ``` safely until the custom closer.
-   */
-  var TOOL_CALL_OPEN_RE = /```tool_call\b[^\n]*\r?\n/i;
-  // Body until ~~~``` or end_tool_call (line)
-  var TOOL_CALL_FENCE_RE = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:~~~```|^\s*end_tool_call\s*$)/gim;
-
   function parseToolCallBody(body, source) {
     var text = String(body || '').trim();
     if (!text) {
-      return { error: true, code: 'EMPTY_TOOL_CALL', message: 'tool_call block is empty', source: source, hint: 'Put JSON between ```tool_call and ~~~``` (or end_tool_call)' };
+      return { error: true, code: 'EMPTY_TOOL_CALL', message: 'empty tool_call', source: source };
     }
-    // Strip optional leading "json" language residue
     if (/^json\s*\n/i.test(text)) text = text.replace(/^json\s*\n/i, '');
     var parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch (e) {
+    try { parsed = JSON.parse(text); }
+    catch (e) {
       return {
         error: true,
         code: 'JSON_PARSE_ERROR',
-        message: 'Invalid JSON inside tool_call: ' + (e && e.message ? e.message : String(e)),
+        message: String(e && e.message || e),
         source: source,
-        raw: text.slice(0, 2000),
-        hint: 'Emit complete JSON inside the fence. Example:\n```tool_call\n{"tool":"list_tools","description":"catalog","args":{}}\n~~~```\nNo trailing commas, no comments, no DSML.'
+        raw: text.slice(0, 1500)
       };
     }
-    var list = [];
-    if (Array.isArray(parsed)) {
-      parsed.forEach(function (item, i) {
-        list.push({ item: item, index: i });
-      });
-    } else {
-      list.push({ item: parsed, index: 0 });
-    }
+    var items = Array.isArray(parsed) ? parsed : [parsed];
     var out = [];
-    for (var li = 0; li < list.length; li++) {
-      var obj = list[li].item;
+    for (var i = 0; i < items.length; i++) {
+      var obj = items[i];
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-        out.push({
-          error: true,
-          code: 'NOT_OBJECT',
-          message: 'Each tool call must be a JSON object with tool and args',
-          source: source,
-          index: list[li].index,
-          hint: 'Example: {"tool":"workspace.ls","description":"list","args":{}}'
-        });
+        out.push({ error: true, code: 'NOT_OBJECT', source: source, index: i });
         continue;
       }
       if (typeof obj.tool !== 'string' || !obj.tool.trim()) {
-        out.push({
-          error: true,
-          code: 'MISSING_TOOL',
-          message: 'Missing or empty "tool" field',
-          source: source,
-          index: list[li].index,
-          receivedKeys: Object.keys(obj),
-          hint: 'Required: "tool" string from list_tools'
-        });
+        out.push({ error: true, code: 'MISSING_TOOL', source: source, index: i });
         continue;
       }
-      var name = obj.tool.trim();
-      if (/\s/.test(name)) {
-        out.push({
-          error: true,
-          code: 'INVALID_TOOL_NAME',
-          message: 'tool name must not contain whitespace: ' + name,
-          source: source,
-          index: list[li].index
-        });
-        continue;
-      }
-      if (obj.args == null) obj.args = {};
-      if (typeof obj.args !== 'object' || Array.isArray(obj.args)) {
-        out.push({
-          error: true,
-          code: 'ARGS_NOT_OBJECT',
-          message: '"args" must be a JSON object (use {} if empty)',
-          source: source,
-          index: list[li].index,
-          hint: 'Got type ' + (Array.isArray(obj.args) ? 'array' : typeof obj.args)
-        });
-        continue;
-      }
+      if (obj.args == null || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = {};
       out.push({
-        error: false,
-        obj: { tool: name, description: obj.description || obj.desc || '', args: obj.args },
-        full: JSON.stringify({ tool: name, description: obj.description || '', args: obj.args }),
-        source: source,
-        index: list[li].index
+        obj: obj,
+        full: JSON.stringify(obj),
+        index: i,
+        source: source || 'ok'
       });
     }
     return out;
   }
 
   /**
-   * Extract tool calls from:
-   * 1) Raw text fences: ```tool_call ... ~~~``` / ```~~~ / end_tool_call / closing ```
-   * 2) Rendered markdown: <pre><code class="language-tool_call">JSON</code></pre>
-   * DeepSeek often strips the backticks from textContent after render — DOM path is required.
+   * Simple detection (what actually works on DeepSeek web):
+   * A) text fence: ```tool_call ... ~~~``` or ~``` or end_tool_call or closing ```
+   * B) DOM: <code class="language-tool_call"> / any code block whose body is tool JSON
+   * C) any complete {"tool":"...","args":{...}} in the message (renderer often drops fences)
    */
   function extractToolCallFences(raw, rootEl) {
     var text = normalizeToolText(raw);
     var results = [];
     var n = 0;
-    // Accept several closers: ~~~```  ```~~~  end_tool_call  or plain closing ```
-    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:\s*~~~```|\s*```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$)|\n```(?:\s|$))/gi;
+    // open ```tool_call , body, close ~~~``` or ~``` or ```~~~ or end_tool_call or ```
+    var re = /```\s*tool_call\b[^\n]*\r?\n([\s\S]*?)(?:\s*~~~```|\s*~```|\s*```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$)|\n```(?:\s|$))/gi;
     var m;
     while ((m = re.exec(text)) !== null && n < 40) {
       var parsed = parseToolCallBody(m[1], 'fence');
       if (Array.isArray(parsed)) {
         parsed.forEach(function (p) {
           p.end = m.index + m[0].length;
-          p.fence = m[0];
           results.push(p);
         });
       } else if (parsed && parsed.error) {
         parsed.end = m.index + m[0].length;
-        parsed.fence = m[0];
         results.push(parsed);
       }
       n++;
     }
-    // DOM path: rendered code blocks with language-tool_call
-    if (rootEl && typeof rootEl.querySelectorAll === 'function') {
+    if (rootEl && rootEl.querySelectorAll) {
       try {
-                var nodes = rootEl.querySelectorAll('pre code, code, pre');
+        var nodes = rootEl.querySelectorAll('pre code, code');
         for (var i = 0; i < nodes.length && n < 40; i++) {
           var el = nodes[i];
-          // Prefer leaf code element text; skip nested double-scan of pre>code
-          if (el.tagName === 'PRE' && el.querySelector('code')) continue;
-          var body = (el.textContent || '').trim();
+          var cls = String(el.className || '') + ' ' + String((el.parentElement && el.parentElement.className) || '');
+          var body = String(el.textContent || '').trim();
           if (!body || body.indexOf('"tool"') === -1) continue;
-          if (!(body.charAt(0) === '{' || body.charAt(0) === '[')) {
-            // may have language label line
-            var nl = body.indexOf('\n');
-            if (nl !== -1) body = body.slice(nl + 1).trim();
-          }
-          if (!body || body.indexOf('"tool"') === -1) continue;
-          // Avoid double-count if same body already captured from raw text
-          var already = results.some(function (r) {
-            return (r.full && r.full.trim() === body) || (r.raw && r.raw.trim() === body);
-          });
+          // Prefer language-tool_call; also accept pure tool JSON in any code block
+          var isLang = /tool_call/i.test(cls);
+          var looks = /^\s*[{\[]/.test(body);
+          if (!isLang && !looks) continue;
+          try {
+            var peek = JSON.parse(body);
+            var ok = (peek && typeof peek.tool === 'string') ||
+              (Array.isArray(peek) && peek[0] && typeof peek[0].tool === 'string');
+            if (!ok) continue;
+          } catch (e) { continue; }
+          var already = results.some(function (r) { return r.full && r.full.trim() === body; });
           if (already) continue;
-          var parsedDom = parseToolCallBody(body, 'dom-tool_call');
-          if (Array.isArray(parsedDom)) {
-            parsedDom.forEach(function (p) {
-              p.source = 'dom-tool_call';
-              results.push(p);
-            });
-          } else if (parsedDom && parsedDom.error) {
-            parsedDom.source = 'dom-tool_call';
-            results.push(parsedDom);
+          var pd = parseToolCallBody(body, isLang ? 'dom-tool_call' : 'dom-code');
+          if (Array.isArray(pd)) {
+            pd.forEach(function (p) { results.push(p); });
+            n++;
           }
-          n++;
         }
-      } catch (e) { /* ignore DOM scan errors */ }
+      } catch (e) {}
     }
     return results;
   }
 
-  /**
-   * Bare / rendered tool JSON. DeepSeek often strips ```tool_call fences from textContent
-   * after markdown render — so complete {tool,args} objects MUST execute here.
-   */
-  function extractLegacyBareToolJson(raw) {
-    var text = stripGenericFences(normalizeToolText(raw));
+  function extractBareToolJson(raw) {
+    var text = normalizeToolText(raw);
+    // Drop TOOL_RESULT blobs so we don't re-execute
     text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
     var results = [];
     var idx = 0;
@@ -1914,8 +1828,7 @@ async selftest() {
     while ((idx = text.indexOf('"tool"', idx)) !== -1 && n < 30) {
       var startBrace = text.lastIndexOf('{', idx);
       if (startBrace === -1) { idx += 6; continue; }
-      var depth = 0, str = false, esc = false;
-      var advanced = false;
+      var depth = 0, str = false, esc = false, advanced = false;
       for (var i = startBrace; i < text.length; i++) {
         var c = text[i];
         if (str) {
@@ -1933,16 +1846,10 @@ async selftest() {
                 var obj = JSON.parse(cand);
                 if (obj && typeof obj.tool === 'string' && obj.tool.trim() && !/\s/.test(obj.tool.trim())) {
                   if (obj.args == null || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = {};
-                  results.push({
-                    obj: obj,
-                    full: cand,
-                    end: i + 1,
-                    index: n,
-                    source: 'bare-json'
-                  });
+                  results.push({ obj: obj, full: cand, end: i + 1, index: n, source: 'json' });
                   n++;
                 }
-              } catch (e) { /* incomplete stream */ }
+              } catch (e) {}
               idx = i + 1;
               advanced = true;
               break;
@@ -1957,10 +1864,15 @@ async selftest() {
 
   function isIncompleteToolJson(t) {
     t = normalizeToolText(t || '');
-    if (!/```tool_call/i.test(t)) return false;
-    // Complete when any supported closer is present (including plain ```)
-    if (/```tool_call[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$)|\n```)/i.test(t)) return false;
+    if (!/```\s*tool_call/i.test(t)) return false;
+    if (/```\s*tool_call[\s\S]*?(?:~~~```|~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$)|\n```)/i.test(t)) return false;
     return true;
+  }
+
+  function extractAllToolCalls(raw, rootEl) {
+    var fences = extractToolCallFences(raw, rootEl);
+    if (fences.length) return fences;
+    return extractBareToolJson(raw);
   }
 
   function extractToolCall(raw) {
@@ -1968,35 +1880,17 @@ async selftest() {
     for (var i = 0; i < all.length; i++) {
       if (!all[i].error && all[i].obj) return all[i];
     }
-    // Prefer first error for single-call path
     for (var j = 0; j < all.length; j++) {
       if (all[j].error) return all[j];
     }
     return null;
   }
 
-
-
-  function extractDsmlToolCall(raw) { return null; }
-  function extractAllDsmlToolCalls(raw) { return []; }
-
-  /** STRICT: only tool_call fences (text or language-tool_call DOM) execute. Bare JSON → format error only. */
-  function extractAllToolCalls(raw, rootEl) {
-    var fences = extractToolCallFences(raw, rootEl);
-    if (fences.length) return fences;
-    return extractLegacyBareToolJson(raw);
+  function looksLikeToolJson(text) {
+    var t = normalizeToolText(text);
+    if (!/"tool"\s*:/.test(t)) return false;
+    return extractToolCall(t) == null;
   }
-
-  extractToolCall = function(raw) {
-    var all = extractAllToolCalls(raw);
-    for (var i = 0; i < all.length; i++) {
-      if (!all[i].error && all[i].obj) return all[i];
-    }
-    for (var j = 0; j < all.length; j++) {
-      if (all[j].error) return all[j];
-    }
-    return null;
-  };
 
   // DSML disabled permanently (1.18+)
   try {
