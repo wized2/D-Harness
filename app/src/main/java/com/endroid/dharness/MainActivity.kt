@@ -676,23 +676,59 @@ class MainActivity : AppCompatActivity() {
     fun attachWorkspaceUris(uris: Array<Uri>, latch: java.util.concurrent.CountDownLatch): Boolean {
         pendingChooserUris = uris
         pendingChooserLatch = latch
+        // Aggressive, silent open of file input / upload control on chat.deepseek.com
         val js = """
             (function(){
-              function clickEl(el){ try { el.click(); return true; } catch(e) { return false; } }
+              function clickEl(el){
+                try {
+                  el.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true}));
+                  el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
+                  el.click();
+                  el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+                  return true;
+                } catch(e) { try { el.click(); return true; } catch(e2) { return false; } }
+              }
               var inputs = document.querySelectorAll('input[type=file]');
               for (var i = inputs.length - 1; i >= 0; i--) {
+                try { inputs[i].setAttribute('accept','image/*'); } catch(e) {}
                 if (clickEl(inputs[i])) return 'file-input';
               }
-              var nodes = document.querySelectorAll('button, [role="button"], label, a, div, span');
-              for (var j = 0; j < nodes.length; j++) {
-                var el = nodes[j];
-                var aria = (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '');
-                var txt = (el.textContent || '').trim().slice(0, 40);
-                var hay = (aria + ' ' + txt).toLowerCase();
-                if (/upload|attach|image|photo|picture|file|paperclip|\+/.test(hay)) {
-                  if (clickEl(el)) return 'btn:' + hay.slice(0, 32);
+              var sels = [
+                'button[aria-label*="image" i]','button[aria-label*="upload" i]',
+                'button[aria-label*="attach" i]','button[aria-label*="file" i]',
+                'button[title*="image" i]','button[title*="upload" i]',
+                '[data-testid*="upload" i]','[class*="upload" i] button',
+                'label[for] input[type=file]','label input[type=file]'
+              ];
+              for (var s = 0; s < sels.length; s++) {
+                try {
+                  var nodes = document.querySelectorAll(sels[s]);
+                  for (var j = nodes.length - 1; j >= 0; j--) {
+                    if (clickEl(nodes[j])) return 'sel:' + sels[s];
+                  }
+                } catch(e) {}
+              }
+              var all = document.querySelectorAll('button, [role="button"], label, a, div, span, svg');
+              for (var k = 0; k < all.length; k++) {
+                var el = all[k];
+                var aria = ((el.getAttribute('aria-label')||'') + ' ' + (el.getAttribute('title')||'') + ' ' + (el.getAttribute('data-tooltip')||'')).toLowerCase();
+                if (/upload|attach|image|photo|picture|file|paperclip|media/.test(aria)) {
+                  if (clickEl(el)) return 'aria';
                 }
               }
+              // Last resort: create hidden file input and click (WebView still routes to onShowFileChooser)
+              try {
+                var fi = document.getElementById('__dh_file_input');
+                if (!fi) {
+                  fi = document.createElement('input');
+                  fi.type = 'file';
+                  fi.accept = 'image/*';
+                  fi.id = '__dh_file_input';
+                  fi.style.cssText = 'position:fixed;left:-9999px;opacity:0;width:1px;height:1px;';
+                  document.body.appendChild(fi);
+                }
+                if (clickEl(fi)) return 'synthetic-input';
+              } catch(e) {}
               return 'none';
             })();
         """.trimIndent()
@@ -704,7 +740,16 @@ class MainActivity : AppCompatActivity() {
                 done.countDown()
             }
         }
-        try { done.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) {}
+        try { done.await(3, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) {}
+        // If first click did not open chooser, try synthetic input once more after short delay
+        if (pendingChooserUris != null) {
+            webView.postDelayed({
+                webView.evaluateJavascript(
+                    "(function(){var fi=document.getElementById('__dh_file_input');if(fi){fi.click();return 'retry';}return 'no';})();",
+                    null
+                )
+            }, 400)
+        }
         return clicked
     }
 
@@ -770,8 +815,10 @@ Or CSV lines: Label, number
 
 - Workspace files → workspace.* (read before edit; apply_patch preferred)
 - Workspace images → workspace.attach_image (path under workspace). Attaches into this chat so vision can read the image; wait for attached:true, then answer from the visible image. Do not invent pixels from the path alone.
-- Terminal → term argv; shell only if pipes/globs need exec_shell
-- Network → http_request / research.*
+- Terminal → term / shell / exec are one surface; prefer agent.run for sequences (wait, shell, tools)
+- Download → fetch {url,dest} into workspace; read with workspace.read (large files OK)
+- GitHub file upload → github.push_file with localPath (workspace path) — do not paste file bodies
+- Network → http_request / fetch / research.*
 - GitHub → github.* (PAT in settings)
 - Unknown → list_tools / describe / tools.examples — never invent names
 

@@ -1713,10 +1713,17 @@ async selftest() {
   } catch (_) {}
 
   function normalizeToolText(text) {
+    // Smart quotes only — NEVER strip ``` fences (tool_call detection depends on them).
     return String(text || '')
       .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
-      .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
-      .replace(/```(?:json|JSON|javascript|js)?\s*/g, '\n')
+      .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
+  }
+
+  /** Strip generic code fences for legacy bare-JSON scanning only (not used for execution). */
+  function stripGenericFences(text) {
+    return String(text || '')
+      .replace(/```tool_call\b[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$))/gi, ' ')
+      .replace(/```[a-zA-Z0-9_-]*\s*/g, '\n')
       .replace(/```/g, '\n');
   }
 
@@ -1855,8 +1862,8 @@ async selftest() {
 
   /** Bare JSON tool objects (legacy) — not executed; returned as format errors so UI can hide + report. */
   function extractLegacyBareToolJson(raw) {
-    var text = normalizeToolText(raw);
-    text = text.replace(/```tool_call[\s\S]*?(?:\s*~~~```|\s*```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$))/gi, ' ');
+    // Never execute these — only report MISSING_TOOL_CALL_FENCE for UI hide + model feedback.
+    var text = stripGenericFences(normalizeToolText(raw));
     text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
     var results = [];
     var idx = 0;
@@ -1937,75 +1944,21 @@ async selftest() {
   function extractDsmlToolCall(raw) { return null; }
   function extractAllDsmlToolCalls(raw) { return []; }
 
-  /** Extract JSON tool objects only (single object, array, or sequential). DSML removed. */
+  /** STRICT: only ```tool_call … ~~~``` (or end_tool_call) is executable. Bare JSON → format error only. */
   function extractAllToolCalls(raw) {
-    const results = [];
-    let text = normalizeToolText(raw);
-    text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
-    // JSON array of tools: [{"tool":...},{"tool":...}]
-    try {
-      const arrMatch = text.match(/\[\s*\{\s*"tool"\s*:[\s\S]*\}\s*\]/);
-      if (arrMatch) {
-        const arr = JSON.parse(arrMatch[0]);
-        if (Array.isArray(arr)) {
-          arr.forEach(function (obj, i) {
-            if (obj && typeof obj.tool === 'string') {
-              if (!obj.args || typeof obj.args !== 'object') obj.args = {};
-              results.push({ obj: obj, full: JSON.stringify(obj), end: 0, index: i });
-            }
-          });
-        }
-      }
-    } catch (_) {}
-    // Sequential JSON objects
-    if (!results.length) {
-      let idx = 0;
-      let n = 0;
-      while ((idx = text.indexOf('"tool"', idx)) !== -1 && n < 50) {
-        let start = text.lastIndexOf('{', idx);
-        if (start === -1) { idx += 6; continue; }
-        let depth = 0, str = false, esc = false;
-        for (let i = start; i < text.length; i++) {
-          const c = text[i];
-          if (str) {
-            if (esc) esc = false;
-            else if (c === '\\\\') esc = true;
-            else if (c === '"') str = false;
-          } else {
-            if (c === '"') str = true;
-            else if (c === '{') depth++;
-            else if (c === '}') {
-              depth--;
-              if (depth === 0) {
-                const cand = text.slice(start, i + 1);
-                try {
-                  const obj = JSON.parse(cand);
-                  if (obj && typeof obj.tool === 'string' && obj.tool.trim() && !/\s/.test(obj.tool.trim())) {
-                    // Reject incomplete stream fragments (tool name cut mid-word like "list_t")
-                    if (obj.tool === 'run_js' && !(obj.args && typeof obj.args.code === 'string')) break;
-                    if (!obj.args || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = obj.args && typeof obj.args === 'object' && !Array.isArray(obj.args) ? obj.args : {};
-                    if (!obj.args || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = {};
-                    results.push({ obj: obj, full: cand, end: i + 1, index: n });
-                    n++;
-                    idx = i + 1;
-                    break;
-                  }
-                } catch (_) {}
-                break;
-              }
-            }
-          }
-        }
-        idx += 6;
-      }
-    }
-    // DSML removed — JSON only
-    return results;
+    var fences = extractToolCallFences(raw);
+    if (fences.length) return fences;
+    return extractLegacyBareToolJson(raw);
   }
 
   extractToolCall = function(raw) {
-    const all = extractAllToolCalls(raw);
-    if (all.length) return all[0];
+    var all = extractAllToolCalls(raw);
+    for (var i = 0; i < all.length; i++) {
+      if (!all[i].error && all[i].obj) return all[i];
+    }
+    for (var j = 0; j < all.length; j++) {
+      if (all[j].error) return all[j];
+    }
     return null;
   };
 

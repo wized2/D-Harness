@@ -1,5 +1,14 @@
 ## 1.24.0
 
+## 1.26.0-beta — pro agent terminal + strict fences + vision
+
+- **Strict tool_call only:** shim no longer executes bare JSON; only tool_call fences with ~~~ closer. Fixed normalizeToolText stripping fences.
+- **workspace.attach_image:** auto-resolve path/folder/latest image; silent WebView attach with retry.
+- **agent.run / term.script:** ordered steps — tools, wait_ms, shell, fetch/download, github.push_file from workspace path.
+- **fetch:** download URL into workspace; workspace.read default 8MB.
+- **github.push_file** path-based upload aliases.
+
+
 ## 1.25.0-beta — workspace image attach (vision)
 
 - **workspace.attach_image** / **workspace.read_image**: attach a workspace image into the live DeepSeek chat via WebView file chooser so the model can use vision on the same turn as TOOL_RESULT.

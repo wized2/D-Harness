@@ -393,7 +393,13 @@ class HarnessBridge(
         tool("workspace.rm", "Delete file or empty dir in workspace", JSONObject().put("path", "string"))
         tool("workspace.stat", "Stat path in workspace", JSONObject().put("path", "string"))
         tool("workspace.tree", "Shallow tree listing", JSONObject().put("path", "string?").put("depth", "int?"))
-        tool("github.pull", "Download GitHub file into workspace", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?").put("dest", "string?"))
+        tool("github.push_file", "github.put_file", "github.upload" -> githubPushFile(
+                sAny("owner"), sAny("repo"), sAny("path", "remotePath"),
+                sAny("branch").ifBlank { "main" },
+                sAny("message", "commit").ifBlank { "update via D-Harness" },
+                sAny("localPath", "local", "file", "src")
+            )
+            "github.pull", "Download GitHub file into workspace", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?").put("dest", "string?"))
         tool("github.push_file", "Create/update a file on GitHub from a workspace path (Contents API). Needs PAT.", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"), example = "return await github.push_file('o','r','src/a.kt','main','msg','src/a.kt')")
         tool("file.verify_roundtrip", "Write then read-back SHA-256 of UTF-8 test bytes", JSONObject())
         tool("exec", "Allowlisted ProcessBuilder in app sandbox", JSONObject().put("argv", "string[]").put("timeout_ms", "number?").put("cwd", "string?"))
@@ -2235,7 +2241,7 @@ class HarnessBridge(
             if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
             val bytes = f.readBytes()
             val off = offset.coerceIn(0, bytes.size)
-            val limit = if (maxBytes > 0) maxBytes else 512_000
+            val limit = if (maxBytes > 0) maxBytes else 8_000_000
             val end = (off + limit).coerceAtMost(bytes.size)
             val slice = if (off == 0 && end == bytes.size) bytes else bytes.copyOfRange(off, end)
             val text = slice.toString(Charsets.UTF_8)
@@ -2545,19 +2551,56 @@ class HarnessBridge(
      * TOOL_RESULT is sent by the shim on the same composer turn when possible;
      * the image is staged on the composer first so vision can see it.
      */
+
+    private val imageExts = setOf("png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "heif")
+
+    private fun isImageFile(f: File): Boolean {
+        if (!f.isFile) return false
+        val n = f.name.lowercase()
+        return imageExts.any { n.endsWith(".$it") }
+    }
+
+    /** Resolve path, folder, or glob to a single image File under workspace. */
+    private fun resolveImageFile(path: String): File? {
+        val raw = path.trim().trimStart('/')
+        // Newest image in workspace
+        if (raw == "." || raw == "*" || raw == "**" || raw.equals("latest", true)) {
+            return newestImageUnder(fsRoot)
+        }
+        val candidate = try { safeWorkspace(raw) } catch (_: Exception) { return null }
+        if (candidate.isFile && isImageFile(candidate)) return candidate
+        if (candidate.isDirectory) return newestImageUnder(candidate)
+        // basename search
+        val base = candidate.name
+        val found = fsRoot.walkTopDown().maxDepth(6).firstOrNull { it.isFile && it.name.equals(base, true) && isImageFile(it) }
+        if (found != null) return found
+        // extension filter in parent
+        if (raw.contains("*")) {
+            val parent = candidate.parentFile ?: fsRoot
+            val regex = Regex("^" + Regex.escape(raw.substringAfterLast('/')).replace("\*", ".*") + "$", RegexOption.IGNORE_CASE)
+            return parent.listFiles()?.filter { isImageFile(it) && regex.matches(it.name) }?.maxByOrNull { it.lastModified() }
+        }
+        return null
+    }
+
+    private fun newestImageUnder(dir: File): File? {
+        if (!dir.exists()) return null
+        return dir.walkTopDown().maxDepth(5).filter { isImageFile(it) }.maxByOrNull { it.lastModified() }
+    }
+
     @JavascriptInterface
     fun workspaceAttachImage(path: String): String {
         return try {
             val rel = path.trim()
             if (rel.isEmpty()) {
                 return JSONObject().put("ok", false).put("error", "path required")
-                    .put("hint", "args.path relative to workspace").toString()
+                    .put("hint", "args.path relative to workspace, or a folder to pick newest image").toString()
             }
-            val f = safeWorkspace(rel)
-            if (!f.exists() || !f.isFile) {
-                return JSONObject().put("ok", false).put("error", "not found")
-                    .put("path", rel).toString()
-            }
+            val f = resolveImageFile(rel)
+                ?: return JSONObject().put("ok", false).put("error", "not found")
+                    .put("path", rel)
+                    .put("hint", "Put an image under workspace or pass exact path (png/jpg/webp/gif)")
+                    .toString()
             val name = f.name.lowercase()
             val okExt = listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic", ".heif")
             if (okExt.none { name.endsWith(it) }) {
@@ -2601,7 +2644,11 @@ class HarnessBridge(
                 clicked = activity.attachWorkspaceUris(arrayOf(uri), latch)
             }
             // Wait for file chooser to consume pending URI
-            val delivered = latch.await(4, TimeUnit.SECONDS)
+            var delivered = latch.await(3, TimeUnit.SECONDS)
+            if (!delivered) {
+                activity.runOnUiThread { activity.attachWorkspaceUris(arrayOf(uri), latch) }
+                delivered = latch.await(5, TimeUnit.SECONDS)
+            }
             if (!delivered) {
                 activity.pendingChooserUris = null
                 activity.pendingChooserLatch = null
@@ -2612,7 +2659,7 @@ class HarnessBridge(
                     .toString()
             }
             // Brief pause so DeepSeek UI can bind the attachment before TOOL_RESULT send
-            try { Thread.sleep(350) } catch (_: InterruptedException) { }
+            try { Thread.sleep(600) } catch (_: InterruptedException) { }
             JSONObject()
                 .put("ok", true)
                 .put("attached", true)
@@ -2747,6 +2794,111 @@ class HarnessBridge(
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
+
+
+    /**
+     * Agent terminal: run ordered steps (tools + wait + shell) in one call.
+     * steps: [{tool,args}|{wait_ms}|{shell}|{exec argv}|{read path}|{download url,dest}|{push localPath,owner,repo,path,branch,message}]
+     */
+    @JavascriptInterface
+    fun agentRun(stepsJson: String, stopOnError: Boolean): String {
+        return try {
+            val steps = JSONArray(stepsJson)
+            val out = JSONArray()
+            var okAll = true
+            for (i in 0 until steps.length()) {
+                val step = steps.optJSONObject(i) ?: continue
+                val t0 = System.currentTimeMillis()
+                val result: JSONObject = when {
+                    step.has("wait_ms") || step.has("wait") || step.has("sleep_ms") -> {
+                        val ms = step.optLong("wait_ms", step.optLong("wait", step.optLong("sleep_ms", 1000))).coerceIn(0, 60_000)
+                        Thread.sleep(ms)
+                        JSONObject().put("ok", true).put("waited_ms", ms)
+                    }
+                    step.has("shell") || step.has("sh") || (step.has("cmd") && !step.has("tool")) -> {
+                        val cmd = step.optString("shell", step.optString("sh", step.optString("cmd")))
+                        val argv = JSONArray().put("sh").put("-c").put(cmd)
+                        val cwd = step.optString("cwd", "").ifBlank { null }
+                        JSONObject(exec(argv.toString(), step.optInt("timeout_ms", 30000), cwd))
+                    }
+                    step.optString("tool") == "download" || step.has("url") && step.has("dest") -> {
+                        JSONObject(httpDownloadToWorkspace(step.optString("url"), step.optString("dest", step.optString("path"))))
+                    }
+                    step.optString("tool") == "read" || (step.has("path") && step.optString("tool").isEmpty() && step.has("read")) -> {
+                        JSONObject(workspaceReadRange(step.optString("path"), step.optInt("maxBytes", 0), 0))
+                    }
+                    step.optString("tool") == "github.push_file" || step.has("localPath") && step.has("owner") -> {
+                        JSONObject(
+                            githubPushFile(
+                                step.optString("owner"),
+                                step.optString("repo"),
+                                step.optString("path", step.optString("remotePath")),
+                                step.optString("branch", "main"),
+                                step.optString("message", "update via D-Harness"),
+                                step.optString("localPath", step.optString("local"))
+                            )
+                        )
+                    }
+                    step.has("tool") -> {
+                        val tool = step.optString("tool")
+                        val args = step.optJSONObject("args") ?: JSONObject()
+                        val keys = step.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            if (k !in setOf("tool", "description", "args", "wait_ms", "wait", "sleep_ms")) {
+                                if (!args.has(k)) args.put(k, step.get(k))
+                            }
+                        }
+                        // Avoid recursion into agent.run
+                        if (tool == "agent.run" || tool == "term.script") {
+                            JSONObject().put("ok", false).put("error", "nested agent.run not allowed")
+                        } else {
+                            JSONObject(invokeJson(tool, args.toString(), null))
+                        }
+                    }
+                    else -> JSONObject().put("ok", false).put("error", "unknown step").put("step", step)
+                }
+                result.put("elapsed_ms", System.currentTimeMillis() - t0)
+                result.put("i", i)
+                out.put(result)
+                if (!result.optBoolean("ok", true) && step.optBoolean("stopOnError", stopOnError)) {
+                    okAll = false
+                    break
+                }
+                if (!result.optBoolean("ok", true)) okAll = false
+            }
+            JSONObject().put("ok", okAll).put("steps", out).put("count", out.length()).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message ?: "agent.run failed").toString()
+        }
+    }
+
+    private fun httpDownloadToWorkspace(url: String, dest: String): String {
+        return try {
+            if (url.isBlank()) return JSONObject().put("ok", false).put("error", "url required").toString()
+            val destPath = dest.ifBlank { "download/" + (url.substringAfterLast('/').substringBefore('?').ifBlank { "file.bin" }) }
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = 20000
+                readTimeout = 60000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", "D-Harness/1.25")
+            }
+            conn.connect()
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                return JSONObject().put("ok", false).put("status", code).put("error", "http $code").toString()
+            }
+            val bytes = conn.inputStream.use { it.readBytes() }
+            val f = safeWorkspace(destPath)
+            f.parentFile?.mkdirs()
+            f.writeBytes(bytes)
+            JSONObject().put("ok", true).put("path", destPath).put("bytes", bytes.size).put("status", code).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
 
     /** Upload a workspace file to GitHub (create or update via Contents API). */
     @JavascriptInterface
@@ -3515,6 +3667,16 @@ class HarnessBridge(
             "workspace.write" -> workspaceWrite(sAny("path"), sAny("content", "text", "data"))
             "workspace.write_b64" -> workspaceWriteB64(sAny("path"), sAny("contentB64", "content", "data"))
             "workspace.read_b64" -> workspaceReadB64(sAny("path"))
+            "agent.run", "term.script", "agent.script" -> {
+                val steps = args.opt("steps") ?: args.opt("commands") ?: args.opt("script")
+                val sj = when (steps) {
+                    is JSONArray -> steps.toString()
+                    is String -> steps
+                    else -> "[]"
+                }
+                agentRun(sj, b("stopOnError", true))
+            }
+            "fetch", "download", "http.download" -> httpDownloadToWorkspace(sAny("url"), sAny("dest", "path"))
             "workspace.attach_image", "workspace.read_image", "attach_image", "read_image" ->
                 workspaceAttachImage(sAny("path"))
             "workspace.mkdir" -> workspaceMkdir(sAny("path"))
