@@ -1866,22 +1866,19 @@ async selftest() {
     // DOM path: rendered code blocks with language-tool_call
     if (rootEl && typeof rootEl.querySelectorAll === 'function') {
       try {
-        var nodes = rootEl.querySelectorAll('pre code, code');
+                var nodes = rootEl.querySelectorAll('pre code, code, pre');
         for (var i = 0; i < nodes.length && n < 40; i++) {
           var el = nodes[i];
-          var cls = (el.className || '') + ' ' + ((el.parentElement && el.parentElement.className) || '');
-          if (!/tool_call/i.test(cls)) {
-            // language-json / no lang: only if body is a single tool object/array
-            var bodyPeek = (el.textContent || '').trim();
-            if (!/^\{|\[/.test(bodyPeek) || bodyPeek.indexOf('"tool"') === -1) continue;
-            try {
-              var peek = JSON.parse(bodyPeek);
-              var okPeek = (peek && typeof peek.tool === 'string') || (Array.isArray(peek) && peek[0] && typeof peek[0].tool === 'string');
-              if (!okPeek) continue;
-            } catch (e) { continue; }
-          }
+          // Prefer leaf code element text; skip nested double-scan of pre>code
+          if (el.tagName === 'PRE' && el.querySelector('code')) continue;
           var body = (el.textContent || '').trim();
-          if (!body) continue;
+          if (!body || body.indexOf('"tool"') === -1) continue;
+          if (!(body.charAt(0) === '{' || body.charAt(0) === '[')) {
+            // may have language label line
+            var nl = body.indexOf('\n');
+            if (nl !== -1) body = body.slice(nl + 1).trim();
+          }
+          if (!body || body.indexOf('"tool"') === -1) continue;
           // Avoid double-count if same body already captured from raw text
           var already = results.some(function (r) {
             return (r.full && r.full.trim() === body) || (r.raw && r.raw.trim() === body);
@@ -1904,23 +1901,26 @@ async selftest() {
     return results;
   }
 
-  /** Bare JSON tool objects (legacy) — not executed; returned as format errors so UI can hide + report. */
+  /**
+   * Bare / rendered tool JSON. DeepSeek often strips ```tool_call fences from textContent
+   * after markdown render — so complete {tool,args} objects MUST execute here.
+   */
   function extractLegacyBareToolJson(raw) {
-    // Never execute these — only report MISSING_TOOL_CALL_FENCE for UI hide + model feedback.
     var text = stripGenericFences(normalizeToolText(raw));
     text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
     var results = [];
     var idx = 0;
     var n = 0;
-    while ((idx = text.indexOf('"tool"', idx)) !== -1 && n < 20) {
-      var start = text.lastIndexOf('{', idx);
-      if (start === -1) { idx += 6; continue; }
+    while ((idx = text.indexOf('"tool"', idx)) !== -1 && n < 30) {
+      var startBrace = text.lastIndexOf('{', idx);
+      if (startBrace === -1) { idx += 6; continue; }
       var depth = 0, str = false, esc = false;
-      for (var i = start; i < text.length; i++) {
+      var advanced = false;
+      for (var i = startBrace; i < text.length; i++) {
         var c = text[i];
         if (str) {
           if (esc) esc = false;
-          else if (c === '\\\\') esc = true;
+          else if (c === '\\') esc = true;
           else if (c === '"') str = false;
         } else {
           if (c === '"') str = true;
@@ -1928,30 +1928,29 @@ async selftest() {
           else if (c === '}') {
             depth--;
             if (depth === 0) {
-              var cand = text.slice(start, i + 1);
+              var cand = text.slice(startBrace, i + 1);
               try {
                 var obj = JSON.parse(cand);
-                if (obj && typeof obj.tool === 'string' && obj.tool.trim()) {
+                if (obj && typeof obj.tool === 'string' && obj.tool.trim() && !/\s/.test(obj.tool.trim())) {
+                  if (obj.args == null || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = {};
                   results.push({
-                    error: true,
-                    code: 'MISSING_TOOL_CALL_FENCE',
-                    message: 'Tool JSON must be inside a tool_call code block',
-                    source: 'legacy-bare',
-                    raw: cand.slice(0, 1500),
-                    tool: obj.tool,
-                    hint: 'Wrap as: ```tool_call\n{"tool":"' + obj.tool + '","args":{}}\n~~~```'
+                    obj: obj,
+                    full: cand,
+                    end: i + 1,
+                    index: n,
+                    source: 'bare-json'
                   });
                   n++;
-                  idx = i + 1;
-                  break;
                 }
-              } catch (_) {}
+              } catch (e) { /* incomplete stream */ }
+              idx = i + 1;
+              advanced = true;
               break;
             }
           }
         }
       }
-      idx += 6;
+      if (!advanced) idx += 6;
     }
     return results;
   }
@@ -1976,13 +1975,6 @@ async selftest() {
     return null;
   }
 
-  function extractAllToolCalls(raw, rootEl) {
-    var fences = extractToolCallFences(raw, rootEl);
-    if (fences.length) return fences;
-    // No fence in text or DOM: report bare JSON as format error only (do not execute)
-    var legacy = extractLegacyBareToolJson(raw);
-    return legacy;
-  }
 
 
   function extractDsmlToolCall(raw) { return null; }
