@@ -1835,13 +1835,19 @@ async selftest() {
     return out;
   }
 
-  function extractToolCallFences(raw) {
+  /**
+   * Extract tool calls from:
+   * 1) Raw text fences: ```tool_call ... ~~~``` / ```~~~ / end_tool_call / closing ```
+   * 2) Rendered markdown: <pre><code class="language-tool_call">JSON</code></pre>
+   * DeepSeek often strips the backticks from textContent after render — DOM path is required.
+   */
+  function extractToolCallFences(raw, rootEl) {
     var text = normalizeToolText(raw);
     var results = [];
-    // Match open ```tool_call ... body ... ~~~``` OR end_tool_call
-    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:\s*~~~```|\s*```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$))/gi;
-    var m;
     var n = 0;
+    // Accept several closers: ~~~```  ```~~~  end_tool_call  or plain closing ```
+    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:\s*~~~```|\s*```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$)|\n```(?:\s|$))/gi;
+    var m;
     while ((m = re.exec(text)) !== null && n < 40) {
       var parsed = parseToolCallBody(m[1], 'fence');
       if (Array.isArray(parsed)) {
@@ -1856,6 +1862,44 @@ async selftest() {
         results.push(parsed);
       }
       n++;
+    }
+    // DOM path: rendered code blocks with language-tool_call
+    if (rootEl && typeof rootEl.querySelectorAll === 'function') {
+      try {
+        var nodes = rootEl.querySelectorAll('pre code, code');
+        for (var i = 0; i < nodes.length && n < 40; i++) {
+          var el = nodes[i];
+          var cls = (el.className || '') + ' ' + ((el.parentElement && el.parentElement.className) || '');
+          if (!/tool_call/i.test(cls)) {
+            // language-json / no lang: only if body is a single tool object/array
+            var bodyPeek = (el.textContent || '').trim();
+            if (!/^\{|\[/.test(bodyPeek) || bodyPeek.indexOf('"tool"') === -1) continue;
+            try {
+              var peek = JSON.parse(bodyPeek);
+              var okPeek = (peek && typeof peek.tool === 'string') || (Array.isArray(peek) && peek[0] && typeof peek[0].tool === 'string');
+              if (!okPeek) continue;
+            } catch (e) { continue; }
+          }
+          var body = (el.textContent || '').trim();
+          if (!body) continue;
+          // Avoid double-count if same body already captured from raw text
+          var already = results.some(function (r) {
+            return (r.full && r.full.trim() === body) || (r.raw && r.raw.trim() === body);
+          });
+          if (already) continue;
+          var parsedDom = parseToolCallBody(body, 'dom-tool_call');
+          if (Array.isArray(parsedDom)) {
+            parsedDom.forEach(function (p) {
+              p.source = 'dom-tool_call';
+              results.push(p);
+            });
+          } else if (parsedDom && parsedDom.error) {
+            parsedDom.source = 'dom-tool_call';
+            results.push(parsedDom);
+          }
+          n++;
+        }
+      } catch (e) { /* ignore DOM scan errors */ }
     }
     return results;
   }
@@ -1915,8 +1959,8 @@ async selftest() {
   function isIncompleteToolJson(t) {
     t = normalizeToolText(t || '');
     if (!/```tool_call/i.test(t)) return false;
-    // Complete only when custom closer present
-    if (/```tool_call[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$))/i.test(t)) return false;
+    // Complete when any supported closer is present (including plain ```)
+    if (/```tool_call[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$)|\n```)/i.test(t)) return false;
     return true;
   }
 
@@ -1932,10 +1976,10 @@ async selftest() {
     return null;
   }
 
-  function extractAllToolCalls(raw) {
-    var fences = extractToolCallFences(raw);
+  function extractAllToolCalls(raw, rootEl) {
+    var fences = extractToolCallFences(raw, rootEl);
     if (fences.length) return fences;
-    // No fence: if bare tool JSON present, return format errors (do not execute)
+    // No fence in text or DOM: report bare JSON as format error only (do not execute)
     var legacy = extractLegacyBareToolJson(raw);
     return legacy;
   }
@@ -1944,9 +1988,9 @@ async selftest() {
   function extractDsmlToolCall(raw) { return null; }
   function extractAllDsmlToolCalls(raw) { return []; }
 
-  /** STRICT: only ```tool_call … ~~~``` (or end_tool_call) is executable. Bare JSON → format error only. */
-  function extractAllToolCalls(raw) {
-    var fences = extractToolCallFences(raw);
+  /** STRICT: only tool_call fences (text or language-tool_call DOM) execute. Bare JSON → format error only. */
+  function extractAllToolCalls(raw, rootEl) {
+    var fences = extractToolCallFences(raw, rootEl);
     if (fences.length) return fences;
     return extractLegacyBareToolJson(raw);
   }
@@ -2669,12 +2713,13 @@ async function maybeAutoContinue() {
     const now = performance.now();
     if (settle.el !== el || settle.len !== len) { settle = { el, len, at: now }; return false; }
     if (now - settle.at < CONFIG.settleMs) return false;
-    // DeepSeek streams JSON char-by-char into RESPONSE; wait until balanced braces if tool-like
-    // Wait until tool_call fence is closed with ~~~``` or end_tool_call
+    // Streaming: wait until tool_call fence is closed
     if (isIncompleteToolJson(text)) return false;
+    // DOM language-tool_call with parseable JSON counts as complete
+    var domTools = extractAllToolCalls(text, el);
+    if (domTools.length && domTools.some(function (x) { return !x.error && x.obj; })) return true;
     if (/"tool"\s*:/.test(text) && /```tool_call/i.test(text)) {
-      const tools = extractAllToolCalls(text);
-      if (!tools.length) return false;
+      if (!domTools.length) return false;
     }
     return true;
   }
@@ -2721,7 +2766,7 @@ async function maybeAutoContinue() {
     // Drop obvious thinking/reasoning lead-ins if model mixed them (API: THINK vs RESPONSE)
     text = text.replace(/^(Thinking|Reasoning|思考)[\s\S]*?(?=\{\s*"tool")/i, '');
     if (!text) return;
-    const tools = extractAllToolCalls(text);
+    const tools = extractAllToolCalls(text, main);
     if (!tools.length) {
       const norm = normalizeToolText(text);
       if (/"tool"\s*:/.test(norm)) {
