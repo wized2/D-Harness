@@ -700,7 +700,7 @@ class MainActivity : AppCompatActivity() {
         val done = java.util.concurrent.CountDownLatch(1)
         webView.post {
             webView.evaluateJavascript(js) { r ->
-                clicked = r != null && r != "null" && r != ""none""
+                clicked = r != null && r != "null" && !r.contains("none")
                 done.countDown()
             }
         }
