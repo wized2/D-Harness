@@ -393,13 +393,10 @@ class HarnessBridge(
         tool("workspace.rm", "Delete file or empty dir in workspace", JSONObject().put("path", "string"))
         tool("workspace.stat", "Stat path in workspace", JSONObject().put("path", "string"))
         tool("workspace.tree", "Shallow tree listing", JSONObject().put("path", "string?").put("depth", "int?"))
-        tool("github.push_file", "github.put_file", "github.upload" -> githubPushFile(
-                sAny("owner"), sAny("repo"), sAny("path", "remotePath"),
-                sAny("branch").ifBlank { "main" },
-                sAny("message", "commit").ifBlank { "update via D-Harness" },
-                sAny("localPath", "local", "file", "src")
-            )
-            "github.pull", "Download GitHub file into workspace", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?").put("dest", "string?"))
+        tool("agent.run", "Run ordered steps: tools, wait_ms, shell, download, github.push_file from workspace path.", JSONObject().put("steps", "array").put("stopOnError", "boolean?"))
+        tool("term.script", "Alias of agent.run — sequential harness steps.", JSONObject().put("steps", "array").put("stopOnError", "boolean?"))
+        tool("fetch", "Download URL into workspace.", JSONObject().put("url", "string").put("dest", "string?"))
+        tool("github.pull", "Download GitHub file into workspace", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?").put("dest", "string?"))
         tool("github.push_file", "Create/update a file on GitHub from a workspace path (Contents API). Needs PAT.", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"), example = "return await github.push_file('o','r','src/a.kt','main','msg','src/a.kt')")
         tool("file.verify_roundtrip", "Write then read-back SHA-256 of UTF-8 test bytes", JSONObject())
         tool("exec", "Allowlisted ProcessBuilder in app sandbox", JSONObject().put("argv", "string[]").put("timeout_ms", "number?").put("cwd", "string?"))
@@ -2577,7 +2574,8 @@ class HarnessBridge(
         // extension filter in parent
         if (raw.contains("*")) {
             val parent = candidate.parentFile ?: fsRoot
-            val regex = Regex("^" + Regex.escape(raw.substringAfterLast('/')).replace("\*", ".*") + "$", RegexOption.IGNORE_CASE)
+            val pattern = raw.substringAfterLast('/').split("*").joinToString(".*") { Regex.escape(it) }
+            val regex = Regex("^$pattern$", RegexOption.IGNORE_CASE)
             return parent.listFiles()?.filter { isImageFile(it) && regex.matches(it.name) }?.maxByOrNull { it.lastModified() }
         }
         return null
