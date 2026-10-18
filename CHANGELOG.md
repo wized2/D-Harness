@@ -1,5 +1,13 @@
 ## 1.24.0
 
+## 1.25.0-beta — workspace image attach (vision)
+
+- **workspace.attach_image** / **workspace.read_image**: attach a workspace image into the live DeepSeek chat via WebView file chooser so the model can use vision on the same turn as TOOL_RESULT.
+- MainActivity queues pending content URIs for `onShowFileChooser` (no system picker when tool-driven).
+- Agent instructions: prefer attach_image for workspace screenshots/photos; do not invent pixels from path alone.
+- Branch: `beta` (main unchanged).
+
+
 * Restore/strengthen in-chat **artifacts** and **charts** (html/artifact/simulation, chart JSON + CSV, tables)
 * Enhance pipeline: render complete artifacts while streaming continues; skip tool_call fences
 * Chart types: bar, hbar, line, area, pie; type: header CSV

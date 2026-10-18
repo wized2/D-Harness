@@ -377,6 +377,18 @@ class HarnessBridge(
         )
         tool("workspace.write_b64", "Write binary file from base64", JSONObject().put("path", "string").put("contentB64", "string"))
         tool("workspace.read_b64", "Read workspace file as base64 + sha256", JSONObject().put("path", "string"))
+        tool(
+            "workspace.attach_image",
+            "Attach a workspace image into the current DeepSeek chat so the model can see it (vision). Same turn as TOOL_RESULT when possible.",
+            JSONObject().put("path", "string"),
+            example = "return await DHarness.workspaceAttachImage('shots/ui.png')"
+        )
+        tool(
+            "workspace.read_image",
+            "Alias of workspace.attach_image — attach workspace image for vision (does not OCR offline).",
+            JSONObject().put("path", "string"),
+            example = "return await DHarness.workspaceAttachImage('photo.jpg')"
+        )
         tool("workspace.mkdir", "Create directory under workspace", JSONObject().put("path", "string"))
         tool("workspace.rm", "Delete file or empty dir in workspace", JSONObject().put("path", "string"))
         tool("workspace.stat", "Stat path in workspace", JSONObject().put("path", "string"))
@@ -518,7 +530,7 @@ class HarnessBridge(
                 .put("paste_box", "UI paste; no timeout; args.path; returns {ok,path,bytes} or cancelled")
                 .put("github", "PAT in keys.github; me/repos/pr_*/issue_*/contents/workflows/request/…")
                 .put("http", "http_request / research.web — no browser CORS")
-                .put("skills", "Explore workspace → edit file; GitHub auth → me; research.plan→web; paste_box for long input")
+                .put("skills", "Explore workspace → edit file; workspace.attach_image for vision; GitHub auth → me; research.plan→web; paste_box for long input")
                 .put("file.commit", "Byte-exact base64 writes with optional sha256 verify")
                 .put("exec", "Allowlisted binaries + optional sh -c (Settings exec_shell). Returns {exitCode,stdout,stderr,timedOut}. cwd=workspace.")
             )
@@ -2527,7 +2539,103 @@ class HarnessBridge(
         }
     }
 
+    
+    /**
+     * Attach a workspace image into chat.deepseek.com via WebView file chooser.
+     * TOOL_RESULT is sent by the shim on the same composer turn when possible;
+     * the image is staged on the composer first so vision can see it.
+     */
     @JavascriptInterface
+    fun workspaceAttachImage(path: String): String {
+        return try {
+            val rel = path.trim()
+            if (rel.isEmpty()) {
+                return JSONObject().put("ok", false).put("error", "path required")
+                    .put("hint", "args.path relative to workspace").toString()
+            }
+            val f = safeWorkspace(rel)
+            if (!f.exists() || !f.isFile) {
+                return JSONObject().put("ok", false).put("error", "not found")
+                    .put("path", rel).toString()
+            }
+            val name = f.name.lowercase()
+            val okExt = listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic", ".heif")
+            if (okExt.none { name.endsWith(it) }) {
+                return JSONObject().put("ok", false).put("error", "not an image")
+                    .put("path", rel)
+                    .put("hint", "use png/jpg/jpeg/webp/gif").toString()
+            }
+            val maxBytes = 12L * 1024 * 1024
+            if (f.length() > maxBytes) {
+                return JSONObject().put("ok", false).put("error", "too large")
+                    .put("bytes", f.length())
+                    .put("maxBytes", maxBytes).toString()
+            }
+            val activity = context as? MainActivity
+            if (activity == null || activity.isFinishing) {
+                return JSONObject().put("ok", false).put("error", "no activity").toString()
+            }
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                f
+            )
+            try {
+                context.grantUriPermission(
+                    "com.android.chrome",
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            try {
+                context.grantUriPermission(
+                    context.packageName,
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+
+            val latch = CountDownLatch(1)
+            var clicked = false
+            activity.runOnUiThread {
+                clicked = activity.attachWorkspaceUris(arrayOf(uri), latch)
+            }
+            // Wait for file chooser to consume pending URI
+            val delivered = latch.await(4, TimeUnit.SECONDS)
+            if (!delivered) {
+                activity.pendingChooserUris = null
+                activity.pendingChooserLatch = null
+                return JSONObject().put("ok", false).put("error", "chooser_timeout")
+                    .put("path", rel)
+                    .put("clicked", clicked)
+                    .put("hint", "Open the paperclip/upload control once, or retry attach_image")
+                    .toString()
+            }
+            // Brief pause so DeepSeek UI can bind the attachment before TOOL_RESULT send
+            try { Thread.sleep(350) } catch (_: InterruptedException) { }
+            JSONObject()
+                .put("ok", true)
+                .put("attached", true)
+                .put("path", rel)
+                .put("name", f.name)
+                .put("bytes", f.length())
+                .put("mime", when {
+                    name.endsWith(".png") -> "image/png"
+                    name.endsWith(".webp") -> "image/webp"
+                    name.endsWith(".gif") -> "image/gif"
+                    name.endsWith(".bmp") -> "image/bmp"
+                    name.endsWith(".heic") || name.endsWith(".heif") -> "image/heic"
+                    else -> "image/jpeg"
+                })
+                .put("note", "Image staged in the chat composer. Describe it from the visible attachment; do not invent pixels from the path alone.")
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message ?: "attach failed")
+                .put("path", path).toString()
+        }
+    }
+
+@JavascriptInterface
     fun workspaceMkdir(path: String): String {
         return try {
             val f = safeWorkspace(path)
@@ -3407,6 +3515,8 @@ class HarnessBridge(
             "workspace.write" -> workspaceWrite(sAny("path"), sAny("content", "text", "data"))
             "workspace.write_b64" -> workspaceWriteB64(sAny("path"), sAny("contentB64", "content", "data"))
             "workspace.read_b64" -> workspaceReadB64(sAny("path"))
+            "workspace.attach_image", "workspace.read_image", "attach_image", "read_image" ->
+                workspaceAttachImage(sAny("path"))
             "workspace.mkdir" -> workspaceMkdir(sAny("path"))
             "workspace.rm" -> workspaceRm(sAny("path"))
             "workspace.stat" -> workspaceStat(sAny("path"))

@@ -4,7 +4,7 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
 
-**Current: 1.23.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
+**Current: 1.25.0-beta** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
 
 ## What works
 
@@ -12,6 +12,7 @@ Not a demo. Tools run on-device against a sandboxed workspace; the model drives 
 |------|----------------|
 | **Terminal** | term/argv, ls/cat/grep/find, shell pipelines |
 | **Shell** | `shell` / `sh` / `cmd`, sys.*, pkg.*, toybox, exec |
+| **Vision** | `workspace.attach_image` / `read_image` — stage workspace images into chat for DeepSeek vision |
 | **Workspace** | `ls`, `read`, `write` (atomic + sha256), `apply_patch`, `apply_patch_multi`, `replace`, `grep`, `glob`, `head`/`tail`, `diff`, `mkdir`/`rm` |
 | **Agent loop** | JSON + optional DSML tool detect → native execute → `TOOL_RESULT` → continue / auto-continue |
 | **Tasks & memory** | `task.*`, `memory.append`, `project.context` (PROJECT.md / AGENTS.md / CLAUDE.md / MEMORY.md) |

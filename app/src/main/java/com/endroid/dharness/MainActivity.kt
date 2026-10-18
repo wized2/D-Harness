@@ -45,6 +45,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: android.content.SharedPreferences
     private var desktopMode = false
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    /** When set, next onShowFileChooser returns these URIs (workspace image attach). */
+    @Volatile
+    var pendingChooserUris: Array<Uri>? = null
+    @Volatile
+    var pendingChooserLatch: java.util.concurrent.CountDownLatch? = null
     private val startUrl = "https://chat.deepseek.com/"
 
     private val fileChooser = registerForActivityResult(
@@ -274,6 +279,14 @@ class MainActivity : AppCompatActivity() {
                 fileChooserParams: FileChooserParams?
             ): Boolean {
                 this@MainActivity.filePathCallback?.onReceiveValue(null)
+                val pending = pendingChooserUris
+                if (pending != null && pending.isNotEmpty()) {
+                    pendingChooserUris = null
+                    filePathCallback?.onReceiveValue(pending)
+                    pendingChooserLatch?.countDown()
+                    pendingChooserLatch = null
+                    return true
+                }
                 this@MainActivity.filePathCallback = filePathCallback
                 val intent = fileChooserParams?.createIntent()
                     ?: Intent(Intent.ACTION_GET_CONTENT).apply {
@@ -655,6 +668,46 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    /**
+     * Queue workspace image(s) for the next WebView file chooser, then open DeepSeek upload UI.
+     * Returns true if the page accepted a file input click.
+     */
+    fun attachWorkspaceUris(uris: Array<Uri>, latch: java.util.concurrent.CountDownLatch): Boolean {
+        pendingChooserUris = uris
+        pendingChooserLatch = latch
+        val js = """
+            (function(){
+              function clickEl(el){ try { el.click(); return true; } catch(e) { return false; } }
+              var inputs = document.querySelectorAll('input[type=file]');
+              for (var i = inputs.length - 1; i >= 0; i--) {
+                if (clickEl(inputs[i])) return 'file-input';
+              }
+              var nodes = document.querySelectorAll('button, [role="button"], label, a, div, span');
+              for (var j = 0; j < nodes.length; j++) {
+                var el = nodes[j];
+                var aria = (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '');
+                var txt = (el.textContent || '').trim().slice(0, 40);
+                var hay = (aria + ' ' + txt).toLowerCase();
+                if (/upload|attach|image|photo|picture|file|paperclip|\+/.test(hay)) {
+                  if (clickEl(el)) return 'btn:' + hay.slice(0, 32);
+                }
+              }
+              return 'none';
+            })();
+        """.trimIndent()
+        var clicked = false
+        val done = java.util.concurrent.CountDownLatch(1)
+        webView.post {
+            webView.evaluateJavascript(js) { r ->
+                clicked = r != null && r != "null" && r != ""none""
+                done.countDown()
+            }
+        }
+        try { done.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) {}
+        return clicked
+    }
+
     companion object {
         private val AGENT_INSTRUCTIONS_JSON = """
 # D-Harness — on-device agent (DeepSeek)
@@ -716,6 +769,7 @@ Or CSV lines: Label, number
 ## Tool policy
 
 - Workspace files → workspace.* (read before edit; apply_patch preferred)
+- Workspace images → workspace.attach_image (path under workspace). Attaches into this chat so vision can read the image; wait for attached:true, then answer from the visible image. Do not invent pixels from the path alone.
 - Terminal → term argv; shell only if pipes/globs need exec_shell
 - Network → http_request / research.*
 - GitHub → github.* (PAT in settings)
