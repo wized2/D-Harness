@@ -55,3 +55,11 @@ research.web, http_request, github.* — ready (github needs PAT).
 
 ## Slash commands (shim)
 `/help` `/ls` `/read path` `/grep q` `/glob` `/tasks` `/task text` `/memory text` `/project` `/index` `/log` `/selftest` `/tools query` `/policy tool`
+
+
+## File bridge (1.25+)
+
+- `github.push_file` — `{owner,repo,path,branch,message,localPath}`
+- `http.fetch_to_file` — `{url,dest}`
+- `workspace.read_b64_range` — `{path,offset,maxBytes}`
+- Large tool results may return `{spilled:true,spill_path}`

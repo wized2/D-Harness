@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.18.1';
+  const VERSION = '1.19.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -23,7 +23,7 @@
     dedupe: true,
     confirmSensitive: true,
     callMustBeLast: true,
-    maxResultChars: 100000,
+    maxResultChars: 120000,
     settleMs: 180,
     scanThrottleMs: 70,
     fallbackScanMs: 320,
@@ -2564,13 +2564,20 @@ async function maybeAutoContinue() {
     let payload = 'TOOL_RESULT: ' + JSON.stringify(payloadObj);
     if (payload.length > CONFIG.maxResultChars + 20) {
       const approx = payload.length;
+      // Prefer native spill paths already present on the object
+      let spillHint = 'Use github.push_file (localPath), http.fetch_to_file, workspace.read_b64_range, or re-call with smaller per_page/fields.';
+      try {
+        const parsed = JSON.parse(payload.slice(payload.indexOf('{')));
+        if (parsed && parsed.spill_path) spillHint = 'Full result at workspace ' + parsed.spill_path;
+      } catch (_) {}
       payload = 'TOOL_RESULT: ' + JSON.stringify({
         ok: false,
         error: {
+          code: 'OUTPUT_TOO_LARGE',
           message: 'output_too_large',
           bytes: approx,
           limit: CONFIG.maxResultChars,
-          hint: 'Use workspace.read with offset/maxBytes, workspace.read_b64, or write to a file and read slices.'
+          hint: spillHint
         },
         meta: { tool: tname, truncated: true }
       });

@@ -382,7 +382,12 @@ class HarnessBridge(
         tool("workspace.stat", "Stat path in workspace", JSONObject().put("path", "string"))
         tool("workspace.tree", "Shallow tree listing", JSONObject().put("path", "string?").put("depth", "int?"))
         tool("github.pull", "Download GitHub file into workspace", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?").put("dest", "string?"))
-        tool("github.push_file", "Create/update a file on GitHub from a workspace path (Contents API). Needs PAT.", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"), example = "return await github.push_file('o','r','src/a.kt','main','msg','src/a.kt')")
+        tool("github.push_file", "Create/update a file on GitHub from a workspace path (Contents API). Prefer over hand-encoded base64.", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"), example = "{\"tool\":\"github.push_file\",\"args\":{\"owner\":\"o\",\"repo\":\"r\",\"path\":\"src/a.kt\",\"branch\":\"main\",\"message\":\"msg\",\"localPath\":\"src/a.kt\"}}")
+        tool("github.push_file_from_path", "Alias of github.push_file", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"))
+        tool("github.fork", "Fork a repo to the authenticated user", JSONObject().put("owner", "string").put("repo", "string").put("organization", "string?"))
+        tool("http.fetch_to_file", "Stream HTTP response to workspace file; returns meta only", JSONObject().put("url", "string").put("dest", "string").put("method", "string?").put("headers", "object?").put("body", "string?"))
+        tool("workspace.hash", "SHA-256 of workspace file", JSONObject().put("path", "string"))
+        tool("workspace.read_b64_range", "Base64 slice of workspace file", JSONObject().put("path", "string").put("offset", "number?").put("maxBytes", "number?"))
         tool("file.verify_roundtrip", "Write then read-back SHA-256 of UTF-8 test bytes", JSONObject())
         tool("exec", "Allowlisted ProcessBuilder in app sandbox", JSONObject().put("argv", "string[]").put("timeout_ms", "number?").put("cwd", "string?"))
         tool("sqlite.query", "Read-only SQLite query", JSONObject().put("path", "string").put("sql", "string").put("args", "string[]?"))
@@ -1899,15 +1904,41 @@ class HarnessBridge(
         }
         val code = conn.responseCode
         val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val text = stream?.bufferedReader()?.use { it.readText() }?.take(500_000) ?: ""
-        val json = try { if (text.isNotBlank()) JSONObject(text) else null } catch (_: Exception) {
-            try { JSONArray(text); null } catch (_: Exception) { null }
+        val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+        val out = JSONObject()
+            .put("status", code)
+            .put("ok", code in 200..299)
+            .put("bytes", text.length)
+        val softCap = 48_000
+        if (text.length > softCap) {
+            val spillRel = "tmp/github-${System.currentTimeMillis()}.json"
+            try {
+                val f = safeWorkspace(spillRel)
+                f.parentFile?.mkdirs()
+                f.writeText(text)
+                out.put("spilled", true)
+                    .put("spill_path", spillRel)
+                    .put("spill_abs", f.absolutePath)
+                    .put("hint", "Full body written to workspace; use workspace.read on spill_path")
+                    .put("text_preview", text.take(2_000))
+            } catch (e: Exception) {
+                out.put("text", text.take(softCap))
+                    .put("truncated", true)
+                    .put("error_spill", e.message)
+            }
+        } else {
+            out.put("text", text)
+            try {
+                if (text.trimStart().startsWith("{")) out.put("json", JSONObject(text))
+                else if (text.trimStart().startsWith("[")) out.put("json", JSONArray(text))
+            } catch (_: Exception) {}
         }
-        // If array response, wrap
-        val out = JSONObject().put("status", code).put("ok", code in 200..299).put("text", text.take(100_000))
-        if (json != null) out.put("json", json)
-        else if (text.trimStart().startsWith("[")) {
-            try { out.put("json", JSONArray(text)) } catch (_: Exception) {}
+        if (code !in 200..299) {
+            out.put("error", JSONObject()
+                .put("code", "HTTP_$code")
+                .put("message", text.take(500).ifBlank { "HTTP $code" })
+                .put("status", code)
+                .put("retryable", code == 429 || code >= 500))
         }
         return out
     }
@@ -1964,11 +1995,164 @@ class HarnessBridge(
     }
 
     /** Map github.* tool names to REST and run via githubRequestSync. */
+
+    private fun httpFetchToFile(args: JSONObject): String {
+        return try {
+            val url = args.optString("url", args.optString("href", ""))
+            val dest = args.optString("dest", args.optString("path", args.optString("out", "")))
+            if (url.isBlank() || dest.isBlank()) {
+                return JSONObject().put("ok", false)
+                    .put("error", JSONObject().put("code", "ARGS").put("message", "url and dest required")).toString()
+            }
+            val method = args.optString("method", "GET").ifBlank { "GET" }.uppercase()
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 20_000
+                readTimeout = 120_000
+                instanceFollowRedirects = true
+                doInput = true
+                setRequestProperty("User-Agent", "D-Harness/1.19")
+                val headers = args.optJSONObject("headers")
+                if (headers != null) {
+                    val it = headers.keys()
+                    while (it.hasNext()) {
+                        val k = it.next()
+                        setRequestProperty(k, headers.optString(k))
+                    }
+                }
+                val body = args.optString("body", "")
+                if (body.isNotBlank() && method != "GET" && method != "HEAD") {
+                    doOutput = true
+                    outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                }
+            }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val outFile = safeWorkspace(dest)
+            outFile.parentFile?.mkdirs()
+            var n = 0
+            val dig = java.security.MessageDigest.getInstance("SHA-256")
+            stream?.use { input ->
+                FileOutputStream(outFile).use { fos ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val r = input.read(buf)
+                        if (r <= 0) break
+                        fos.write(buf, 0, r)
+                        dig.update(buf, 0, r)
+                        n += r
+                    }
+                }
+            }
+            val sha = dig.digest().joinToString("") { "%02x".format(it) }
+            JSONObject()
+                .put("ok", code in 200..299)
+                .put("status", code)
+                .put("bytes", n)
+                .put("sha256", sha)
+                .put("path", outFile.absolutePath)
+                .put("rel", dest.trim().removePrefix("/"))
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false)
+                .put("error", JSONObject().put("code", "FETCH_FAILED").put("message", e.message)).toString()
+        }
+    }
+
+    private fun workspaceHash(path: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
+            val dig = java.security.MessageDigest.getInstance("SHA-256")
+            f.inputStream().use { input ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val r = input.read(buf)
+                    if (r <= 0) break
+                    dig.update(buf, 0, r)
+                }
+            }
+            val sha = dig.digest().joinToString("") { "%02x".format(it) }
+            JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", f.length()).put("sha256", sha).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun workspaceReadB64Range(path: String, offset: Int, maxBytes: Int): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
+            val off = offset.coerceAtLeast(0)
+            val max = maxBytes.coerceIn(1, 2_000_000)
+            if (off.toLong() >= f.length()) {
+                return JSONObject().put("ok", true).put("eof", true).put("offset", off).put("bytes", 0).put("b64", "").toString()
+            }
+            val len = minOf(max.toLong(), f.length() - off).toInt()
+            val bytes = ByteArray(len)
+            java.io.RandomAccessFile(f, "r").use { raf ->
+                raf.seek(off.toLong())
+                raf.readFully(bytes)
+            }
+            val dig = java.security.MessageDigest.getInstance("SHA-256")
+            dig.update(bytes)
+            val sliceSha = dig.digest().joinToString("") { "%02x".format(it) }
+            JSONObject()
+                .put("ok", true)
+                .put("path", f.absolutePath)
+                .put("offset", off)
+                .put("bytes", len)
+                .put("fileBytes", f.length())
+                .put("eof", off + len >= f.length())
+                .put("b64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                .put("sha256_slice", sliceSha)
+                .toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun maybeSpillResult(tool: String, resultJson: String): String {
+        val limit = 90_000
+        if (resultJson.length <= limit) return resultJson
+        return try {
+            val safeTool = tool.replace(".", "_")
+            val rel = "tmp/tool-result-$safeTool-${System.currentTimeMillis()}.json"
+            val f = safeWorkspace(rel)
+            f.parentFile?.mkdirs()
+            f.writeText(resultJson)
+            JSONObject()
+                .put("ok", true)
+                .put("spilled", true)
+                .put("tool", tool)
+                .put("bytes", resultJson.length)
+                .put("spill_path", rel)
+                .put("spill_abs", f.absolutePath)
+                .put("preview", resultJson.take(1500))
+                .put("hint", "Result exceeded inline limit; full JSON at spill_path")
+                .toString()
+        } catch (e: Exception) {
+            JSONObject()
+                .put("ok", false)
+                .put("error", JSONObject()
+                    .put("code", "OUTPUT_TOO_LARGE")
+                    .put("message", "output_too_large")
+                    .put("bytes", resultJson.length)
+                    .put("spill_error", e.message))
+                .put("tool", tool)
+                .toString()
+        }
+    }
+
     private fun dispatchGithub(tool: String, args: JSONObject): String {
         val token = githubToken()
         if (token.isNullOrBlank()) {
-            return JSONObject().put("ok", false).put("error", "missing GitHub PAT")
-                .put("hint", "Settings → store key github with a personal access token").toString()
+            return JSONObject().put("ok", false)
+                .put("error", JSONObject()
+                    .put("code", "AUTH_MISSING")
+                    .put("message", "missing GitHub PAT")
+                    .put("hint", "Settings → store key github with a personal access token"))
+                .toString()
         }
         fun s(vararg keys: String): String {
             for (k in keys) {
@@ -1997,6 +2181,62 @@ class HarnessBridge(
         val number = i("number", "issue", "pr", "pull")
         val path = s("path")
         val perPage = args.optInt("per_page", args.optInt("perPage", 30)).coerceIn(1, 100)
+
+        // File-bridge / mutators — bound to native implementations
+        when (tool) {
+            "github.pull" -> {
+                return githubPull(owner, repo, path.ifBlank { s("file") }, s("ref", "branch", "sha").ifBlank { null }, s("dest", "out", "localPath").ifBlank { null })
+            }
+            "github.push_file", "github.push_file_from_path" -> {
+                val local = s("localPath", "local", "src", "file")
+                val remote = path.ifBlank { s("remotePath", "dest") }
+                val branch = s("branch", "ref").ifBlank { "main" }
+                val message = s("message", "msg", "commit").ifBlank { "update via D-Harness" }
+                if (owner.isBlank() || repo.isBlank() || remote.isBlank() || local.isBlank()) {
+                    return JSONObject().put("ok", false)
+                        .put("error", JSONObject().put("code", "ARGS").put("message", "owner, repo, path, localPath required")).toString()
+                }
+                return githubPushFile(owner, repo, remote, branch, message, local)
+            }
+            "github.branch_create" -> {
+                val branch = s("branch", "name")
+                val from = s("from", "sha", "base", "ref").ifBlank { null }
+                if (owner.isBlank() || repo.isBlank() || branch.isBlank()) {
+                    return JSONObject().put("ok", false)
+                        .put("error", JSONObject().put("code", "ARGS").put("message", "owner, repo, branch required")).toString()
+                }
+                return githubBranchCreate(owner, repo, branch, from)
+            }
+            "github.fork" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false)
+                        .put("error", JSONObject().put("code", "ARGS").put("message", "owner and repo required")).toString()
+                }
+                val org = s("organization", "org")
+                val body = if (org.isNotBlank()) JSONObject().put("organization", org).toString() else null
+                return try {
+                    githubRequestSync("POST", "/repos/$owner/$repo/forks", body, token).toString()
+                } catch (e: Exception) {
+                    JSONObject().put("ok", false).put("error", JSONObject().put("message", e.message)).toString()
+                }
+            }
+            "github.compare" -> {
+                val base = s("base")
+                val head = s("head")
+                if (owner.isBlank() || repo.isBlank() || base.isBlank() || head.isBlank()) {
+                    return JSONObject().put("ok", false)
+                        .put("error", JSONObject().put("code", "ARGS").put("message", "owner, repo, base, head required")).toString()
+                }
+                return githubCompare(owner, repo, base, head)
+            }
+            "github.repo" -> {
+                if (owner.isBlank() || repo.isBlank()) {
+                    return JSONObject().put("ok", false)
+                        .put("error", JSONObject().put("code", "ARGS").put("message", "owner and repo required")).toString()
+                }
+                return githubRepo(owner, repo)
+            }
+        }
 
         val (method, apiPath, body) = when (tool) {
             "github.request" -> {
@@ -2170,8 +2410,12 @@ class HarnessBridge(
                 Triple("POST", "/gists", bo.toString())
             }
             else -> {
-                return JSONObject().put("ok", false).put("error", "unknown github tool: $tool")
-                    .put("hint", "list_tools").toString()
+                return JSONObject().put("ok", false)
+                    .put("error", JSONObject()
+                        .put("code", "UNKNOWN_GITHUB_TOOL")
+                        .put("message", "unknown github tool: $tool")
+                        .put("hint", "Use github.push_file, github.pull, github.pr_create, github.request, list_tools"))
+                    .put("tool", tool).toString()
             }
         }
         return try {
@@ -2518,10 +2762,28 @@ class HarnessBridge(
         return try {
             val f = safeWorkspace(path)
             if (!f.isFile) return JSONObject().put("ok", false).put("error", "not a file").toString()
+            if (f.length() > 36_000) {
+                return JSONObject()
+                    .put("ok", false)
+                    .put("error", JSONObject()
+                        .put("code", "FILE_TOO_LARGE")
+                        .put("message", "file is ${f.length()} bytes; use workspace.read_b64_range")
+                        .put("bytes", f.length())
+                        .put("hint", "workspace.read_b64_range with offset/maxBytes"))
+                    .put("path", f.absolutePath)
+                    .toString()
+            }
             val bytes = f.readBytes()
-            JSONObject().put("ok", true).put("path", f.absolutePath).put("bytes", bytes.size)
-                .put("sha256", sha256(bytes))
-                .put("contentB64", Base64.encodeToString(bytes, Base64.NO_WRAP)).toString()
+            val dig = java.security.MessageDigest.getInstance("SHA-256")
+            dig.update(bytes)
+            val sha = dig.digest().joinToString("") { "%02x".format(it) }
+            JSONObject()
+                .put("ok", true)
+                .put("path", f.absolutePath)
+                .put("bytes", bytes.size)
+                .put("sha256", sha)
+                .put("b64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                .toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
@@ -3130,7 +3392,7 @@ class HarnessBridge(
                         ms = 0, tool = tool, requestId = rid)
                 }
             } catch (_: Exception) {}
-            val raw = dispatchByName(tool, args)
+            val raw = maybeSpillResult(tool, dispatchByName(tool, args))
             // Attach requestId/tool to whatever the handler returned
             val out = try { JSONObject(raw) } catch (_: Exception) {
                 JSONObject().put("ok", true).put("data", raw)
@@ -4331,6 +4593,15 @@ class HarnessBridge(
 
             "input.key" -> execArgvList(listOf("input", "keyevent", "${i("code", i("key", 4))}"), 5_000, null)
 
+            "http.fetch_to_file" -> httpFetchToFile(args)
+            "workspace.hash" -> workspaceHash(sAny("path"))
+            "workspace.read_b64_range" -> workspaceReadB64Range(
+                sAny("path"),
+                args.optInt("offset", 0),
+                args.optInt("maxBytes", args.optInt("max_bytes", 32_000))
+            )
+            "github.push_file", "github.push_file_from_path", "github.pull",
+            "github.branch_create", "github.fork", "github.compare", "github.repo" -> dispatchGithub(tool, args)
             else -> {
                 if (tool.startsWith("github.")) {
                     dispatchGithub(tool, args)

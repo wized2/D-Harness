@@ -1,3 +1,13 @@
+## 1.25.0
+
+### Critical agent transport fixes
+- **github.push_file / push_file_from_path / pull / branch_create / fork / compare / repo** bound in `dispatchGithub` (no more `unknown github tool`)
+- **http.fetch_to_file** — stream URL → workspace file; returns status/bytes/sha256/path only
+- **Result spillover**: large `github.request` bodies and any tool result >~90KB write to `workspace/tmp/` and return a handle (`spill_path`) instead of `output_too_large` when possible
+- **workspace.read_b64_range** + **workspace.hash**; full `workspace.read_b64` refuses files >36KB (forces range API)
+- Typed GitHub HTTP errors include status/code; failures no longer only say bare `tool failed` when status is known
+- Shim 1.19.0: clearer large-result hints
+
 ## 1.24.0
 
 * Restore/strengthen in-chat **artifacts** and **charts** (html/artifact/simulation, chart JSON + CSV, tables)
