@@ -678,7 +678,7 @@ One shell call can run many tools in order. Steps share variables.
 {"tool":"shell","description":"write encode push","args":{"script":[
   {"tool":"workspace.write","args":{"path":"note.txt","content":"hello"}},
   {"tool":"workspace.read_b64","args":{"path":"note.txt"},"as":"B64"},
-  {"tool":"workspace.write","args":{"path":"note.b64","content":"$B64"}},
+  {"tool":"workspace.write","args":{"path":"note.b64","content":"${'$'}B64"}},
   {"tool":"github.push_file","args":{"owner":"ORG","repo":"REPO","path":"public/note.b64","branch":"main","message":"add note","localPath":"note.b64"}}
 ]}}
 ~~~```
@@ -686,7 +686,7 @@ One shell call can run many tools in order. Steps share variables.
 Rules for shell:
 - args.script = array of steps OR newline script
 - Each step: {"tool":"name","args":{...},"as":"VAR"}
-- Later steps use $VAR or ${VAR}; $LAST is previous compact output
+- Later steps use ${'$'}VAR or ${VAR}; ${'$'}LAST is previous compact output
 - stop_on_error defaults true
 - Result includes steps[], log, vars, ok
 - Nested shell inside shell is forbidden
