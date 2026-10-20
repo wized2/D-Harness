@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.28.0';
+  const VERSION = '1.29.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -2951,7 +2951,7 @@ async function maybeAutoContinue() {
   }
 
   const observer = new MutationObserver(() => scheduleTick(false));
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: false });
 
   let __dhWasGenerating = false;
   const fallbackTimer = setInterval(() => {

@@ -1,3 +1,18 @@
+## 1.29.0
+
+### Primary shell
+- **shell** is the multi-tool pipeline: `args.script=[{tool,args,as?},…]` in one call
+- Steps share `$VAR` / `${VAR}` / `$LAST`; full per-step log in result
+- Line form: `workspace.write path=a.txt content=hi -> OUT`
+- Falls back to sh -c / argv for plain commands
+
+### Binaries
+- Broader allowlist: curl, wget, dig, openssl, xxd, python3, …
+
+### Shim / instructions
+- Shim 1.29.0: less UI thrash; auto-continue remains off by default
+- System instructions rewritten shell-first
+
 ## 1.28.0
 
 ### Critical

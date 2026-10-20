@@ -90,15 +90,19 @@ class HarnessBridge(
         // core
         "ls", "cat", "grep", "egrep", "fgrep", "find", "echo", "pwd", "wc", "head", "tail",
         "date", "uname", "id", "whoami", "which", "true", "false", "yes", "printf", "test", "[",
-        "sha256sum", "md5sum", "base64", "cksum", "cmp", "diff", "stat", "du", "df", "sleep",
+        "sha256sum", "md5sum", "sha1sum", "base64", "cksum", "cmp", "diff", "stat", "du", "df", "sleep",
         "rm", "mkdir", "rmdir", "touch", "cp", "mv", "ln", "chmod", "chown", "readlink", "realpath",
         "dirname", "basename", "cut", "sort", "uniq", "tr", "tee", "xargs", "sed", "awk",
-        "tar", "gzip", "gunzip", "zcat", "bzip2", "xz", "unzip", "zipinfo",
+        "tar", "gzip", "gunzip", "zcat", "bzip2", "xz", "unzip", "zipinfo", "gzip",
         "toybox", "busybox", "getprop", "setprop", "ps", "top", "kill", "killall", "pidof",
         "pm", "cmd", "service", "am", "input", "wm", "settings", "logcat", "dumpsys",
         "printenv", "env", "sysctl", "getconf", "nproc", "free", "uptime",
-        "ip", "ifconfig", "netstat", "ping", "curl", "wget", "nslookup",
-        "seq", "rev", "file", "strings", "hexdump", "nl", "sh", "mksh", "bash", "ash", "toybox", "busybox", "timeout", "nice", "nohup"
+        // network (device binary if present; INTERNET permission on app)
+        "ip", "ifconfig", "netstat", "ping", "curl", "wget", "nslookup", "dig", "host",
+        "nc", "netcat", "traceroute", "tracepath", "ss",
+        "seq", "rev", "file", "strings", "hexdump", "nl", "od", "xxd",
+        "sh", "mksh", "bash", "ash", "timeout", "nice", "nohup", "env",
+        "openssl", "sqlite3", "python", "python3", "node", "perl"
     )
 
     private fun deliver(callbackId: String, json: String) {
@@ -3780,6 +3784,257 @@ class HarnessBridge(
         return "'" + s.replace("'", "'\\''") + "'"
     }
 
+
+    /**
+     * Primary agent shell: chain harness tools + allowlisted binaries in one call.
+     * Shared vars: step may set "as":"NAME"; later args may use "$NAME" or "${NAME}".
+     * Special: "$LAST" / "$LAST_JSON" = previous step compact result.
+     */
+    private fun dispatchPrimaryShell(args: JSONObject): String {
+        val t0 = System.currentTimeMillis()
+        // Fast paths: pure binary / sh -c without script
+        val hasScript = args.has("script") || args.has("steps") || args.has("pipeline")
+        if (!hasScript) {
+            if (args.opt("argv") is JSONArray) {
+                return termFromArgs(args)
+            }
+            val cmd = args.optString("cmd", args.optString("command", ""))
+            if (cmd.isNotBlank() && !cmd.contains("\"tool\"") && !looksLikeToolScript(cmd)) {
+                return dispatchShell(args)
+            }
+        }
+
+        val stopOnError = args.optBoolean("stop_on_error", args.optBoolean("stopOnError", true))
+        val steps = JSONArray()
+        val log = StringBuilder()
+        val vars = LinkedHashMap<String, String>()
+        var allOk = true
+        val rawSteps = when {
+            args.optJSONArray("script") != null -> args.optJSONArray("script")
+            args.optJSONArray("steps") != null -> args.optJSONArray("steps")
+            args.optJSONArray("pipeline") != null -> args.optJSONArray("pipeline")
+            args.opt("script") is String -> parseScriptLines(args.optString("script"))
+            args.opt("cmd") is String && looksLikeToolScript(args.optString("cmd")) -> parseScriptLines(args.optString("cmd"))
+            else -> null
+        } ?: return typedShellErr("ARGS", "shell requires script/steps array or cmd/argv")
+
+        fun subst(s: String): String {
+            var out = s
+            // ${VAR} then $VAR
+            val reBrace = Regex("\\$\\{([A-Za-z_][A-Za-z0-9_]*)\\}")
+            out = reBrace.replace(out) { m -> vars[m.groupValues[1]] ?: m.value }
+            val re = Regex("\\$([A-Za-z_][A-Za-z0-9_]*)")
+            out = re.replace(out) { m -> vars[m.groupValues[1]] ?: m.value }
+            return out
+        }
+        fun substObj(o: JSONObject): JSONObject {
+            val n = JSONObject()
+            val keys = o.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                when (val v = o.opt(k)) {
+                    is String -> n.put(k, subst(v))
+                    is JSONObject -> n.put(k, substObj(v))
+                    is JSONArray -> {
+                        val a = JSONArray()
+                        for (i in 0 until v.length()) {
+                            when (val x = v.opt(i)) {
+                                is String -> a.put(subst(x))
+                                is JSONObject -> a.put(substObj(x))
+                                else -> a.put(x)
+                            }
+                        }
+                        n.put(k, a)
+                    }
+                    else -> n.put(k, v)
+                }
+            }
+            return n
+        }
+
+        for (i in 0 until rawSteps.length()) {
+            val stepT0 = System.currentTimeMillis()
+            val stepRaw = rawSteps.opt(i)
+            val stepObj: JSONObject = when (stepRaw) {
+                is JSONObject -> stepRaw
+                is String -> parseScriptLine(stepRaw) ?: JSONObject().put("cmd", stepRaw)
+                else -> JSONObject().put("cmd", stepRaw?.toString() ?: "")
+            }
+            val asVar = stepObj.optString("as", stepObj.optString("save", stepObj.optString("var", "")))
+            val toolName = stepObj.optString("tool", stepObj.optString("name", "")).trim()
+            val stepArgs = when {
+                stepObj.optJSONObject("args") != null -> substObj(stepObj.optJSONObject("args")!!)
+                toolName.isBlank() && stepObj.has("cmd") -> JSONObject().put("cmd", subst(stepObj.optString("cmd")))
+                toolName.isBlank() && stepObj.optJSONArray("argv") != null -> {
+                    val argv = stepObj.optJSONArray("argv")!!
+                    val na = JSONArray()
+                    for (j in 0 until argv.length()) {
+                        val x = argv.opt(j)
+                        na.put(if (x is String) subst(x) else x)
+                    }
+                    JSONObject().put("argv", na)
+                }
+                else -> {
+                    // treat remaining keys as args (except tool/as/save/var)
+                    val a = JSONObject()
+                    val it = stepObj.keys()
+                    while (it.hasNext()) {
+                        val k = it.next()
+                        if (k in setOf("tool", "name", "as", "save", "var", "args")) continue
+                        val v = stepObj.opt(k)
+                        a.put(k, if (v is String) subst(v) else v)
+                    }
+                    a
+                }
+            }
+
+            val resultStr: String = try {
+                when {
+                    toolName.isNotBlank() -> {
+                        // Recurse into dispatcher but block nested primary shell infinite loops
+                        if (toolName == "shell" || toolName == "sh" || toolName == "bash") {
+                            typedShellErr("NESTED", "cannot nest shell inside shell step")
+                        } else {
+                            dispatchByName(toolName, stepArgs)
+                        }
+                    }
+                    stepArgs.optJSONArray("argv") != null -> termFromArgs(stepArgs)
+                    stepArgs.optString("cmd").isNotBlank() -> dispatchShell(stepArgs)
+                    else -> typedShellErr("ARGS", "step $i needs tool, cmd, or argv")
+                }
+            } catch (e: Exception) {
+                typedShellErr("INTERNAL", e.message)
+            }
+
+            val resultObj = try { JSONObject(resultStr) } catch (_: Exception) {
+                JSONObject().put("ok", true).put("raw", resultStr.take(4000))
+            }
+            val ok = resultObj.optBoolean("ok", resultObj.optInt("exitCode", 0) == 0 && !resultObj.has("error"))
+            if (!ok) allOk = false
+            val ms = System.currentTimeMillis() - stepT0
+            val compact = compactShellResult(resultObj)
+            vars["LAST"] = compact
+            vars["LAST_JSON"] = resultObj.toString().take(120_000)
+            vars["LAST_OK"] = ok.toString()
+            if (asVar.isNotBlank()) {
+                // Prefer useful fields for handoff
+                val handoff = when {
+                    resultObj.has("b64") -> resultObj.optString("b64")
+                    resultObj.has("content") -> resultObj.optString("content")
+                    resultObj.has("stdout") -> resultObj.optString("stdout")
+                    resultObj.has("sha256") -> resultObj.optString("sha256")
+                    resultObj.has("path") -> resultObj.optString("path")
+                    resultObj.has("text") -> resultObj.optString("text")
+                    resultObj.has("result") -> resultObj.opt("result")?.toString() ?: compact
+                    else -> compact
+                }
+                vars[asVar] = handoff
+            }
+            val entry = JSONObject()
+                .put("i", i)
+                .put("tool", if (toolName.isNotBlank()) toolName else if (stepArgs.has("argv")) "exec" else "cmd")
+                .put("ok", ok)
+                .put("ms", ms)
+                .put("result", resultObj)
+            if (asVar.isNotBlank()) entry.put("as", asVar)
+            steps.put(entry)
+            log.append('#').append(i).append(' ')
+                .append(entry.optString("tool")).append(if (ok) " ok" else " FAIL")
+                .append(" ").append(ms).append("ms\n")
+            if (!ok && stopOnError) break
+        }
+
+        return JSONObject()
+            .put("ok", allOk)
+            .put("steps", steps)
+            .put("count", steps.length())
+            .put("vars", JSONObject().also { o -> vars.forEach { (k, v) -> o.put(k, v.take(8000)) } })
+            .put("log", log.toString())
+            .put("ms", System.currentTimeMillis() - t0)
+            .put("shell", "primary")
+            .toString()
+    }
+
+    private fun typedShellErr(code: String, message: String?): String =
+        JSONObject().put("ok", false)
+            .put("error", JSONObject().put("code", code).put("message", message ?: code))
+            .toString()
+
+    private fun compactShellResult(o: JSONObject): String {
+        val prefer = listOf("stdout", "content", "b64", "sha256", "path", "commit_sha", "text", "result")
+        for (k in prefer) {
+            if (o.has(k) && !o.isNull(k)) {
+                val v = o.opt(k)?.toString() ?: continue
+                if (v.isNotBlank()) return v.take(8000)
+            }
+        }
+        return o.toString().take(2000)
+    }
+
+    private fun looksLikeToolScript(cmd: String): Boolean {
+        val t = cmd.trim()
+        if (t.startsWith("[")) return true
+        if (t.contains("\"tool\"")) return true
+        // line starts with dotted tool name
+        val first = t.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.startsWith("#") } ?: return false
+        return first.matches(Regex("^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+(\\s|$).*", RegexOption.IGNORE_CASE))
+    }
+
+    private fun parseScriptLines(script: String): JSONArray {
+        val arr = JSONArray()
+        // Try JSON array first
+        val trimmed = script.trim()
+        if (trimmed.startsWith("[")) {
+            try { return JSONArray(trimmed) } catch (_: Exception) {}
+        }
+        for (line in script.split('\n', ';')) {
+            val s = line.trim()
+            if (s.isEmpty() || s.startsWith("#")) continue
+            val obj = parseScriptLine(s)
+            if (obj != null) arr.put(obj) else arr.put(JSONObject().put("cmd", s))
+        }
+        return arr
+    }
+
+    /** Parse: tool.name key=value key=value [-> VAR]  OR JSON object */
+    private fun parseScriptLine(line: String): JSONObject? {
+        val s = line.trim()
+        if (s.startsWith("{")) {
+            return try { JSONObject(s) } catch (_: Exception) { null }
+        }
+        var work = s
+        var asVar = ""
+        val arrow = Regex("\\s*->\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*$")
+        arrow.find(work)?.let {
+            asVar = it.groupValues[1]
+            work = work.substring(0, it.range.first).trim()
+        }
+        val parts = work.split(Regex("\\s+"), limit = 2)
+        if (parts.isEmpty()) return null
+        val tool = parts[0]
+        if (!tool.contains('.') && tool !in setOf("list_tools", "describe", "selftest", "sleep", "term", "exec")) {
+            return null // likely a binary cmd
+        }
+        val o = JSONObject().put("tool", tool)
+        if (asVar.isNotBlank()) o.put("as", asVar)
+        val args = JSONObject()
+        if (parts.size > 1) {
+            // key=value pairs; values may be quoted
+            val re = Regex("""([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\S+)""")
+            for (m in re.findAll(parts[1])) {
+                var v = m.groupValues[2]
+                if ((v.startsWith("\"") && v.endsWith("\"")) || (v.startsWith("'") && v.endsWith("'"))) {
+                    v = v.substring(1, v.length - 1)
+                }
+                args.put(m.groupValues[1], v)
+            }
+            // If no pairs matched, whole rest is content/cmd
+            if (args.length() == 0) args.put("cmd", parts[1])
+        }
+        o.put("args", args)
+        return o
+    }
+
     private fun dispatchShell(args: JSONObject): String {
         val cmd = sequenceOf("cmd", "command", "c", "line", "script")
             .map { args.optString(it, "") }
@@ -4352,7 +4607,7 @@ class HarnessBridge(
                 JSONObject().put("ok", true).put("task", task).put("suggestions", suggestions).toString()
             }
 
-            "shell", "sh", "cmd", "bash" -> dispatchShell(args)
+            "shell", "sh", "cmd", "bash", "agent.shell", "pipeline" -> dispatchPrimaryShell(args)
             "shell.which" -> shellWhich(sAny("bin", "name", "cmd"))
             "shell.env" -> shellEnv()
             "shell.pwd" -> {
