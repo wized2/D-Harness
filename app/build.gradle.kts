@@ -11,8 +11,8 @@ android {
         applicationId = "com.endroid.dharness"
         minSdk = 26
         targetSdk = 35
-        versionCode = 77
-        versionName = "1.25.1"
+        versionCode = 81
+        versionName = "1.27.0"
         resourceConfigurations += listOf("en")
     }
 
@@ -48,6 +48,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // keep package install-friendly
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -59,30 +59,52 @@ jobs:
           echo "name=$VN" >> "$GITHUB_OUTPUT"
           echo "tag=v$VN" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare APK
+      - name: Setup Android build-tools (apksigner/zipalign)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: build-tools;35.0.0
+
+      - name: Prepare, align, verify APK
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          set -e
+          set -euo pipefail
           mkdir -p dist
-          SRC=$(find app/build/outputs/apk -name '*.apk' | head -1)
+          SRC=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
           test -n "$SRC"
-          echo "Using APK: $SRC"
-          # Must be signed or install fails with "Package appears to be invalid"
-          ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
-          AS=$(find "$ANDROID_HOME" -name apksigner 2>/dev/null | head -1 || true)
-          if [ -z "$AS" ]; then
-            # install cmdline tools if needed
-            yes | sudo apt-get install -y apksigner 2>/dev/null || true
-            AS=$(command -v apksigner || true)
+          echo "Using APK: $SRC ($(wc -c < "$SRC") bytes)"
+
+          BT=$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -type d -name '35*' | sort | tail -1)
+          if [ -z "$BT" ]; then BT=$(ls -d "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools"/* | sort -V | tail -1); fi
+          AS="$BT/apksigner"
+          ZA="$BT/zipalign"
+          echo "build-tools: $BT"
+
+          # Re-sign with v1+v2+v3 so every installer path accepts the package
+          if [ -f "$GITHUB_WORKSPACE/dharness-release.jks" ]; then
+            ALIGNED="$GITHUB_WORKSPACE/aligned.apk"
+            SIGNED="$GITHUB_WORKSPACE/signed.apk"
+            "$ZA" -f -p 4 "$SRC" "$ALIGNED"
+            "$AS" sign               --ks "$GITHUB_WORKSPACE/dharness-release.jks"               --ks-key-alias "$RELEASE_KEY_ALIAS"               --ks-pass "pass:$RELEASE_STORE_PASSWORD"               --key-pass "pass:$RELEASE_KEY_PASSWORD"               --v1-signing-enabled true               --v2-signing-enabled true               --v3-signing-enabled true               --out "$SIGNED"               "$ALIGNED"
+            SRC="$SIGNED"
           fi
-          if [ -n "$AS" ]; then
-            "$AS" verify --verbose "$SRC" || { echo "FATAL: APK not signed"; exit 1; }
-          else
-            # fallback jarsigner check
-            jarsigner -verify "$SRC" | tee /tmp/jsig.txt
-            grep -qi 'jar verified' /tmp/jsig.txt || { echo "FATAL: APK not signed"; unzip -l "$SRC" | head -30; exit 1; }
+
+          "$AS" verify --verbose --print-certs "$SRC" | tee /tmp/apk-verify.txt
+          grep -q '^Verifies$' /tmp/apk-verify.txt
+          grep -E 'Verified using v2 scheme.*true' /tmp/apk-verify.txt
+
+          # Fail if still looks unsigned for v1+v2 both false
+          if grep -q 'Verified using v1 scheme (JAR signing): false' /tmp/apk-verify.txt              && grep -q 'Verified using v2 scheme (APK Signature Scheme v2): false' /tmp/apk-verify.txt; then
+            echo "FATAL: no usable APK signature"
+            exit 1
           fi
-          cp "$SRC" "dist/D-Harness-${{ steps.ver.outputs.name }}.apk"
+
+          OUT="dist/D-Harness-${{ steps.ver.outputs.name }}.apk"
+          cp "$SRC" "$OUT"
           ls -la dist/
+          echo "APK ready: $OUT"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

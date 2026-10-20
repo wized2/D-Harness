@@ -1,3 +1,9 @@
+## 1.27.0
+
+- Fix install failure vs beta installs: **versionCode 81** (was 77 < 1.26.3-beta’s 80)
+- CI: zipalign + **re-sign v1/v2/v3** with release keystore, `apksigner verify` before release
+- Same release certificate as 1.24.0 / 1.26.3-beta (`CN=D-Harness, O=endroid`)
+
 ## 1.25.1
 
 - Fix **unsigned APK** install error ("Package appears to be invalid")
