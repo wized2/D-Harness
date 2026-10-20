@@ -686,7 +686,7 @@ One shell call can run many tools in order. Steps share variables.
 Rules for shell:
 - args.script = array of steps OR newline script
 - Each step: {"tool":"name","args":{...},"as":"VAR"}
-- Later steps use ${'$'}VAR or ${VAR}; ${'$'}LAST is previous compact output
+- Later steps use ${'$'}VAR or ${'$'}{VAR}; ${'$'}LAST is previous compact output
 - stop_on_error defaults true
 - Result includes steps[], log, vars, ok
 - Nested shell inside shell is forbidden
