@@ -1,3 +1,9 @@
+## 1.25.1
+
+- Fix **unsigned APK** install error ("Package appears to be invalid")
+- Stop packaging from stripping `META-INF` signature files
+- Enable v1/v2/v3 signing; CI verifies signature before release
+
 ## 1.25.0
 
 ### Critical agent transport fixes

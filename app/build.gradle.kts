@@ -11,8 +11,8 @@ android {
         applicationId = "com.endroid.dharness"
         minSdk = 26
         targetSdk = 35
-        versionCode = 76
-        versionName = "1.25.0"
+        versionCode = 77
+        versionName = "1.25.1"
         resourceConfigurations += listOf("en")
     }
 
@@ -33,6 +33,9 @@ android {
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -64,11 +67,19 @@ android {
     buildFeatures { viewBinding = false }
     packaging {
         resources {
+            // Keep META-INF/*.RSA/*.SF/*.MF for APK signatures — only drop noisy deps
             excludes += setOf(
-                "META-INF/**",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/LICENSE.md",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/NOTICE.md",
+                "META-INF/*.kotlin_module",
+                "META-INF/versions/**",
                 "kotlin/**",
                 "DebugProbesKt.bin",
-                "**.properties",
                 "mozilla/**"
             )
         }

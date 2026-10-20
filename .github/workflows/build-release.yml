@@ -44,6 +44,10 @@ jobs:
           set -e
           if [ -f "$GITHUB_WORKSPACE/dharness-release.jks" ]; then
             export RELEASE_STORE_FILE="$GITHUB_WORKSPACE/dharness-release.jks"
+            echo "RELEASE_STORE_FILE=$RELEASE_STORE_FILE"
+            echo "alias set: ${RELEASE_KEY_ALIAS:+yes}"
+          else
+            echo "WARNING: building without release keystore — will use debug sign"
           fi
           gradle :app:assembleRelease --no-daemon --stacktrace
           find app/build/outputs -name '*.apk' -ls
@@ -57,9 +61,26 @@ jobs:
 
       - name: Prepare APK
         run: |
+          set -e
           mkdir -p dist
           SRC=$(find app/build/outputs/apk -name '*.apk' | head -1)
           test -n "$SRC"
+          echo "Using APK: $SRC"
+          # Must be signed or install fails with "Package appears to be invalid"
+          ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
+          AS=$(find "$ANDROID_HOME" -name apksigner 2>/dev/null | head -1 || true)
+          if [ -z "$AS" ]; then
+            # install cmdline tools if needed
+            yes | sudo apt-get install -y apksigner 2>/dev/null || true
+            AS=$(command -v apksigner || true)
+          fi
+          if [ -n "$AS" ]; then
+            "$AS" verify --verbose "$SRC" || { echo "FATAL: APK not signed"; exit 1; }
+          else
+            # fallback jarsigner check
+            jarsigner -verify "$SRC" | tee /tmp/jsig.txt
+            grep -qi 'jar verified' /tmp/jsig.txt || { echo "FATAL: APK not signed"; unzip -l "$SRC" | head -30; exit 1; }
+          fi
           cp "$SRC" "dist/D-Harness-${{ steps.ver.outputs.name }}.apk"
           ls -la dist/
 
