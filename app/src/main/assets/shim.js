@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.19.0';
+  const VERSION = '1.28.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -32,7 +32,7 @@
     dsmlEnabled: false,
     dsmlPreferred: false,
     showTaskBar: false,
-    autoContinue: true,
+    autoContinue: false,
     maxAutoContinue: 500,
     maxSendAttempts: 4,
     scanLastMessages: 24,
@@ -41,9 +41,9 @@
     hardReadBeforeEdit: false,
     slashCommands: true,
     // Stability: slower scan + settle to avoid freeze loops / stale resends
-    scanThrottleMs: 220,
-    fallbackScanMs: 700,
-    settleMs: 420,
+    scanThrottleMs: 400,
+    fallbackScanMs: 1200,
+    settleMs: 600,
   }, window.__DS_SHIM_CONFIG__ || {});
   // Persist toggles
   try {
@@ -2267,14 +2267,14 @@ async selftest() {
   }
 
 async function maybeAutoContinue() {
+    // Off by default. When enabled: only nudge on *explicit* stuck signals —
+    // never after N tool calls (that caused fake "continue" storms + chip flicker).
     if (!CONFIG.autoContinue) return;
-    if (resultSendLock || busy) return;
+    if (resultSendLock || busy || sendingLock || isGenerating()) return;
     if (Date.now() - lastResultSendAt < RESULT_SEND_COOLDOWN_MS) return;
-    if (busy || sendingLock || isGenerating()) return;
-    if (autoContinueCount >= MAX_AUTO_CONTINUE) return;
-    // Only if we recently ran tools and model produced a non-tool short stop
-    if (Date.now() - lastToolChainAt > 120000) return;
-    if (toolsSinceUser < 2) return;
+    if (autoContinueCount >= Math.min(MAX_AUTO_CONTINUE, 20)) return;
+    if (Date.now() - lastToolChainAt > 60000) return;
+    if (toolsSinceUser < 1) return;
     const msgs = document.querySelectorAll('div.ds-message');
     if (!msgs.length) return;
     const el = msgs[msgs.length - 1];
@@ -2286,20 +2286,15 @@ async function maybeAutoContinue() {
       || el.querySelector('div.ds-markdown') || el;
     const text = (main && main.textContent || '').trim();
     if (!text) return;
-    // If there's a tool call, normal path handles it
     if (extractToolCall(text)) return;
-    // If message looks like mid-work ("continue", "next", truncated, only tool chips)
-    const looksStuck = /^(continue|next|\.\.\.|…)$/i.test(text)
-      || (text.length < 40 && toolsSinceUser >= 3)
-      || /I will (now|next|continue)/i.test(text) && text.length < 120;
-    // More aggressive: after many tools if assistant message has no substantial answer
-    const shouldContinue = looksStuck || (toolsSinceUser >= 6 && text.length < 200 && !/done|complete|finished|here is|here's|summary/i.test(text));
-    if (!shouldContinue) return;
+    // Strict: only pure placeholder stuck messages
+    const looksStuck = /^(continue|next|\.\.\.|…)$/i.test(text);
+    if (!looksStuck) return;
     handled.add(mk);
     autoContinueCount++;
     log('auto-continue', autoContinueCount, 'toolsSinceUser', toolsSinceUser);
     setStatus('running');
-    await sendMessage('continue');
+    await sendMessage('Please continue from the last tool result.');
   }
 
   let busy = false;
@@ -2560,7 +2555,21 @@ async function maybeAutoContinue() {
       result: resultPayload,
       meta: { ms: 0, tool: tname }
     };
-    if (res.error != null) payloadObj.error = { message: String(res.error) };
+    if (res.error != null) {
+      if (res.error && typeof res.error === 'object') payloadObj.error = res.error;
+      else {
+        try {
+          const p = JSON.parse(String(res.error));
+          payloadObj.error = (p && typeof p === 'object') ? p : { message: String(res.error) };
+        } catch (_) {
+          payloadObj.error = { message: String(res.error) };
+        }
+      }
+    }
+    // Surface native typed errors already on data
+    if (res.ok === false && resultPayload && typeof resultPayload === 'object' && resultPayload.error && !payloadObj.error) {
+      payloadObj.error = resultPayload.error;
+    }
     let payload = 'TOOL_RESULT: ' + JSON.stringify(payloadObj);
     if (payload.length > CONFIG.maxResultChars + 20) {
       const approx = payload.length;
@@ -2623,7 +2632,6 @@ async function maybeAutoContinue() {
       collapseToolMessage(dsMessage, preview, !res.ok, false, runLabel, doneLabel);
     }
     setStatus(res.ok ? 'idle' : 'error');
-    try { enhanceAllMessages(); } catch (_) {}
     try {
       const n = typeof N === 'function' ? N() : null;
       if (n && typeof n.agentEnd === 'function') n.agentEnd();
@@ -3573,10 +3581,10 @@ async function maybeAutoContinue() {
     if (d.action === 'toast') showToast(String(d.text || ''), 2000);
   });
 
-  let enhanceTimer = setInterval(enhanceAllMessages, 350);
+  let enhanceTimer = setInterval(enhanceAllMessages, 1500);
   setInterval(() => {
     clearInterval(enhanceTimer);
-    enhanceTimer = setInterval(enhanceAllMessages, isGenerating() ? 300 : 1200);
+    enhanceTimer = setInterval(enhanceAllMessages, isGenerating() ? 900 : 2500);
   }, 2000);
   const uiObs = new MutationObserver(function () { enhanceAllMessages(); try { hideToolCallCodeBlocks(); } catch (_) {} });
   try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}

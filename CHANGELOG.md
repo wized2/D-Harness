@@ -1,3 +1,15 @@
+## 1.28.0
+
+### Critical
+- **github.push_file** rewritten to **Git Data API** (blob→tree→commit→ref) — nested paths like `public/app.js` and large files work; no more Contents-API spill/sha trap
+- **github.push_files_batch** + **verify_roundtrip**
+- Typed errors `{code,message,status,hint}` instead of bare `tool failed` on push path
+
+### Shim stability (1.28.0)
+- **Auto-continue OFF by default**; when on, only fires on pure "continue/next" stuck text — **removed** the "after 6–8 tools send continue" behavior
+- Slower UI enhance/scan timers to stop chip flicker and rebuild loops
+- Structured tool errors passed through to TOOL_RESULT
+
 ## 1.27.0
 
 - Fix install failure vs beta installs: **versionCode 81** (was 77 < 1.26.3-beta’s 80)

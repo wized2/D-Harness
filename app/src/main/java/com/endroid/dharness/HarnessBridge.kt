@@ -383,7 +383,9 @@ class HarnessBridge(
         tool("workspace.tree", "Shallow tree listing", JSONObject().put("path", "string?").put("depth", "int?"))
         tool("github.pull", "Download GitHub file into workspace", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?").put("dest", "string?"))
         tool("github.push_file", "Create/update a file on GitHub from a workspace path (Contents API). Prefer over hand-encoded base64.", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"), example = "{\"tool\":\"github.push_file\",\"args\":{\"owner\":\"o\",\"repo\":\"r\",\"path\":\"src/a.kt\",\"branch\":\"main\",\"message\":\"msg\",\"localPath\":\"src/a.kt\"}}")
-        tool("github.push_file_from_path", "Alias of github.push_file", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"))
+        tool("github.push_file_from_path", "Alias of github.push_file (git data API — nested paths OK)", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("message", "string").put("localPath", "string"))
+        tool("github.push_files_batch", "One commit, many files from workspace. args.files=[{path,localPath},...]", JSONObject().put("owner", "string").put("repo", "string").put("branch", "string").put("message", "string").put("files", "array"))
+        tool("verify_roundtrip", "Push file then re-read remote blob sha vs local", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("branch", "string").put("localPath", "string").put("message", "string?"))
         tool("github.fork", "Fork a repo to the authenticated user", JSONObject().put("owner", "string").put("repo", "string").put("organization", "string?"))
         tool("http.fetch_to_file", "Stream HTTP response to workspace file; returns meta only", JSONObject().put("url", "string").put("dest", "string").put("method", "string?").put("headers", "object?").put("body", "string?"))
         tool("workspace.hash", "SHA-256 of workspace file", JSONObject().put("path", "string"))
@@ -2198,6 +2200,35 @@ class HarnessBridge(
                 }
                 return githubPushFile(owner, repo, remote, branch, message, local)
             }
+            "github.push_files_batch" -> {
+                return githubPushFilesBatch(args)
+            }
+            "verify_roundtrip" -> {
+                val local = s("localPath", "local")
+                val remote = path.ifBlank { s("remotePath") }
+                val branch = s("branch", "ref").ifBlank { "main" }
+                val message = s("message").ifBlank { "verify roundtrip" }
+                if (owner.isBlank() || repo.isBlank() || remote.isBlank() || local.isBlank()) {
+                    return typedErr("ARGS", "owner, repo, path, localPath required")
+                }
+                val push = JSONObject(githubPushFile(owner, repo, remote, branch, message, local))
+                if (!push.optBoolean("ok")) return push.toString()
+                val pull = JSONObject(githubPull(owner, repo, remote, branch, "tmp/verify-$remote".replace("/", "_")))
+                val localFile = safeWorkspace(local)
+                val localSha = sha256(localFile.readBytes())
+                val remoteBytes = if (pull.optBoolean("ok")) {
+                    try { File(pull.optString("path")).readBytes() } catch (_: Exception) { null }
+                } else null
+                val remoteSha = remoteBytes?.let { sha256(it) }
+                return JSONObject()
+                    .put("ok", remoteSha != null && remoteSha == localSha)
+                    .put("local_sha256", localSha)
+                    .put("remote_sha256", remoteSha ?: JSONObject.NULL)
+                    .put("commit_sha", push.optString("commit_sha"))
+                    .put("bytes", localFile.length())
+                    .put("path", remote)
+                    .toString()
+            }
             "github.branch_create" -> {
                 val branch = s("branch", "name")
                 val from = s("from", "sha", "base", "ref").ifBlank { null }
@@ -2902,7 +2933,113 @@ class HarnessBridge(
         }
     }
 
-    /** Upload a workspace file to GitHub (create or update via Contents API). */
+    /** Encode each path segment for Contents API (keep `/` separators). */
+    private fun encodeRepoPath(path: String): String =
+        path.trim().trim('/').split('/')
+            .filter { it.isNotEmpty() }
+            .joinToString("/") {
+                java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20")
+            }
+
+    private fun githubRespSha(resp: JSONObject): String? {
+        resp.optJSONObject("json")?.optString("sha")?.takeIf { it.isNotBlank() }?.let { return it }
+        if (resp.optBoolean("spilled")) {
+            try {
+                val spill = resp.optString("spill_path")
+                if (spill.isNotBlank()) {
+                    val j = JSONObject(safeWorkspace(spill).readText())
+                    j.optString("sha").takeIf { it.isNotBlank() }?.let { return it }
+                    j.optJSONObject("content")?.optString("sha")?.takeIf { it.isNotBlank() }?.let { return it }
+                    j.optJSONObject("commit")?.optString("sha")?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+            } catch (_: Exception) {}
+        }
+        val blob = (resp.optString("text_preview") + resp.optString("text")).take(8000)
+        return Regex("\"sha\"\\s*:\\s*\"([a-f0-9]{40})\"").find(blob)?.groupValues?.getOrNull(1)
+    }
+
+    private fun typedErr(code: String, message: String?, status: Int? = null, hint: String? = null): String {
+        val e = JSONObject().put("code", code).put("message", message ?: code)
+        if (status != null) e.put("status", status)
+        if (!hint.isNullOrBlank()) e.put("hint", hint)
+        return JSONObject().put("ok", false).put("error", e).toString()
+    }
+
+
+    private fun githubPushFilesBatch(args: JSONObject): String {
+        return try {
+            val token = githubToken() ?: return typedErr("AUTH_MISSING", "no github PAT")
+            val owner = args.optString("owner")
+            val repo = args.optString("repo")
+            val br = args.optString("branch", "main").ifBlank { "main" }
+            val msg = args.optString("message", "batch update via D-Harness")
+            val files = args.optJSONArray("files")
+                ?: return typedErr("ARGS", "files array required [{path,localPath}]")
+            if (owner.isBlank() || repo.isBlank()) return typedErr("ARGS", "owner and repo required")
+            val treeItems = JSONArray()
+            val uploaded = JSONArray()
+            for (i in 0 until files.length()) {
+                val f = files.optJSONObject(i) ?: continue
+                val remote = f.optString("path").trim().trimStart('/')
+                val localPath = f.optString("localPath", f.optString("local"))
+                if (remote.isBlank() || localPath.isBlank()) continue
+                val local = safeWorkspace(localPath)
+                if (!local.isFile) return typedErr("NOT_FOUND", "missing $localPath")
+                val bytes = local.readBytes()
+                val blobBody = JSONObject()
+                    .put("content", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                    .put("encoding", "base64")
+                val blobResp = githubRequestSync("POST", "/repos/$owner/$repo/git/blobs", blobBody.toString(), token)
+                if (blobResp.optInt("status") !in 200..299) {
+                    return typedErr("BLOB_FAILED", "failed blob for $remote", status = blobResp.optInt("status"))
+                }
+                val blobSha = githubRespSha(blobResp) ?: return typedErr("BLOB_SHA", remote)
+                treeItems.put(
+                    JSONObject().put("path", remote).put("mode", "100644").put("type", "blob").put("sha", blobSha)
+                )
+                uploaded.put(JSONObject().put("path", remote).put("bytes", bytes.size).put("blob_sha", blobSha))
+            }
+            if (treeItems.length() == 0) return typedErr("ARGS", "no valid files entries")
+            val refResp = githubRequestSync(
+                "GET",
+                "/repos/$owner/$repo/git/ref/heads/${java.net.URLEncoder.encode(br, "UTF-8").replace("+", "%20")}",
+                null, token
+            )
+            val headSha = refResp.optJSONObject("json")?.optJSONObject("object")?.optString("sha")
+                ?: return typedErr("REF_SHA", "branch tip missing", status = refResp.optInt("status"))
+            val commitResp = githubRequestSync("GET", "/repos/$owner/$repo/git/commits/$headSha", null, token)
+            val baseTree = commitResp.optJSONObject("json")?.optJSONObject("tree")?.optString("sha")
+                ?: return typedErr("BASE_TREE", "missing")
+            val treeResp = githubRequestSync(
+                "POST", "/repos/$owner/$repo/git/trees",
+                JSONObject().put("base_tree", baseTree).put("tree", treeItems).toString(), token
+            )
+            val treeSha = githubRespSha(treeResp) ?: return typedErr("TREE_SHA", "missing", status = treeResp.optInt("status"))
+            val newCommitResp = githubRequestSync(
+                "POST", "/repos/$owner/$repo/git/commits",
+                JSONObject().put("message", msg).put("tree", treeSha).put("parents", JSONArray().put(headSha)).toString(),
+                token
+            )
+            val newCommitSha = githubRespSha(newCommitResp) ?: return typedErr("COMMIT_SHA", "missing")
+            val upd = githubRequestSync(
+                "PATCH",
+                "/repos/$owner/$repo/git/refs/heads/${java.net.URLEncoder.encode(br, "UTF-8").replace("+", "%20")}",
+                JSONObject().put("sha", newCommitSha).toString(), token
+            )
+            if (upd.optInt("status") !in 200..299) {
+                return typedErr("REF_UPDATE", "failed", status = upd.optInt("status"))
+            }
+            JSONObject().put("ok", true).put("commit_sha", newCommitSha).put("files", uploaded)
+                .put("count", uploaded.length()).put("method", "git-data-api-batch").toString()
+        } catch (e: Exception) {
+            typedErr("INTERNAL", e.message)
+        }
+    }
+
+    /**
+     * Upload workspace file via Git Data API (blob → tree → commit → ref).
+     * Works for nested paths and large files; avoids Contents API GET/PUT size traps.
+     */
     @JavascriptInterface
     fun githubPushFile(
         owner: String, repo: String, path: String, branch: String,
@@ -2910,41 +3047,145 @@ class HarnessBridge(
     ): String {
         return try {
             val token = githubToken()
-                ?: return JSONObject().put("ok", false).put("error", "no github PAT in keys").toString()
+                ?: return typedErr("AUTH_MISSING", "no github PAT in keys", hint = "Settings → store key github")
             val local = safeWorkspace(localPath)
-            if (!local.isFile) return JSONObject().put("ok", false).put("error", "local file not found").toString()
+            if (!local.isFile) return typedErr("NOT_FOUND", "local file not found: $localPath")
             val bytes = local.readBytes()
-            val contentB64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-            val remotePath = path.trimStart('/')
-            // get existing sha if file exists
-            var sha: String? = null
-            try {
-                val existing = githubRequestSync(
-                    "GET",
-                    "/repos/$owner/$repo/contents/$remotePath?ref=${java.net.URLEncoder.encode(branch, "UTF-8")}",
-                    null,
-                    token
+            val remotePath = path.trim().trimStart('/')
+            if (remotePath.isBlank()) return typedErr("ARGS", "path required")
+            if (owner.isBlank() || repo.isBlank()) return typedErr("ARGS", "owner and repo required")
+            val br = branch.ifBlank { "main" }
+            val msg = message.ifBlank { "update $remotePath via D-Harness" }
+
+            // 1) Create blob (base64) — handles large files; nested path applied in tree
+            val blobBody = JSONObject()
+                .put("content", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                .put("encoding", "base64")
+            val blobResp = githubRequestSync("POST", "/repos/$owner/$repo/git/blobs", blobBody.toString(), token)
+            val blobStatus = blobResp.optInt("status", 0)
+            if (blobStatus !in 200..299) {
+                return typedErr(
+                    "BLOB_FAILED",
+                    blobResp.optJSONObject("error")?.optString("message")
+                        ?: blobResp.optString("text_preview").ifBlank { blobResp.optString("text") }.take(400),
+                    status = blobStatus,
+                    hint = "Check PAT contents:write scope"
                 )
-                if (existing.optInt("status") == 200) {
-                    sha = existing.optJSONObject("json")?.optString("sha")
+            }
+            val blobSha = githubRespSha(blobResp)
+                ?: return typedErr("BLOB_SHA", "blob created but sha missing", status = blobStatus)
+
+            // 2) Resolve branch tip
+            val refResp = githubRequestSync(
+                "GET",
+                "/repos/$owner/$repo/git/ref/heads/${java.net.URLEncoder.encode(br, "UTF-8").replace("+", "%20")}",
+                null,
+                token
+            )
+            if (refResp.optInt("status") !in 200..299) {
+                return typedErr(
+                    "REF_FAILED",
+                    "branch not found: $br",
+                    status = refResp.optInt("status"),
+                    hint = "Create branch first with github.branch_create"
+                )
+            }
+            val headSha = refResp.optJSONObject("json")?.optJSONObject("object")?.optString("sha")
+                ?: githubRespSha(refResp)
+                ?: return typedErr("REF_SHA", "could not read branch tip sha")
+
+            // 3) Parent commit → base tree
+            val commitResp = githubRequestSync("GET", "/repos/$owner/$repo/git/commits/$headSha", null, token)
+            if (commitResp.optInt("status") !in 200..299) {
+                return typedErr("COMMIT_READ", "failed to read head commit", status = commitResp.optInt("status"))
+            }
+            val baseTree = commitResp.optJSONObject("json")?.optJSONObject("tree")?.optString("sha")
+                ?: run {
+                    val spill = commitResp.optString("spill_path")
+                    if (spill.isNotBlank()) {
+                        try {
+                            JSONObject(safeWorkspace(spill).readText())
+                                .optJSONObject("tree")?.optString("sha")
+                        } catch (_: Exception) { null }
+                    } else null
                 }
-            } catch (_: Exception) {}
-            val body = JSONObject()
-                .put("message", message)
-                .put("content", contentB64)
-                .put("branch", branch)
-            if (!sha.isNullOrBlank()) body.put("sha", sha)
-            val put = githubRequestSync("PUT", "/repos/$owner/$repo/contents/$remotePath", body.toString(), token)
-            val status = put.optInt("status", 0)
+                ?: return typedErr("BASE_TREE", "could not read base tree sha")
+
+            // 4) New tree: single path update (nested OK)
+            val treeBody = JSONObject()
+                .put("base_tree", baseTree)
+                .put(
+                    "tree",
+                    JSONArray().put(
+                        JSONObject()
+                            .put("path", remotePath)
+                            .put("mode", "100644")
+                            .put("type", "blob")
+                            .put("sha", blobSha)
+                    )
+                )
+            val treeResp = githubRequestSync("POST", "/repos/$owner/$repo/git/trees", treeBody.toString(), token)
+            if (treeResp.optInt("status") !in 200..299) {
+                return typedErr(
+                    "TREE_FAILED",
+                    treeResp.optJSONObject("error")?.optString("message")
+                        ?: treeResp.optString("text").take(400),
+                    status = treeResp.optInt("status")
+                )
+            }
+            val treeSha = githubRespSha(treeResp)
+                ?: return typedErr("TREE_SHA", "tree created but sha missing")
+
+            // 5) Commit
+            val commitBody = JSONObject()
+                .put("message", msg)
+                .put("tree", treeSha)
+                .put("parents", JSONArray().put(headSha))
+            val newCommitResp = githubRequestSync("POST", "/repos/$owner/$repo/git/commits", commitBody.toString(), token)
+            if (newCommitResp.optInt("status") !in 200..299) {
+                return typedErr(
+                    "COMMIT_FAILED",
+                    newCommitResp.optJSONObject("error")?.optString("message")
+                        ?: newCommitResp.optString("text").take(400),
+                    status = newCommitResp.optInt("status")
+                )
+            }
+            val newCommitSha = githubRespSha(newCommitResp)
+                ?: return typedErr("COMMIT_SHA", "commit created but sha missing")
+
+            // 6) Move branch ref
+            val refBody = JSONObject().put("sha", newCommitSha).put("force", false)
+            val upd = githubRequestSync(
+                "PATCH",
+                "/repos/$owner/$repo/git/refs/heads/${java.net.URLEncoder.encode(br, "UTF-8").replace("+", "%20")}",
+                refBody.toString(),
+                token
+            )
+            val updStatus = upd.optInt("status", 0)
+            if (updStatus !in 200..299) {
+                return typedErr(
+                    "REF_UPDATE",
+                    upd.optJSONObject("error")?.optString("message")
+                        ?: upd.optString("text").take(400),
+                    status = updStatus,
+                    hint = "Branch may have moved; retry"
+                )
+            }
+
             JSONObject()
-                .put("ok", status in 200..299)
-                .put("status", status)
-                .put("json", put.opt("json"))
-                .put("local", local.absolutePath)
+                .put("ok", true)
+                .put("status", 201)
+                .put("path", remotePath)
+                .put("branch", br)
                 .put("bytes", bytes.size)
+                .put("blob_sha", blobSha)
+                .put("commit_sha", newCommitSha)
+                .put("tree_sha", treeSha)
+                .put("local", local.absolutePath)
+                .put("method", "git-data-api")
                 .toString()
         } catch (e: Exception) {
-            JSONObject().put("ok", false).put("error", e.message).toString()
+            typedErr("INTERNAL", e.message, hint = "github.push_file exception")
         }
     }
 
@@ -4600,7 +4841,7 @@ class HarnessBridge(
                 args.optInt("offset", 0),
                 args.optInt("maxBytes", args.optInt("max_bytes", 32_000))
             )
-            "github.push_file", "github.push_file_from_path", "github.pull",
+            "github.push_file", "github.push_file_from_path", "github.push_files_batch", "verify_roundtrip", "github.pull",
             "github.branch_create", "github.fork", "github.compare", "github.repo" -> dispatchGithub(tool, args)
             else -> {
                 if (tool.startsWith("github.")) {
