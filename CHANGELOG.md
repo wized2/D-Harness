@@ -1,3 +1,8 @@
+## 1.30.0
+
+- curl/wget native fallback; exec exit kind; github.pr_ready/diff; workspace.check_encoding
+- spill path tmp/{tool}-{ts}.json; shell primary; shim 1.30.0 no 8-stop
+
 ## 1.29.0
 
 ### Primary shell

@@ -354,7 +354,10 @@ class HarnessBridge(
         tool("github.issue", "Get issue", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
         tool("github.contents", "Repo file contents", JSONObject().put("owner", "string").put("repo", "string").put("path", "string").put("ref", "string?"))
         tool("github.search", "Search issues/PRs/code", JSONObject().put("query", "string").put("type", "string?"))
-        tool("github.pr_create", "Create PR", JSONObject().put("owner", "string").put("repo", "string").put("title", "string").put("head", "string").put("base", "string?").put("body", "string?"))
+        tool("github.pr_create", "Create PR", JSONObject().put("owner", "string").put("repo", "string").put("title", "string").put("head", "string").put("base", "string?").put("body", "string?").put("draft", "boolean?"))
+        tool("github.pr_ready", "Mark draft PR ready for review", JSONObject().put("owner", "string").put("repo", "string").put("number", "number"))
+        tool("github.diff", "Download PR/commit .diff into workspace (UTF-8 text)", JSONObject().put("owner", "string").put("repo", "string").put("number", "number?").put("ref", "string?").put("dest", "string?"))
+        tool("workspace.check_encoding", "Scan file for mojibake / non-UTF8 corruption markers", JSONObject().put("path", "string"))
         tool("memory.get", "Scratch KV get", JSONObject().put("key", "string"))
         tool("memory.set", "Scratch KV set", JSONObject().put("key", "string").put("value", "string"))
         tool("memory.delete", "Scratch KV delete", JSONObject().put("key", "string"))
@@ -712,7 +715,12 @@ class HarnessBridge(
                 argv = (listOf(shellPath) + argv.drop(1)).toMutableList()
                 bin = "sh"
             } else if (bin !in execAllow) {
-                return JSONObject().put("ok", false).put("error", "binary not allowlisted: $bin")
+                return JSONObject().put("ok", false)
+                    .put("error", JSONObject()
+                        .put("kind", "policy")
+                        .put("code", "NOT_ALLOWLISTED")
+                        .put("message", "binary not allowlisted: $bin")
+                        .put("hint", "Use exec.allowlist or native http_request / github.* tools"))
                     .put("allow", JSONArray(execAllow.toList().sorted())).toString()
             } else {
                 // Prefer absolute path under /system/bin when present
@@ -754,7 +762,11 @@ class HarnessBridge(
             val t0 = System.currentTimeMillis()
             val pb = ProcessBuilder(argv).directory(cwd).redirectErrorStream(false)
             pb.environment()["HOME"] = workspaceRoot.absolutePath
-            pb.environment()["TMPDIR"] = context.cacheDir.absolutePath
+            // Prefer workspace/tmp (app sandbox); /tmp is often not writable
+            val tmpDir = File(workspaceRoot, "tmp").also { it.mkdirs() }
+            pb.environment()["TMPDIR"] = tmpDir.absolutePath
+            pb.environment()["TMP"] = tmpDir.absolutePath
+            pb.environment()["TEMP"] = tmpDir.absolutePath
             val proc = pb.start()
             val pid = try {
                 val m = proc.javaClass.getMethod("pid")
@@ -787,8 +799,10 @@ class HarnessBridge(
             outT.join(2000); errT.join(2000)
             val code = proc.exitValue()
             childProcs.remove(pid)
-            JSONObject()
-                .put("ok", code == 0)
+            // Process ran: never "tool failed" for exit!=0 (grep no-match etc.)
+            val out = JSONObject()
+                .put("ok", true)
+                .put("ran", true)
                 .put("exitCode", code)
                 .put("code", code)
                 .put("stdout", stdoutBox[0] ?: "")
@@ -797,9 +811,21 @@ class HarnessBridge(
                 .put("durationMs", System.currentTimeMillis() - t0)
                 .put("pid", pid)
                 .put("cwd", cwd.absolutePath)
-                .toString()
+                .put("tmpdir", tmpDir.absolutePath)
+            if (code != 0) {
+                out.put("error", JSONObject()
+                    .put("kind", "exit")
+                    .put("exitCode", code)
+                    .put("message", "process exited $code")
+                    .put("hint", "Non-zero exit is not a harness failure (e.g. grep no match)"))
+            }
+            out.toString()
         } catch (e: Exception) {
-            JSONObject().put("ok", false).put("error", e.message).toString()
+            JSONObject().put("ok", false)
+                .put("error", JSONObject()
+                    .put("kind", "internal")
+                    .put("message", e.message ?: "exec failed"))
+                .toString()
         }
     }
 
@@ -1917,7 +1943,7 @@ class HarnessBridge(
             .put("bytes", text.length)
         val softCap = 48_000
         if (text.length > softCap) {
-            val spillRel = "tmp/github-${System.currentTimeMillis()}.json"
+            val spillRel = "tmp/github.request-${System.currentTimeMillis()}.json"
             try {
                 val f = safeWorkspace(spillRel)
                 f.parentFile?.mkdirs()
@@ -2001,6 +2027,118 @@ class HarnessBridge(
     }
 
     /** Map github.* tool names to REST and run via githubRequestSync. */
+
+
+    private fun githubPrReady(owner: String, repo: String, number: Int): String {
+        return try {
+            val token = githubToken() ?: return typedErr("AUTH_MISSING", "no github PAT")
+            if (owner.isBlank() || repo.isBlank() || number <= 0) {
+                return typedErr("ARGS", "owner, repo, number required")
+            }
+            // GitHub: PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge is wrong
+            // Ready for review: POST /repos/{o}/{r}/pulls/{n}/ready_for_review (GraphQL alternative)
+            // REST: PATCH pull with draft:false works on newer API via
+            // POST https://api.github.com/repos/o/r/pulls/n/ready_for_review — actually GraphQL only
+            // Use REST: PATCH /pulls/{n} does not toggle draft on all versions.
+            // GraphQL mutation:
+            val idLookup = githubRequestSync("GET", "/repos/$owner/$repo/pulls/$number", null, token)
+            if (idLookup.optInt("status") !in 200..299) {
+                return typedErr("PR_NOT_FOUND", "cannot load PR", status = idLookup.optInt("status"))
+            }
+            val nodeId = idLookup.optJSONObject("json")?.optString("node_id")
+                ?: return typedErr("PR_NODE", "missing node_id")
+            val gql = JSONObject()
+                .put("query", "mutation(${'$'}id:ID!){ markPullRequestReadyForReview(input:{pullRequestId:${'$'}id}) { pullRequest { number isDraft url } } }")
+                .put("variables", JSONObject().put("id", nodeId))
+            val resp = githubRequestSync("POST", "/graphql", gql.toString(), token)
+            val st = resp.optInt("status")
+            if (st !in 200..299) {
+                return typedErr("PR_READY_FAILED", resp.optString("text").take(400), status = st)
+            }
+            JSONObject().put("ok", true).put("number", number).put("node_id", nodeId)
+                .put("result", resp.opt("json") ?: resp.opt("text_preview")).toString()
+        } catch (e: Exception) {
+            typedErr("INTERNAL", e.message)
+        }
+    }
+
+    private fun githubDiffToFile(args: JSONObject): String {
+        return try {
+            val owner = args.optString("owner")
+            val repo = args.optString("repo")
+            val number = args.optInt("number", args.optInt("pr", 0))
+            val ref = args.optString("ref", "")
+            val dest = args.optString("dest", "").ifBlank {
+                if (number > 0) "tmp/$owner-$repo-pr-$number.diff"
+                else "tmp/$owner-$repo.diff"
+            }
+            if (owner.isBlank() || repo.isBlank()) {
+                return typedErr("ARGS", "owner and repo required")
+            }
+            val url = when {
+                number > 0 -> "https://github.com/$owner/$repo/pull/$number.diff"
+                ref.isNotBlank() -> "https://github.com/$owner/$repo/commit/$ref.diff"
+                else -> return typedErr("ARGS", "number (PR) or ref (commit) required")
+            }
+            val fetched = httpFetchToFile(JSONObject().put("url", url).put("dest", dest)
+                .put("headers", JSONObject().put("Accept", "text/plain")))
+            val fo = JSONObject(fetched)
+            if (!fo.optBoolean("ok")) return fetched
+            // encoding scan
+            val check = JSONObject(workspaceCheckEncoding(dest))
+            fo.put("encoding", check)
+            fo.put("url", url)
+            fo.toString()
+        } catch (e: Exception) {
+            typedErr("INTERNAL", e.message)
+        }
+    }
+
+    private fun workspaceCheckEncoding(path: String): String {
+        return try {
+            val f = safeWorkspace(path)
+            if (!f.isFile) return typedErr("NOT_FOUND", "not a file")
+            val bytes = f.readBytes()
+            // Detect UTF-8 decode issues and common mojibake markers
+            val text = bytes.toString(Charsets.UTF_8)
+            val markers = listOf("â€", "Ã¢", "Ã", "Â", "ï»¿", "\uFFFD")
+            val hits = JSONArray()
+            var total = 0
+            for (m in markers) {
+                var c = 0
+                var idx = 0
+                while (true) {
+                    val j = text.indexOf(m, idx)
+                    if (j < 0) break
+                    c++; total++
+                    idx = j + m.length
+                    if (c > 50) break
+                }
+                if (c > 0) hits.put(JSONObject().put("marker", m).put("count", c))
+            }
+            // Invalid UTF-8 sequences
+            val decoder = Charsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            var validUtf8 = true
+            try {
+                decoder.decode(java.nio.ByteBuffer.wrap(bytes))
+            } catch (_: Exception) {
+                validUtf8 = false
+            }
+            JSONObject()
+                .put("ok", validUtf8 && total == 0)
+                .put("path", f.absolutePath)
+                .put("bytes", bytes.size)
+                .put("valid_utf8", validUtf8)
+                .put("mojibake_hits", hits)
+                .put("mojibake_total", total)
+                .put("hint", if (total > 0) "File may be corrupted (latin1/utf8 mix). Re-fetch clean upstream." else "UTF-8 looks clean")
+                .toString()
+        } catch (e: Exception) {
+            typedErr("INTERNAL", e.message)
+        }
+    }
 
     private fun httpFetchToFile(args: JSONObject): String {
         return try {
@@ -2123,7 +2261,7 @@ class HarnessBridge(
         if (resultJson.length <= limit) return resultJson
         return try {
             val safeTool = tool.replace(".", "_")
-            val rel = "tmp/tool-result-$safeTool-${System.currentTimeMillis()}.json"
+            val rel = "tmp/$safeTool-${System.currentTimeMillis()}.json"
             val f = safeWorkspace(rel)
             f.parentFile?.mkdirs()
             f.writeText(resultJson)
@@ -3909,8 +4047,14 @@ class HarnessBridge(
             val resultObj = try { JSONObject(resultStr) } catch (_: Exception) {
                 JSONObject().put("ok", true).put("raw", resultStr.take(4000))
             }
-            val ok = resultObj.optBoolean("ok", resultObj.optInt("exitCode", 0) == 0 && !resultObj.has("error"))
-            if (!ok) allOk = false
+            val stepFailed = when {
+                resultObj.optJSONObject("error")?.optString("kind") == "exit" ->
+                    stopOnError && resultObj.optInt("exitCode", 0) != 0
+                resultObj.has("ran") -> stopOnError && resultObj.optInt("exitCode", 0) != 0
+                else -> !resultObj.optBoolean("ok", true)
+            }
+            if (stepFailed) allOk = false
+            val ok = !stepFailed
             val ms = System.currentTimeMillis() - stepT0
             val compact = compactShellResult(resultObj)
             vars["LAST"] = compact
@@ -4104,6 +4248,75 @@ class HarnessBridge(
             }
         }
         return JSONObject().put("ok", true).put("props", obj).toString()
+    }
+
+
+    private fun findDeviceBin(name: String): String? {
+        val paths = listOf(
+            "/system/bin/$name", "/system/xbin/$name", "/vendor/bin/$name",
+            "/data/local/tmp/$name", "/sbin/$name"
+        )
+        for (p in paths) {
+            val f = File(p)
+            if (f.exists() && f.canExecute()) return f.absolutePath
+        }
+        return null
+    }
+
+    private fun curlOrNative(args: JSONObject): String {
+        val url = args.optString("url", args.optString("uri", args.optString("link", "")))
+        if (url.isBlank()) {
+            return JSONObject().put("ok", false)
+                .put("error", JSONObject().put("kind", "validation").put("message", "url required")).toString()
+        }
+        val method = args.optString("method", "GET").ifBlank { "GET" }.uppercase()
+        val out = args.optString("output", args.optString("o", args.optString("file", "")))
+        val headers = args.optJSONObject("headers")
+        val bin = findDeviceBin("curl")
+        if (bin != null) {
+            val argv = mutableListOf(bin, "-sS", "-L", "--max-time", "25")
+            if (method != "GET") { argv.add("-X"); argv.add(method) }
+            if (out.isNotBlank()) { argv.add("-o"); argv.add(out) }
+            if (headers != null) {
+                val it = headers.keys()
+                while (it.hasNext()) {
+                    val k = it.next()
+                    argv.add("-H"); argv.add("$k: ${headers.optString(k)}")
+                }
+            }
+            argv.add(url)
+            return execArgvList(argv, 60_000, null)
+        }
+        // Native fallback — most phones have no curl binary
+        return if (out.isNotBlank()) {
+            val a = JSONObject(args.toString()).put("dest", out).put("url", url).put("method", method)
+            httpFetchToFile(a)
+        } else {
+            val h = headers?.toString()
+            val body = args.optString("body", "").ifBlank { null }
+            val r = httpRequestSync(method, url, h, body)
+            r.put("via", "native-http").put("hint", "curl binary missing; used native HTTP").toString()
+        }
+    }
+
+    private fun wgetOrNative(args: JSONObject): String {
+        val url = args.optString("url", args.optString("uri", ""))
+        if (url.isBlank()) {
+            return JSONObject().put("ok", false)
+                .put("error", JSONObject().put("kind", "validation").put("message", "url required")).toString()
+        }
+        val out = args.optString("output", args.optString("o", args.optString("file", "")))
+        val bin = findDeviceBin("wget")
+        if (bin != null) {
+            return if (out.isNotBlank()) execArgvList(listOf(bin, "-q", "-O", out, url), 60_000, null)
+            else execArgvList(listOf(bin, "-q", "-O", "-", url), 60_000, null)
+        }
+        return if (out.isNotBlank()) {
+            httpFetchToFile(JSONObject().put("url", url).put("dest", out))
+        } else {
+            httpRequestSync("GET", url, null, null)
+                .put("via", "native-http").put("hint", "wget binary missing; used native HTTP").toString()
+        }
     }
 
     private fun dispatchByName(tool: String, args: JSONObject): String {
@@ -4507,30 +4720,8 @@ class HarnessBridge(
                 }
             }
             "ping" -> execArgvList(listOf("ping", "-c", "${i("count", 3).coerceIn(1, 20)}", sAny("host", "target", "ip")), 30_000, null)
-            "curl" -> {
-                val url = sAny("url", "uri", "link")
-                val argv = mutableListOf("curl", "-sS", "-L", "--max-time", "25")
-                val method = sAny("method").uppercase()
-                if (method.isNotBlank() && method != "GET") { argv.add("-X"); argv.add(method) }
-                val out = sAny("output", "o", "file")
-                if (out.isNotBlank()) { argv.add("-o"); argv.add(out) }
-                val headers = args.optJSONObject("headers")
-                if (headers != null) {
-                    val it = headers.keys()
-                    while (it.hasNext()) {
-                        val k = it.next()
-                        argv.add("-H"); argv.add("$k: ${headers.getString(k)}")
-                    }
-                }
-                argv.add(url)
-                execArgvList(argv, 60_000, null)
-            }
-            "wget" -> {
-                val url = sAny("url", "uri")
-                val out = sAny("output", "o", "file")
-                if (out.isNotBlank()) execArgvList(listOf("wget", "-q", "-O", out, url), 60_000, null)
-                else execArgvList(listOf("wget", "-q", url), 60_000, null)
-            }
+            "curl" -> curlOrNative(args)
+            "wget" -> wgetOrNative(args)
             "logcat" -> {
                 val lines = i("lines", 100).coerceIn(20, 2000)
                 val filter = sAny("filter", "query", "tag")
@@ -5090,6 +5281,10 @@ class HarnessBridge(
             "input.key" -> execArgvList(listOf("input", "keyevent", "${i("code", i("key", 4))}"), 5_000, null)
 
             "http.fetch_to_file" -> httpFetchToFile(args)
+            "github.pr_ready" -> githubPrReady(sAny("owner"), sAny("repo"), args.optInt("number", args.optInt("pr", 0)))
+            "github.diff" -> githubDiffToFile(args)
+            "workspace.check_encoding" -> workspaceCheckEncoding(sAny("path"))
+
             "workspace.hash" -> workspaceHash(sAny("path"))
             "workspace.read_b64_range" -> workspaceReadB64Range(
                 sAny("path"),

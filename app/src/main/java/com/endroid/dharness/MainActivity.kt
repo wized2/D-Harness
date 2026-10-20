@@ -726,6 +726,16 @@ BLOB_FAILED / REF_FAILED → check scopes and branch
 ## Style
 
 Direct. Smallest path. No fake results. No auto-chatter.
+
+
+## Encoding
+After downloading files, call workspace.check_encoding path=... before editing/pushing.
+Use github.diff to pull PR .diff text into workspace (not the huge PR JSON).
+
+## Limits
+There is NO 8-tool stop. Prefer one shell.script with many steps over many separate tool_calls.
+Large results spill to tmp/{tool}-{timestamp}.json — read spill_path.
+
 """
 
         fun agentInstructions(@Suppress("UNUSED_PARAMETER") dsml: Boolean = false): String =
