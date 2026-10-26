@@ -1,3 +1,11 @@
+## 1.31.0
+
+- **Claude / Claude Code tool protocol**: prefer `<function_calls>` + `<invoke name>` + `<parameter>` (DeepSeek aligns better with this pattern)
+- Shell-first agent instructions rewritten around Bash/shell pipelines
+- Shim: detect Claude XML (and `antml:`) before tool_call fences; map Bash/Read/Write aliases
+- Compat: ```tool_call JSON ~~~``` still works
+- Incomplete-stream wait for open `<function_calls>` / `<invoke>`
+
 ## 1.30.0
 
 - curl/wget native fallback; exec exit kind; github.pr_ready/diff; workspace.check_encoding

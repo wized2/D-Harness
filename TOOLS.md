@@ -1,65 +1,45 @@
-# Tools
+# D-Harness tools
 
-## Protocol (tool_call v2)
+## Protocol (Claude-style invokes — preferred)
 
-```tool_call
-{"tool":"NAME","description":"short","args":{}}
-~~~```
-
-Close with `~~~``` or `end_tool_call`. Prefer `list_tools` / `describe` before guessing args.
-
-# D-Harness Tools
-
-All tools are invoked as:
-
-```json
-{"tool":"NAME","description":"short","args":{}}
+```xml
+<function_calls>
+  <invoke name="shell">
+    <parameter name="cmd">ls -la</parameter>
+  </invoke>
+</function_calls>
 ```
 
-JSON only (DSML removed). Roots: **workspace.*** → app workspace dir; **fs.*** → harness_fs.
+- Multiple `<invoke>` blocks = parallel / sequential batch in one message
+- After `</function_calls>`, stop and wait for `TOOL_RESULT`
+- `Bash` → `shell`; `Read` → `workspace.read`; `Write` → `workspace.write`
 
-## Meta
-| Tool | Status | Notes |
-|------|--------|-------|
-| list_tools | ready | Catalog + status |
-| describe | ready | One tool schema |
-| selftest | ready | Binding probe |
-| selftest.deep | ready | Write/read/policy/task probes |
-| tools.for_task | ready | Suggest tools for a task string |
-| tools.groups | ready | Grouped tool names |
-| agent.metrics | ready | Trajectory / policy mode sizes |
+### Compat: tool_call fence
 
-## Workspace
-| Tool | Status |
-|------|--------|
-| workspace.ls / read / write / apply_patch / apply_patch_multi | ready |
-| workspace.replace / grep / glob / head / tail / diff | ready |
-| workspace.count / which / stat / mkdir / rm | ready |
+```tool_call
+{"tool":"list_tools","description":"catalog","args":{}}
+~~~```
 
-## Agent
-| Tool | Status |
-|------|--------|
-| task.add / update / list / clear | ready |
-| memory.append / project.context | ready |
-| session.save / load / list / fork | ready |
-| history.list / revert | ready |
-| trajectory.log | ready |
-| policy.allow / deny / check / mode | ready |
-| dispatch.log / errors | ready |
+## Primary tool: shell
 
-## Code / exec / archive
-exec, exec.lang, code.search/outline/slice/find_todos, archive.zip_* — ready when bound.
+| Form | Example |
+|------|---------|
+| cmd | `<parameter name="cmd">ps -A \| head</parameter>` |
+| command | Claude Code alias of cmd |
+| argv | JSON array in parameter |
+| script | JSON array of `{tool,args,as?}` steps |
 
-## Net
-research.web, http_request, github.* — ready (github needs PAT).
+Prefer **one** `shell` script with many steps over many separate invokes.
 
-## Slash commands (shim)
-`/help` `/ls` `/read path` `/grep q` `/glob` `/tasks` `/task text` `/memory text` `/project` `/index` `/log` `/selftest` `/tools query` `/policy tool`
+## Discover
 
+`list_tools`, `describe`, `tool.search`, `tools.examples`, `tools.help`
 
-## File bridge (1.25+)
+## Roots
 
-- `github.push_file` — `{owner,repo,path,branch,message,localPath}`
-- `http.fetch_to_file` — `{url,dest}`
-- `workspace.read_b64_range` — `{path,offset,maxBytes}`
-- Large tool results may return `{spilled:true,spill_path}`
+- **workspace.*** — app workspace
+- **fs.*** — harness_fs
+- **github.*** — GitHub API (PAT in Settings)
+- **device.*** / **clipboard.*** / **keys.***
+
+See in-app `list_tools` for the live catalog.

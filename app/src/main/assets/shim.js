@@ -1621,7 +1621,7 @@ async selftest() {
         if (el.getAttribute('data-dh-tool-hidden') === '1') continue;
         const cls = (el.className || '') + ' ' + (el.parentElement && el.parentElement.className || '');
         const text = el.textContent || '';
-        const isFence = /language-tool_call|tool_call/i.test(cls) || /^\s*\{\s*"tool"\s*:/.test(text.trim());
+        const isFence = /language-tool_call|tool_call/i.test(cls) || /function_calls|<(?:antml:)?invoke\b/i.test(text) || /^\s*\{\s*"tool"\s*:/.test(text.trim());
         // Only hide if inside assistant message and looks like tool JSON
         if (!isFence && text.indexOf('"tool"') === -1) continue;
         const msg = el.closest('div.ds-message, div[class*="message"]');
@@ -1828,6 +1828,179 @@ async selftest() {
     return out;
   }
 
+
+  /**
+   * Claude / Claude Code style tool calls (preferred — strong in DeepSeek training data):
+   *
+   * <function_calls>
+   *   <invoke name="shell">
+   *     <parameter name="cmd">ls -la</parameter>
+   *   </invoke>
+   * </function_calls>
+   *
+   * Also accepts antml: namespace, bare <invoke>, and parallel invokes.
+   * Mapped to internal {tool, description, args} objects.
+   */
+  var CLAUDE_NAME_MAP = {
+    bash: 'shell', Bash: 'shell', BASH: 'shell',
+    shell: 'shell', Shell: 'shell', sh: 'shell', cmd: 'shell',
+    term: 'term', Term: 'term',
+    Read: 'workspace.read', read: 'workspace.read', read_file: 'workspace.read',
+    Write: 'workspace.write', write: 'workspace.write', write_file: 'workspace.write',
+    Edit: 'workspace.patch', edit: 'workspace.patch', edit_file: 'workspace.patch',
+    Glob: 'workspace.glob', glob: 'workspace.glob',
+    Grep: 'workspace.grep', grep: 'workspace.grep',
+    list_tools: 'list_tools', ListTools: 'list_tools',
+    describe: 'describe', Describe: 'describe'
+  };
+
+  function mapClaudeToolName(name) {
+    var n = String(name || '').trim();
+    if (!n) return n;
+    if (CLAUDE_NAME_MAP[n]) return CLAUDE_NAME_MAP[n];
+    var low = n.toLowerCase();
+    if (CLAUDE_NAME_MAP[low]) return CLAUDE_NAME_MAP[low];
+    // Claude Code often uses Title Case single tools
+    if (low === 'bash' || low === 'shell') return 'shell';
+    return n;
+  }
+
+  function mapClaudeArgs(tool, params) {
+    var args = params && typeof params === 'object' ? Object.assign({}, params) : {};
+    // Claude Code Bash uses "command"
+    if (tool === 'shell' || tool === 'term' || tool === 'exec') {
+      if (args.command && !args.cmd && !args.sh) {
+        args.cmd = args.command;
+        delete args.command;
+      }
+    }
+    // Read/Write path aliases
+    if (args.file_path && !args.path) {
+      args.path = args.file_path;
+      delete args.file_path;
+    }
+    if (args.filePath && !args.path) {
+      args.path = args.filePath;
+      delete args.filePath;
+    }
+    // Edit aliases
+    if (args.old_string && !args.old) args.old = args.old_string;
+    if (args.new_string && !args.new) args.new = args.new_string;
+    // script may be JSON string
+    if (typeof args.script === 'string') {
+      var s = args.script.trim();
+      if (s.charAt(0) === '[' || s.charAt(0) === '{') {
+        try { args.script = JSON.parse(s); } catch (_) {}
+      }
+    }
+    return args;
+  }
+
+  function parseInvokeParameters(inner) {
+    var params = {};
+    var pre = /<parameter\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/parameter>/gi;
+    var m;
+    while ((m = pre.exec(inner)) !== null) {
+      var key = m[1];
+      var val = m[2];
+      // Unescape minimal XML entities
+      val = val.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+      // Trim one outer newline common in Claude outputs
+      if (val.charAt(0) === '\n') val = val.slice(1);
+      if (val.slice(-1) === '\n') val = val.slice(0, -1);
+      // Try JSON for objects/arrays/numbers/bools
+      var trimmed = val.trim();
+      if (trimmed === 'true') params[key] = true;
+      else if (trimmed === 'false') params[key] = false;
+      else if (/^-?\d+(\.\d+)?$/.test(trimmed)) params[key] = Number(trimmed);
+      else if ((trimmed.charAt(0) === '{' && trimmed.slice(-1) === '}') ||
+               (trimmed.charAt(0) === '[' && trimmed.slice(-1) === ']')) {
+        try { params[key] = JSON.parse(trimmed); }
+        catch (_) { params[key] = val; }
+      } else {
+        params[key] = val;
+      }
+    }
+    // Alternate: <arg_name>value</arg_name> without parameter wrapper
+    if (!Object.keys(params).length) {
+      var simple = /<([a-zA-Z_][\w]*)>([\s\S]*?)<\/\1>/g;
+      while ((m = simple.exec(inner)) !== null) {
+        if (/^(invoke|function_calls|antml:invoke|parameter)$/i.test(m[1])) continue;
+        params[m[1]] = m[2].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      }
+    }
+    return params;
+  }
+
+  function extractClaudeInvokes(raw) {
+    var text = normalizeToolText(raw || '');
+    var results = [];
+    // Prefer full function_calls blocks
+    var blockRe = /<(?:antml:)?function_calls\b[^>]*>([\s\S]*?)<\/(?:antml:)?function_calls>/gi;
+    var blocks = [];
+    var bm;
+    while ((bm = blockRe.exec(text)) !== null) {
+      blocks.push({ inner: bm[1], full: bm[0], index: bm.index });
+    }
+    // Also bare invokes not inside a captured block
+    var searchRegions = blocks.length
+      ? blocks
+      : [{ inner: text, full: text, index: 0 }];
+
+    var invokeRe = /<(?:antml:)?invoke\b([^>]*)>([\s\S]*?)<\/(?:antml:)?invoke>/gi;
+    for (var ri = 0; ri < searchRegions.length; ri++) {
+      var region = searchRegions[ri];
+      invokeRe.lastIndex = 0;
+      var im;
+      var n = 0;
+      while ((im = invokeRe.exec(region.inner)) !== null && n < 40) {
+        n++;
+        var attr = im[1] || '';
+        var nameMatch = attr.match(/\bname\s*=\s*["']([^"']+)["']/i);
+        if (!nameMatch) {
+          results.push({
+            error: true,
+            code: 'CLAUDE_INVOKE_NO_NAME',
+            message: 'invoke missing name attribute',
+            source: 'claude_xml',
+            raw: im[0].slice(0, 500),
+            hint: 'Use <invoke name="shell">...</invoke> inside <function_calls>'
+          });
+          continue;
+        }
+        var rawName = nameMatch[1];
+        var tool = mapClaudeToolName(rawName);
+        var params = parseInvokeParameters(im[2] || '');
+        var args = mapClaudeArgs(tool, params);
+        var desc = args.description || args.desc || (tool + ' via Claude invoke');
+        if (args.description) delete args.description;
+        if (args.desc) delete args.desc;
+        results.push({
+          obj: {
+            tool: tool,
+            description: String(desc).slice(0, 120),
+            args: args
+          },
+          full: im[0],
+          end: (region.index || 0) + im.index + im[0].length,
+          source: 'claude_xml',
+          protocol: 'claude_invoke',
+          claudeName: rawName
+        });
+      }
+    }
+    return results;
+  }
+
+  function hasOpenClaudeInvoke(text) {
+    text = String(text || '');
+    if (/<(?:antml:)?function_calls\b/i.test(text) && !/<\/(?:antml:)?function_calls>/i.test(text)) return true;
+    // Open invoke without close
+    var opens = (text.match(/<(?:antml:)?invoke\b/gi) || []).length;
+    var closes = (text.match(/<\/(?:antml:)?invoke>/gi) || []).length;
+    return opens > closes;
+  }
+
   function extractToolCallFences(raw) {
     var text = normalizeToolText(raw);
     var results = [];
@@ -1907,10 +2080,13 @@ async selftest() {
 
   function isIncompleteToolJson(t) {
     t = normalizeToolText(t || '');
-    if (!/```tool_call/i.test(t)) return false;
-    // Complete only when custom closer present
-    if (/```tool_call[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$))/i.test(t)) return false;
-    return true;
+    // Claude invoke still streaming
+    if (hasOpenClaudeInvoke(t)) return true;
+    if (/```tool_call/i.test(t)) {
+      if (/```tool_call[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$))/i.test(t)) return false;
+      return true;
+    }
+    return false;
   }
 
   function extractToolCall(raw) {
@@ -1926,9 +2102,13 @@ async selftest() {
   }
 
   function extractAllToolCalls(raw) {
+    // 1) Claude / Claude Code XML invokes (preferred)
+    var claude = extractClaudeInvokes(raw);
+    if (claude.length) return claude;
+    // 2) tool_call fence (JSON)
     var fences = extractToolCallFences(raw);
     if (fences.length) return fences;
-    // No fence: if bare tool JSON present, return format errors (do not execute)
+    // 3) Bare JSON → format error (do not execute)
     var legacy = extractLegacyBareToolJson(raw);
     return legacy;
   }
@@ -1937,12 +2117,19 @@ async selftest() {
   function extractDsmlToolCall(raw) { return null; }
   function extractAllDsmlToolCalls(raw) { return []; }
 
-  /** Extract JSON tool objects only (single object, array, or sequential). DSML removed. */
+  /** Unified extractor: Claude XML first, then tool_call fences, then legacy JSON (compat). */
   function extractAllToolCalls(raw) {
+    var claude = extractClaudeInvokes(raw);
+    if (claude.length) return claude;
+    var fences = extractToolCallFences(raw);
+    if (fences.length) return fences;
+    // Legacy bare JSON (compat — prefer Claude or fence; still execute if clean)
     const results = [];
     let text = normalizeToolText(raw);
     text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');
-    // JSON array of tools: [{"tool":...},{"tool":...}]
+    // strip any claude blocks so we don't double-parse
+    text = text.replace(/<(?:antml:)?function_calls[\s\S]*?<\/(?:antml:)?function_calls>/gi, ' ');
+    text = text.replace(/```tool_call[\s\S]*?(?:~~~```|end_tool_call)/gi, ' ');
     try {
       const arrMatch = text.match(/\[\s*\{\s*"tool"\s*:[\s\S]*\}\s*\]/);
       if (arrMatch) {
@@ -1951,13 +2138,12 @@ async selftest() {
           arr.forEach(function (obj, i) {
             if (obj && typeof obj.tool === 'string') {
               if (!obj.args || typeof obj.args !== 'object') obj.args = {};
-              results.push({ obj: obj, full: JSON.stringify(obj), end: 0, index: i });
+              results.push({ obj: obj, full: JSON.stringify(obj), end: 0, index: i, source: 'legacy_json' });
             }
           });
         }
       }
     } catch (_) {}
-    // Sequential JSON objects
     if (!results.length) {
       let idx = 0;
       let n = 0;
@@ -1969,7 +2155,7 @@ async selftest() {
           const c = text[i];
           if (str) {
             if (esc) esc = false;
-            else if (c === '\\\\') esc = true;
+            else if (c === '\\') esc = true;
             else if (c === '"') str = false;
           } else {
             if (c === '"') str = true;
@@ -1981,11 +2167,9 @@ async selftest() {
                 try {
                   const obj = JSON.parse(cand);
                   if (obj && typeof obj.tool === 'string' && obj.tool.trim() && !/\s/.test(obj.tool.trim())) {
-                    // Reject incomplete stream fragments (tool name cut mid-word like "list_t")
                     if (obj.tool === 'run_js' && !(obj.args && typeof obj.args.code === 'string')) break;
-                    if (!obj.args || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = obj.args && typeof obj.args === 'object' && !Array.isArray(obj.args) ? obj.args : {};
                     if (!obj.args || typeof obj.args !== 'object' || Array.isArray(obj.args)) obj.args = {};
-                    results.push({ obj: obj, full: cand, end: i + 1, index: n });
+                    results.push({ obj: obj, full: cand, end: i + 1, index: n, source: 'legacy_json' });
                     n++;
                     idx = i + 1;
                     break;
@@ -1999,7 +2183,6 @@ async selftest() {
         idx += 6;
       }
     }
-    // DSML removed — JSON only
     return results;
   }
 
@@ -2750,7 +2933,8 @@ async function maybeAutoContinue() {
     if (settle.el !== el || settle.len !== len) { settle = { el, len, at: now }; return false; }
     if (now - settle.at < CONFIG.settleMs) return false;
     // DeepSeek streams JSON char-by-char into RESPONSE; wait until balanced braces if tool-like
-    // Wait until tool_call fence is closed with ~~~``` or end_tool_call
+    // Wait until Claude invoke or tool_call fence is closed
+    if (hasOpenClaudeInvoke(text)) return;
     if (isIncompleteToolJson(text)) return false;
     if (/"tool"\s*:/.test(text) && /```tool_call/i.test(text)) {
       const tools = extractAllToolCalls(text);

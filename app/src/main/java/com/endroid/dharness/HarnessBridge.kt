@@ -606,7 +606,7 @@ class HarnessBridge(
                     .put("path/not found — ls/glob first")
                     .put("policy deny — do not retry same call"))
             }
-            one.put("protocol", "```tool_call … ~~~``` only. Never DSML. See tools.help / tools.examples.")
+            one.put("protocol", "Prefer Claude <function_calls><invoke name=\"tool\">…</invoke></function_calls>; tool_call JSON fence still OK. See tools.help.")
             return one.toString()
         }
         if (matches.length() > 1) {
@@ -5042,7 +5042,7 @@ class HarnessBridge(
                 rules.put("Never invent TOOL_RESULT or use DSML")
                 JSONObject()
                     .put("ok", true)
-                    .put("protocol", "tool_call_v2")
+                    .put("protocol", "claude_invoke+tool_call_v2")
                     .put("open", "```tool_call")
                     .put("close", "~~~```")
                     .put("alt_close", "end_tool_call")
@@ -5097,7 +5097,7 @@ class HarnessBridge(
                     .put("name", "D-Harness")
                     .put("workspace", workspaceRoot.absolutePath)
                     .put("exec_shell", settings.getBoolean("exec_shell", false))
-                    .put("protocol", "tool_call_v2")
+                    .put("protocol", "claude_invoke+tool_call_v2")
                     .put("close", "~~~```")
                     .toString()
             }
@@ -5106,7 +5106,7 @@ class HarnessBridge(
                     .put("ok", true)
                     .put("workspace", workspaceRoot.absolutePath)
                     .put("time", System.currentTimeMillis())
-                    .put("protocol", "tool_call_v2")
+                    .put("protocol", "claude_invoke+tool_call_v2")
                     .toString()
             }
             "env" -> {

@@ -4,7 +4,7 @@
 
 Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
 
-**Current: 1.23.0** — JSON-only tool protocol (DSML removed), stable result send, improved list_tools/describe, auto-continue guards.
+**Current: 1.31.0** — Claude/Claude Code `<function_calls>`/`<invoke>` tool protocol (preferred), shell-first pipelines, JSON fence still supported.
 
 ## What works
 
@@ -13,7 +13,7 @@ Not a demo. Tools run on-device against a sandboxed workspace; the model drives 
 | **Terminal** | term/argv, ls/cat/grep/find, shell pipelines |
 | **Shell** | `shell` / `sh` / `cmd`, sys.*, pkg.*, toybox, exec |
 | **Workspace** | `ls`, `read`, `write` (atomic + sha256), `apply_patch`, `apply_patch_multi`, `replace`, `grep`, `glob`, `head`/`tail`, `diff`, `mkdir`/`rm` |
-| **Agent loop** | JSON + optional DSML tool detect → native execute → `TOOL_RESULT` → continue / auto-continue |
+| **Agent loop** | Claude XML invoke (preferred) or tool_call fence → native execute → `TOOL_RESULT` → continue |
 | **Tasks & memory** | `task.*`, `memory.append`, `project.context` (PROJECT.md / AGENTS.md / CLAUDE.md / MEMORY.md) |
 | **Session** | `session.save` / `load` / `list` / `fork` |
 | **Index** | `index.build` / `find` / `fresh` |
@@ -29,19 +29,19 @@ Not a demo. Tools run on-device against a sandboxed workspace; the model drives 
 
 ## Tool call formats
 
-### tool_call fence (required)
+### Claude-style invokes (preferred)
 
-Close with `~~~``` or `end_tool_call`. Use `tools.help` / `tools.examples` at runtime.
+```xml
+<function_calls>
+  <invoke name="Bash">
+    <parameter name="command">ls -la</parameter>
+  </invoke>
+</function_calls>
+```
 
-### tool_call fence (required)
+### tool_call fence (compat)
 
-````
-```tool_call
-{"tool":"workspace.ls","description":"list","args":{}}
-~~~```
-````
 
-### JSON (inside fence only)
 
 ```json
 {"tool":"workspace.apply_patch","description":"fix typo","args":{"path":"Main.kt","edits":[{"old":"foo","new":"bar"}]}}
