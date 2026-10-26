@@ -683,7 +683,7 @@ Compat: ```tool_call JSON ~~~``` fence.
 ## Primary tool: shell
 - command/cmd: shell string
 - argv: JSON array
-- script: JSON array of {tool,args,as?} steps; $VAR and $LAST between steps
+- script: JSON array of {tool,args,as?} steps; ${'$'}VAR and ${'$'}LAST between steps
 Read skill **shell** before complex pipelines.
 
 ## Skills (progressive disclosure)
