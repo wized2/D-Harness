@@ -1621,7 +1621,7 @@ async selftest() {
         if (el.getAttribute('data-dh-tool-hidden') === '1') continue;
         const cls = (el.className || '') + ' ' + (el.parentElement && el.parentElement.className || '');
         const text = el.textContent || '';
-        const isFence = /language-tool_call|tool_call/i.test(cls) || /function_calls|<(?:antml:)?invoke\b/i.test(text) || /^\s*\{\s*"tool"\s*:/.test(text.trim());
+        const isFence = /language-tool_call|tool_call/i.test(cls) || /function_calls|DSML|<(?:antml:)?invoke\b/i.test(text) || /^\s*\{\s*"tool"\s*:/.test(text.trim());
         // Only hide if inside assistant message and looks like tool JSON
         if (!isFence && text.indexOf('"tool"') === -1) continue;
         const msg = el.closest('div.ds-message, div[class*="message"]');
@@ -2080,7 +2080,7 @@ async selftest() {
 
   function isIncompleteToolJson(t) {
     t = normalizeToolText(t || '');
-    // Claude invoke still streaming
+    if (typeof hasOpenDsml === 'function' && hasOpenDsml(t)) return true;
     if (hasOpenClaudeInvoke(t)) return true;
     if (/```tool_call/i.test(t)) {
       if (/```tool_call[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$))/i.test(t)) return false;
@@ -2102,28 +2102,175 @@ async selftest() {
   }
 
   function extractAllToolCalls(raw) {
-    // 1) Claude / Claude Code XML invokes (preferred)
+    var dsml = extractDsmlInvokes(raw);
+    if (dsml.length) return dsml;
     var claude = extractClaudeInvokes(raw);
     if (claude.length) return claude;
-    // 2) tool_call fence (JSON)
     var fences = extractToolCallFences(raw);
     if (fences.length) return fences;
-    // 3) Bare JSON → format error (do not execute)
     var legacy = extractLegacyBareToolJson(raw);
     return legacy;
   }
 
 
-  function extractDsmlToolCall(raw) { return null; }
-  function extractAllDsmlToolCalls(raw) { return []; }
+
+  /**
+   * DeepSeek DSML (V3.2 / V4 / V4.1 + mangled gateway forms).
+   * Canonical:
+   *   <｜DSML｜function_calls> … <｜DSML｜invoke name="f"> …
+   *   <｜DSML｜parameter name="k" string="true">v</｜DSML｜parameter>
+   * Also: tool_calls, spaced " calls", ||DSML||, |DSML|, antml-less invoke inside DSML blocks.
+   */
+  function normalizeDsmlMarkers(text) {
+    var s = String(text || '');
+    // Unify fullwidth ｜ and doubled bars to a single sentinel token form
+    s = s.replace(/<\/?\s*\|{0,2}｜?\s*DSML\s*｜?\s*\|{0,2}\s*/gi, function (m) {
+      var close = m.indexOf('/') === 1 || m.charAt(1) === '/';
+      return close ? '</__DSML__' : '<__DSML__';
+    });
+    // Forms like <||DSML||tool_calls> already partially handled; also <__DSML__ tool_calls>
+    return s;
+  }
+
+  function extractDsmlInvokes(raw) {
+    var text = normalizeToolText(raw || '');
+    var norm = normalizeDsmlMarkers(text);
+    var results = [];
+
+    // Block: <__DSML__function_calls> or tool_calls or calls
+    var blockRe = /<__DSML__\s*(function_calls|tool_calls|calls)\s*>([\s\S]*?)<\/__DSML__\s*(?:function_calls|tool_calls|calls)\s*>/gi;
+    var blocks = [];
+    var bm;
+    while ((bm = blockRe.exec(norm)) !== null) {
+      blocks.push({ inner: bm[2], full: bm[0], index: bm.index });
+    }
+
+    // Fallback: original unicode DSML without normalize success
+    if (!blocks.length) {
+      var uni = /<\s*[\|｜]{1,2}\s*DSML\s*[\|｜]{1,2}\s*(function_calls|tool_calls|\s*calls)\s*>([\s\S]*?)<\s*\/\s*[\|｜]{1,2}\s*DSML\s*[\|｜]{1,2}\s*(?:function_calls|tool_calls|\s*calls)\s*>/gi;
+      while ((bm = uni.exec(text)) !== null) {
+        blocks.push({ inner: bm[2], full: bm[0], index: bm.index });
+      }
+    }
+
+    // Also scan whole text for DSML invokes if no outer block
+    var regions = blocks.length ? blocks : [{ inner: norm, full: norm, index: 0 }];
+
+    var invRe = /<__DSML__\s*invoke\b([^>]*)>([\s\S]*?)<\/__DSML__\s*invoke\s*>/gi;
+    var invUni = /<\s*[\|｜]{1,2}\s*DSML\s*[\|｜]{1,2}\s*invoke\b([^>]*)>([\s\S]*?)<\s*\/\s*[\|｜]{1,2}\s*DSML\s*[\|｜]{1,2}\s*invoke\s*>/gi;
+
+    for (var ri = 0; ri < regions.length; ri++) {
+      var region = regions[ri];
+      var sourceInner = region.inner;
+      var reList = [invRe, invUni];
+      for (var ri2 = 0; ri2 < reList.length; ri2++) {
+        var invReX = reList[ri2];
+        invReX.lastIndex = 0;
+        var im;
+        var n = 0;
+        while ((im = invReX.exec(sourceInner)) !== null && n < 40) {
+          n++;
+          var attr = im[1] || '';
+          var nameMatch = attr.match(/\bname\s*=\s*["']([^"']+)["']/i);
+          if (!nameMatch) continue;
+          var rawName = nameMatch[1];
+          var tool = mapClaudeToolName(rawName);
+          var params = parseDsmlParameters(im[2] || '');
+          var args = mapClaudeArgs(tool, params);
+          var desc = args.description || args.desc || (tool + ' via DSML');
+          if (args.description) delete args.description;
+          if (args.desc) delete args.desc;
+          results.push({
+            obj: { tool: tool, description: String(desc).slice(0, 120), args: args },
+            full: im[0],
+            end: (region.index || 0) + im.index + im[0].length,
+            source: 'dsml',
+            protocol: 'dsml',
+            claudeName: rawName
+          });
+        }
+      }
+    }
+    return results;
+  }
+
+  function parseDsmlParameters(inner) {
+    var params = {};
+    var s = String(inner || '');
+    // Normalized form
+    var pre = /<__DSML__\s*parameter\b([^>]*)>([\s\S]*?)<\/__DSML__\s*parameter\s*>/gi;
+    var m;
+    while ((m = pre.exec(s)) !== null) {
+      applyDsmlParam(params, m[1], m[2]);
+    }
+    // Unicode / bar form
+    pre = /<\s*[\|｜]{1,2}\s*DSML\s*[\|｜]{1,2}\s*parameter\b([^>]*)>([\s\S]*?)<\s*\/\s*[\|｜]{1,2}\s*DSML\s*[\|｜]{1,2}\s*parameter\s*>/gi;
+    while ((m = pre.exec(s)) !== null) {
+      applyDsmlParam(params, m[1], m[2]);
+    }
+    // Fallback to Claude-style <parameter name=>
+    if (!Object.keys(params).length) {
+      return parseInvokeParameters(s);
+    }
+    return params;
+  }
+
+  function applyDsmlParam(params, attr, val) {
+    var nameMatch = String(attr || '').match(/\bname\s*=\s*["']([^"']+)["']/i);
+    if (!nameMatch) return;
+    var key = nameMatch[1];
+    var isString = true;
+    var sm = String(attr || '').match(/\bstring\s*=\s*["'](true|false)["']/i);
+    if (sm) isString = sm[1].toLowerCase() === 'true';
+    var v = String(val || '');
+    if (v.charAt(0) === '\n') v = v.slice(1);
+    if (v.slice(-1) === '\n') v = v.slice(0, -1);
+    v = v.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+    if (isString) {
+      params[key] = v;
+      return;
+    }
+    var trimmed = v.trim();
+    if (trimmed === 'true') params[key] = true;
+    else if (trimmed === 'false') params[key] = false;
+    else if (/^-?\d+(\.\d+)?$/.test(trimmed)) params[key] = Number(trimmed);
+    else {
+      try { params[key] = JSON.parse(trimmed); }
+      catch (_) { params[key] = v; }
+    }
+  }
+
+  function hasOpenDsml(text) {
+    var s = normalizeDsmlMarkers(String(text || ''));
+    if (/<__DSML__\s*(function_calls|tool_calls|calls)\b/i.test(s) &&
+        !/<\/__DSML__\s*(function_calls|tool_calls|calls)\s*>/i.test(s)) return true;
+    var opens = (s.match(/<__DSML__\s*invoke\b/gi) || []).length;
+    var closes = (s.match(/<\/__DSML__\s*invoke/gi) || []).length;
+    if (opens > closes) return true;
+    // raw unicode open
+    if (/<\s*[\|｜]{1,2}\s*DSML\s*[\|｜]{1,2}\s*(function_calls|tool_calls|\s*calls)/i.test(text) &&
+        !/<\/\s*[\|｜]{1,2}\s*DSML\s*[\|｜]{1,2}\s*(function_calls|tool_calls|\s*calls)/i.test(text)) return true;
+    return false;
+  }
+
+  function extractDsmlToolCall(raw) {
+    var all = extractDsmlInvokes(raw);
+    return all.length ? all[0] : null;
+  }
+  function extractAllDsmlToolCalls(raw) {
+    return extractDsmlInvokes(raw);
+  }
+
 
   /** Unified extractor: Claude XML first, then tool_call fences, then legacy JSON (compat). */
   function extractAllToolCalls(raw) {
+    var dsml = extractDsmlInvokes(raw);
+    if (dsml.length) return dsml;
     var claude = extractClaudeInvokes(raw);
     if (claude.length) return claude;
     var fences = extractToolCallFences(raw);
     if (fences.length) return fences;
-    // Legacy bare JSON (compat — prefer Claude or fence; still execute if clean)
+    // Legacy bare JSON (compat)
     const results = [];
     let text = normalizeToolText(raw);
     text = text.replace(/TOOL_RESULT:\s*\{[\s\S]*?\}(?=\s*$|\s*\{|"tool")/g, ' ');

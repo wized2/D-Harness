@@ -144,6 +144,61 @@ class HarnessBridge(
 
     // ─── Catalog ───────────────────────────────────────────────
 
+    private fun skillAssetNames(): List<String> {
+        return try {
+            (context.assets.list("skills") ?: emptyArray()).filter { it.endsWith(".md") }.sorted()
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun readSkillAsset(name: String): String? {
+        val base = name.trim().removeSuffix(".md").lowercase()
+        if (base.isEmpty()) return null
+        val path = "skills/$base.md"
+        return try {
+            context.assets.open(path).bufferedReader().use { it.readText() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    @JavascriptInterface
+    fun skillList(): String {
+        val arr = JSONArray()
+        for (file in skillAssetNames()) {
+            val body = readSkillAsset(file.removeSuffix(".md")) ?: continue
+            val name = file.removeSuffix(".md")
+            var desc = ""
+            val lines = body.lines()
+            if (lines.firstOrNull()?.trim() == "---") {
+                for (i in 1 until lines.size) {
+                    if (lines[i].trim() == "---") break
+                    if (lines[i].startsWith("description:")) {
+                        desc = lines[i].substringAfter("description:").trim()
+                    }
+                }
+            }
+            arr.put(JSONObject().put("name", name).put("description", desc).put("path", "skills/$name.md"))
+        }
+        return JSONObject().put("ok", true).put("skills", arr).put("hint", "skill.read name=<name> before domain tools").toString()
+    }
+
+    @JavascriptInterface
+    fun skillRead(args: JSONObject): String {
+        val name = args.optString("name").ifBlank { args.optString("skill") }.ifBlank { args.optString("id") }
+        if (name.isBlank()) {
+            return JSONObject().put("ok", false).put("error", "name required").put("hint", "skill.list first").toString()
+        }
+        val body = readSkillAsset(name)
+            ?: run {
+                val avail = JSONArray()
+                for (f in skillAssetNames()) avail.put(f.removeSuffix(".md"))
+                return JSONObject().put("ok", false).put("error", "unknown skill").put("name", name)
+                    .put("available", avail).toString()
+            }
+        return JSONObject().put("ok", true).put("name", name.trim().removeSuffix(".md").lowercase())
+            .put("content", body).toString()
+    }
+
     @JavascriptInterface
     fun listTools(): String {
         val tools = JSONArray()
@@ -627,6 +682,8 @@ class HarnessBridge(
         // Heuristic mapping catalog labels → JavascriptInterface method names
         val map = mapOf(
             "list_tools" to "listTools",
+            "skill.list" to "skillList",
+            "skill.read" to "skillRead",
             "describe" to "describeTool",
             "http_request" to "httpRequest",
             "fetch_url" to "httpRequest",
@@ -4354,6 +4411,8 @@ class HarnessBridge(
 
         return when (tool) {
             "list_tools", "list", "list tools" -> listTools()
+            "skill.list", "skills", "skills.list" -> skillList()
+            "skill.read", "skills.read", "skill" -> skillRead(args)
             "describe", "tool.describe", "help.tool" -> describeTool(sAny("name", "tool", "id"))
             "selftest" -> selftest()
             "time.now" -> timeNow()
@@ -5036,7 +5095,8 @@ class HarnessBridge(
 
             "tools.help" -> {
                 val rules = JSONArray()
-                rules.put("Only emit tools inside the fence")
+                rules.put("Prefer Claude <function_calls><invoke>…</invoke></function_calls>; DSML also accepted; tool_call fence compat")
+                rules.put("Load skill.read before github/workspace/http/device domains")
                 rules.put("Close with ~~~``` so payload may contain normal ```")
                 rules.put("STOP after fence; wait for TOOL_RESULT")
                 rules.put("Never invent TOOL_RESULT or use DSML")

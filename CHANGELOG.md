@@ -1,3 +1,11 @@
+## 1.32.0
+
+- **DSML tool calling restored & hardened**: V3.2/V4/V4.1 markers, spaced tags, mangled `||DSML||`, `string="true|false"`
+- **Claude invoke parser** kept as preferred parallel path
+- **Skills**: `assets/skills/*.md` + `skill.list` / `skill.read` (load domain skill before GitHub/workspace/http/device)
+- Stronger, shorter system prompt (hard rules + progressive disclosure)
+- Docs: TOOLS.md protocol + skills table
+
 ## 1.31.0
 
 - **Claude / Claude Code tool protocol**: prefer `<function_calls>` + `<invoke name>` + `<parameter>` (DeepSeek aligns better with this pattern)

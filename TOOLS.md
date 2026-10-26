@@ -1,7 +1,8 @@
-# D-Harness tools
+# D-Harness tools & skills
 
-## Protocol (Claude-style invokes — preferred)
+## Protocol (strongest → compat)
 
+1. **Claude style** (preferred)
 ```xml
 <function_calls>
   <invoke name="shell">
@@ -10,36 +11,36 @@
 </function_calls>
 ```
 
-- Multiple `<invoke>` blocks = parallel / sequential batch in one message
-- After `</function_calls>`, stop and wait for `TOOL_RESULT`
-- `Bash` → `shell`; `Read` → `workspace.read`; `Write` → `workspace.write`
+2. **DeepSeek DSML** (also executed if the model emits it)
+- `<｜DSML｜function_calls>` / `tool_calls` / spaced ` calls`
+- `<｜DSML｜invoke name="…">` + `<｜DSML｜parameter name="…" string="true|false">`
+- Mangled `||DSML||` forms from some gateways
 
-### Compat: tool_call fence
-
+3. **tool_call fence** (compat)
 ```tool_call
 {"tool":"list_tools","description":"catalog","args":{}}
 ~~~```
 
-## Primary tool: shell
+After any closed block: stop and wait for `TOOL_RESULT`.
 
-| Form | Example |
-|------|---------|
-| cmd | `<parameter name="cmd">ps -A \| head</parameter>` |
-| command | Claude Code alias of cmd |
-| argv | JSON array in parameter |
-| script | JSON array of `{tool,args,as?}` steps |
+## Skills (Claude Code style progressive disclosure)
 
-Prefer **one** `shell` script with many steps over many separate invokes.
+| Skill | When |
+|-------|------|
+| `protocol` | Format uncertainty |
+| `shell` | Pipelines, Bash, term |
+| `workspace` | Files under app workspace |
+| `github` | Any github.* |
+| `http` | http_request / fetch |
+| `device` | sensors, clipboard, keys |
 
-## Discover
+```
+skill.list
+skill.read  name=github
+```
 
-`list_tools`, `describe`, `tool.search`, `tools.examples`, `tools.help`
+Read the skill **before** the first tool in that domain.
 
-## Roots
+## Primary: shell
 
-- **workspace.*** — app workspace
-- **fs.*** — harness_fs
-- **github.*** — GitHub API (PAT in Settings)
-- **device.*** / **clipboard.*** / **keys.***
-
-See in-app `list_tools` for the live catalog.
+One `shell` / `Bash` invoke with `script` steps is preferred over many separate calls.
