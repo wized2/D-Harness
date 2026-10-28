@@ -1,13 +1,16 @@
 ---
 name: device
-description: Device sensors, clipboard, keys, sys props. Read before device.* / clipboard.* / keys.*.
+description: Device info, clipboard, sensors, notify when permitted.
 ---
-# Device skill
+# Device
 
-On-device only. No cloud.
+## Example
 
-- `device.*` — battery, network, sensors as exposed
-- `clipboard.get` / `clipboard.set`
-- `keys.*` — secure key store when available
+```xml
+<function_calls>
+<invoke name="list_tools">
+</invoke>
+</function_calls>
+```
 
-Never fabricate sensor values; if a probe fails, report the error.
+Then call the specific device tool name from the catalog (clipboard, sensors, notify, …). Respect permission errors; do not invent readings.

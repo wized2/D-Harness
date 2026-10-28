@@ -1,3 +1,10 @@
+## 1.37.0
+
+- Fern-style README, RELEASE_NOTES.md, tighter TOOLS.md
+- All skills include concrete invoke examples
+- Stronger invoke-only agent instructions (“use only this format from now on”)
+- Tool chip UI slightly more compact
+
 ## 1.36.0
 
 - Agent instructions: invoke-only (`function_calls` / `invoke` / `parameter`), Claude Code–aligned examples

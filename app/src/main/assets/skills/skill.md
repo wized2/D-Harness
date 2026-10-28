@@ -1,17 +1,26 @@
 ---
 name: skill
-description: Closed skill set and how to load them. Read when unsure which skill applies.
+description: Closed skill set and how to load them.
 ---
 # Skills
 
-**Closed set** — only these names exist:
+**Names that exist:** shell, workspace, github, http, device, protocol, exec, memory, tasks, research, skill, time, safety
 
-shell · workspace · github · http · device · protocol · exec · memory · tasks · research · skill · time · safety
+## Example
 
-Flow:
-1. `skill.list` if unsure
-2. `skill.read` with `name` = exactly one name above
-3. Never invent names (no coding, android, files, …)
+```xml
+<function_calls>
+<invoke name="skill.list">
+</invoke>
+</function_calls>
+```
 
-Unknown skill → error includes `available`. Pick from that list.
-Load a domain skill once before first tool in that domain.
+```xml
+<function_calls>
+<invoke name="skill.read">
+<parameter name="name">shell</parameter>
+</invoke>
+</function_calls>
+```
+
+Never invent a skill name. Unknown → use `available` from the error.

@@ -1,98 +1,112 @@
-# D-Harness
+<h1 align="center">D-Harness</h1>
 
-**Production Android harness for [DeepSeek Chat](https://chat.deepseek.com/)** — WebView + JS tool shim + native Kotlin bridge.
+<p align="center">
+  <b>On-device agent harness for DeepSeek Chat</b><br/>
+  WebView + native tools + sandboxed workspace.<br/>
+  Offline-capable tools · No ads · No trackers
+</p>
 
-Not a demo. Tools run on-device against a sandboxed workspace; the model drives them with structured tool calls.
+<p align="center">
+  <a href="https://github.com/wized2/D-Harness/actions/workflows/build.yml"><img src="https://github.com/wized2/D-Harness/actions/workflows/build.yml/badge.svg" alt="Build &amp; Release"/></a>
+  <a href="https://github.com/wized2/D-Harness/releases/latest"><img src="https://img.shields.io/github/v/release/wized2/D-Harness?label=release" alt="Release"/></a>
+  <a href="https://github.com/wized2/D-Harness/stargazers"><img src="https://img.shields.io/github/stars/wized2/D-Harness?style=social" alt="Stars"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT"/></a>
+  <img src="https://img.shields.io/badge/Android-8%2B-green.svg" alt="Android 8+"/>
+  <img src="https://img.shields.io/badge/Material%20You-3-purple.svg" alt="Material You"/>
+</p>
 
-**Current: 1.31.0** — Claude/Claude Code `<function_calls>`/`<invoke>` tool protocol (preferred), shell-first pipelines, JSON fence still supported.
+<p align="center">
+  <a href="https://github.com/wized2/D-Harness/releases/latest"><b>Download APK</b></a> ·
+  <a href="#features"><b>Features</b></a> ·
+  <a href="TOOLS.md"><b>Tools</b></a> ·
+  <a href="#tool-calls"><b>Tool calls</b></a>
+</p>
 
-## What works
+## Features
 
-| Area | Capabilities |
-|------|----------------|
-| **Terminal** | term/argv, ls/cat/grep/find, shell pipelines |
-| **Shell** | `shell` / `sh` / `cmd`, sys.*, pkg.*, toybox, exec |
-| **Workspace** | `ls`, `read`, `write` (atomic + sha256), `apply_patch`, `apply_patch_multi`, `replace`, `grep`, `glob`, `head`/`tail`, `diff`, `mkdir`/`rm` |
-| **Agent loop** | Claude XML invoke (preferred) or tool_call fence → native execute → `TOOL_RESULT` → continue |
-| **Tasks & memory** | `task.*`, `memory.append`, `project.context` (PROJECT.md / AGENTS.md / CLAUDE.md / MEMORY.md) |
-| **Session** | `session.save` / `load` / `list` / `fork` |
-| **Index** | `index.build` / `find` / `fresh` |
-| **History** | Snapshot on mutations; `history.list` / `revert` |
-| **Policy** | `policy.allow` / `deny` / `check` — enforced in dispatcher |
-| **Research** | `research.web`, HTML extract, `http_request` |
-| **GitHub** | PAT-backed `github.request` and helpers |
-| **Code** | `code.search`, `outline`, `slice`, `find_todos`, `count_lines`, … |
-| **Archive** | `archive.zip_create` / `list` / `extract` |
-| **Device** | info, clipboard, notify, sensors, … |
-| **UI** | Claude-style theme, tool chips, FAB panel (auto-continue toggles) |
-| **Background** | Foreground service during multi-step chains |
+- **Shell-first agent** — multi-step work in one pipeline when possible  
+- **Workspace** — list, read, write, grep under an app sandbox  
+- **GitHub & HTTP** — PAT in encrypted keys; fetch and research helpers  
+- **Skills** — progressive docs (`skill.list` / `skill.read`) before a domain  
+- **Device tools** — clipboard, sensors, notify, and more when permitted  
+- **Material You settings** — light / dark / system theme  
+- **Clean tool chips** — human-readable steps (Reading… / Read…)  
 
-## Tool call formats
+## Tool calls
 
-### Claude-style invokes (preferred)
+The model must emit tools in this shape:
 
 ```xml
 <function_calls>
-  <invoke name="Bash">
-    <parameter name="command">ls -la</parameter>
-  </invoke>
+<invoke name="shell">
+<parameter name="command">ls -la</parameter>
+</invoke>
 </function_calls>
 ```
 
-### tool_call fence (compat)
+- One or more `<invoke>` blocks inside `<function_calls>`  
+- Args as `<parameter name="…">value</parameter>`  
+- Optional `antml:` prefix on the same tags  
+- Then **stop** and wait for the real tool result  
 
+Compat: a fenced JSON `tool_call` block is still accepted by the harness.
 
+## Skills
 
-```json
-{"tool":"workspace.apply_patch","description":"fix typo","args":{"path":"Main.kt","edits":[{"old":"foo","new":"bar"}]}}
+| Skill | When to load |
+|-------|----------------|
+| `shell` | pipelines, multi-step |
+| `workspace` | files in the sandbox |
+| `github` | API / push / PR |
+| `http` | fetch / download |
+| `device` | sensors, clipboard, keys |
+| `protocol` | tool-call format |
+| `exec` | binaries / languages |
+| `memory` / `tasks` | notes & checklists |
+| `research` | web research |
+| `time` / `safety` | clocks & safe use |
+| `skill` | how skills work |
+
+Only these names exist. Use `skill.list` if unsure.
+
+## Install
+
+```text
+https://github.com/wized2/D-Harness/releases/latest
 ```
 
-Then stop and wait for `TOOL_RESULT`.
+Or build:
 
+```bash
+./gradlew assembleRelease
+```
 
 ## Build
 
 ```bash
-./gradlew :app:assembleRelease
+./gradlew assembleDebug
+./gradlew assembleRelease
 ```
 
-Release uses R8 minify + resource shrink. Sign with a **single** long-lived keystore so updates install cleanly.
+Release builds use R8 minify + resource shrink. Prefer one long-lived signing key so updates install cleanly.
 
-## Slash commands
+## Privacy
 
-In the chat box: `/ls`, `/read path`, `/grep q`, `/tasks`, `/task …`, `/memory …`, `/project`, `/selftest`, `/tools …`.
+Tool results and workspace files stay on device unless **you** use network tools (HTTP / GitHub). No analytics SDK. No ads.
 
-## Settings
+## Related
 
-- Paste / store secrets (e.g. GitHub PAT under key `github`)
-- Send system instructions into the current chat
-- Explore workspace files on device
-- FAB panel: debug, dedupe, auto-continue
+| Project | What |
+|---------|------|
+| **[Fern](https://github.com/wized2/Fern)** | Live system monitor (Material You) |
+| **[Latch](https://github.com/wized2/Latch)** | Privacy-first local automation |
 
-## Architecture
+## Contributing
 
-```
-DeepSeek WebView  ←→  shim.js (invoke detect, TOOL_RESULT, auto-continue)
-                         ↓
-                   native_bridge.js
-                         ↓
-                   HarnessBridge.kt  (workspace, HTTP, GitHub, device, policy)
-```
-
-## Design rules
-
-1. One arg convention: JSONObject handlers via `invokeJson`
-2. Request IDs validated client-side (stale response rejected)
-3. Verification on mutations (`verified` + sha256)
-4. Catalog should match callable tools
-5. Policy checked before every dispatch
-6. Snapshot before write
-7. No arbitrary low tool-call caps
+1. Open an issue or pick a labeled issue  
+2. Keep PRs focused; run CI green  
+3. See [CONTRIBUTING.md](CONTRIBUTING.md) and [TOOLS.md](TOOLS.md)  
 
 ## License
 
-MIT — see repository license.
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md).
+MIT — see [LICENSE](LICENSE).

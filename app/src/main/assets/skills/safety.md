@@ -1,11 +1,12 @@
 ---
 name: safety
-description: Safe tool use on-device — destructive actions, secrets, network.
+description: Safe on-device tool use.
 ---
 # Safety
 
-- Never delete workspace roots or app data unless the user clearly asks.
-- Secrets: use `keys.*` storage; do not echo tokens into chat or files unless asked.
-- Network: prefer https; report status codes honestly.
-- Shell: avoid `rm -rf /` style commands; stay under workspace when possible.
-- If a tool fails, surface error.hint — do not invent success.
+- No destructive deletes of app/workspace roots unless the user clearly asks  
+- Secrets → keys.*; do not echo tokens into chat  
+- Prefer https; report failures honestly  
+- Stay under workspace when possible  
+
+When unsure, ask or use the smallest read-only tool first.

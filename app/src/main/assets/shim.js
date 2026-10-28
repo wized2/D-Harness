@@ -156,7 +156,7 @@
     }
     [data-ds-shim-tagline="1"] .ds-shim-inner {
       display: flex; align-items: center; gap: 8px;
-      min-height: 40px; padding: 8px 12px;
+      min-height: 32px; padding: 6px 10px;
     }
     [data-ds-shim-tagline="1"] .ds-shim-ico {
       width: 16px; height: 16px;
@@ -169,7 +169,7 @@
     }
     @keyframes dsshim-pulse-ico { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
     [data-ds-shim-tagline="1"] .ds-shim-txt {
-      font-weight: 600; font-size: 14px; flex: 1;
+      font-weight: 600; font-size: 13px; flex: 1;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       color: var(--dsw-alias-label-primary, inherit);
     }

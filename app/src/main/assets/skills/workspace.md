@@ -1,15 +1,45 @@
 ---
 name: workspace
-description: App workspace files — list, read, write, grep, mkdir.
+description: Sandbox files — list, read, write, grep.
 ---
 # Workspace
 
-Paths are relative to the app workspace root unless absolute under that root.
+Paths relative to the app workspace root.
 
-- `workspace.ls` — list
-- `workspace.read` path — text (large files may spill)
-- `workspace.write` path + content
-- `workspace.grep` query — search text files
-- Prefer shell script only when chaining many file ops
+## Example — list
 
-Do not invent file contents. After write, verify with read if the user needs confirmation.
+```xml
+<function_calls>
+<invoke name="workspace.ls">
+</invoke>
+</function_calls>
+```
+
+## Example — read / write
+
+```xml
+<function_calls>
+<invoke name="workspace.write">
+<parameter name="path">hello.txt</parameter>
+<parameter name="content">hi</parameter>
+</invoke>
+</function_calls>
+```
+
+```xml
+<function_calls>
+<invoke name="workspace.read">
+<parameter name="path">hello.txt</parameter>
+</invoke>
+</function_calls>
+```
+
+## Example — grep
+
+```xml
+<function_calls>
+<invoke name="workspace.grep">
+<parameter name="query">TODO</parameter>
+</invoke>
+</function_calls>
+```

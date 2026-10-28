@@ -1,8 +1,7 @@
 ---
 name: tasks
-description: Lightweight task list UI helpers. Read before task.* tools.
+description: Lightweight checklist helpers.
 ---
 # Tasks
 
-Create, list, complete small agent tasks when multi-step work benefits from a visible checklist.
-Keep titles short. Clear finished tasks when the user is done.
+Create short titles for multi-step work when a visible checklist helps. Clear finished tasks when done. Use exact tool names from list_tools.

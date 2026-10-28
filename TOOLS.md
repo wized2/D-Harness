@@ -1,47 +1,33 @@
-# D-Harness tools & skills
+# Tools
 
-## Protocol (strongest → compat)
+## Call format
 
-1. **Claude style** (preferred)
 ```xml
 <function_calls>
-  <invoke name="shell">
-    <parameter name="cmd">ls -la</parameter>
-  </invoke>
+<invoke name="TOOL">
+<parameter name="ARG">value</parameter>
+</invoke>
 </function_calls>
 ```
 
+Then stop and wait for the tool result.
 
-3. **tool_call fence** (compat)
-```tool_call
-{"tool":"list_tools","description":"catalog","args":{}}
-~~~```
+## Core
 
-After any closed block: stop and wait for `TOOL_RESULT`.
+| Tool | Args | Notes |
+|------|------|--------|
+| `list_tools` | — | Full catalog |
+| `describe` | `tool` | One tool detail |
+| `skill.list` | — | Closed skill names |
+| `skill.read` | `name` | Full skill body |
+| `shell` | `command` / `cmd`, optional `script` | Primary multi-step |
+| `workspace.ls` | path? | List sandbox |
+| `workspace.read` | `path` | Read text |
+| `workspace.write` | `path`, `content` | Write text |
+| `workspace.grep` | `query` | Search files |
+| `http_request` | `url`, method? | Network |
+| `github.request` | path, method, body? | Needs PAT key |
 
-## Skills (Claude Code style progressive disclosure)
+Use `skill.read` before a domain the first time. Never invent tool or skill names.
 
-| Skill | When |
-|-------|------|
-| `protocol` | Format uncertainty |
-| `shell` | Pipelines, Bash, term |
-| `workspace` | Files under app workspace |
-| `github` | Any github.* |
-| `http` | http_request / fetch |
-| `device` | sensors, clipboard, keys |
-| `exec` | term, binaries, lang runners |
-| `memory` | on-device notes |
-| `tasks` | checklist helpers |
-| `research` | web research helpers |
-| `skill` | how skills load |
-
-```
-skill.list
-skill.read  name=github
-```
-
-Read the skill **before** the first tool in that domain.
-
-## Primary: shell
-
-One `shell` / `Bash` invoke with `script` steps is preferred over many separate calls.
+See skills under `app/src/main/assets/skills/` for examples.

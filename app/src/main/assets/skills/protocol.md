@@ -4,9 +4,9 @@ description: Required tool-call format using function_calls and invoke.
 ---
 # Protocol
 
-## Required format
+## Format
 
-```
+```xml
 <function_calls>
 <invoke name="shell">
 <parameter name="command">ls -la</parameter>
@@ -14,27 +14,25 @@ description: Required tool-call format using function_calls and invoke.
 </function_calls>
 ```
 
-- Outer: function_calls
-- Tool: invoke with name=
-- Args: parameter with name=
-- Optional antml: prefix on the same tags is valid
-- After </function_calls>: stop and wait for the tool result
+Rules: wrap in function_calls; one invoke per tool; args as parameter tags; then stop.
 
-## Examples
+## Example — list tools
 
-```
+```xml
 <function_calls>
 <invoke name="list_tools">
 </invoke>
 </function_calls>
 ```
 
-```
+## Example — parallel-style (two invokes)
+
+```xml
 <function_calls>
-<invoke name="workspace.read">
-<parameter name="path">readme.md</parameter>
+<invoke name="workspace.ls">
+</invoke>
+<invoke name="skill.read">
+<parameter name="name">workspace</parameter>
 </invoke>
 </function_calls>
 ```
-
-Never invent tool results. Never invent tool or skill names.

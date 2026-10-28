@@ -1,18 +1,20 @@
 ---
 name: github
-description: GitHub API and file push/PR. Read before any github.* tool.
+description: GitHub API and helpers. Requires a saved PAT (key github).
 ---
-# GitHub skill
+# GitHub
 
-Requires a PAT in D-Harness Settings (repo scope for push; workflow if needed).
+Save a PAT in Settings (stored encrypted). Load this skill before github.* tools.
 
-## Preferred tools
-- `github.push_file` — use `localPath` from workspace; nested repo paths OK
-- `github.pull` / `github.contents` — read remote
-- `github.request` — raw API; large JSON may spill
-- `github.pr_create` / `github.diff` — PRs
+## Example
 
-## Rules
-- Never invent commit SHAs or PR numbers
-- On AUTH_MISSING — stop and tell user to set PAT
-- Prefer push_file + localPath over embedding huge content in args
+```xml
+<function_calls>
+<invoke name="github.request">
+<parameter name="method">GET</parameter>
+<parameter name="path">/user</parameter>
+</invoke>
+</function_calls>
+```
+
+Push helpers (when available) take path + content or repo fields from list_tools. Do not invent endpoints; prefer documented helpers or REST paths from GitHub API docs.

@@ -1,11 +1,18 @@
 ---
 name: http
-description: HTTP fetch and download. Read before http_request / fetch_url / http.fetch_to_file.
+description: HTTP fetch and download into workspace.
 ---
-# HTTP skill
+# HTTP
 
-- `http_request` — method/url/headers/body
-- `http.fetch_to_file` — save body into workspace
-- Prefer fetch_to_file for large payloads then workspace.read
+## Example
 
-Respect timeouts; do not invent response bodies.
+```xml
+<function_calls>
+<invoke name="http_request">
+<parameter name="url">https://example.com</parameter>
+<parameter name="method">GET</parameter>
+</invoke>
+</function_calls>
+```
+
+Prefer saving large bodies with fetch-to-file tools when listed in list_tools. Report status codes honestly.

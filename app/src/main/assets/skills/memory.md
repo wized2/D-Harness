@@ -1,8 +1,9 @@
 ---
 name: memory
-description: On-device memory and key-value notes. Read before memory.* tools.
+description: On-device notes. Local only.
 ---
 # Memory
 
-Local only. Use for short durable notes the user asks to remember across turns in this app.
-Do not store secrets unless the user explicitly asks; prefer `keys.*` for sensitive values.
+## Example
+
+Use memory tools named in list_tools (e.g. append / get). Keep notes short. Do not store secrets unless the user asks; prefer keys.* for tokens.
