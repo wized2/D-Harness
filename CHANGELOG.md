@@ -1,3 +1,10 @@
+## 1.34.0
+
+- Tool format is mandatory function_calls + invoke (DSML strongly discouraged in instructions)
+- Closed skill name set documented; skill.read returns available list + hint on unknown
+- Tool chips: compact width, lighter Claude-like look; Running vs Done labels fixed
+- Step titles switch to past tense when finished (Reading → Read)
+
 ## 1.33.0
 
 - Human-readable tool chips (e.g. "Reading shell skill" instead of protocol jargon)

@@ -131,19 +131,19 @@
     [data-ds-shim-hidden="1"] { display: none !important; }
 
     [data-ds-shim-tagline="1"] {
-      display: flex !important;
+      display: inline-flex !important;
       flex-direction: column;
       align-items: stretch;
       height: auto;
-      min-height: 40px;
+      min-height: 0;
       padding: 0;
-      margin: 8px 0 10px 0;
+      margin: 4px 0 6px 0;
       cursor: pointer;
       user-select: none;
-      width: min(100%, 420px);
-      max-width: 100%;
-      border-radius: 16px;
-      border: 1px solid var(--dsw-alias-border, rgba(120,150,180,0.14));
+      width: auto;
+      max-width: min(100%, 280px);
+      border-radius: 10px;
+      border: 1px solid var(--dsw-alias-border, rgba(120,150,180,0.12));
       background: var(--dsw-alias-bg-elevated, rgba(120,150,180,0.06));
       color: var(--dsw-alias-label-secondary, rgba(180,195,210,0.9));
       font: 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -198,7 +198,7 @@
     }
     [data-ds-shim-tagline="1"] .ds-shim-step {
       display: flex; gap: 8px; align-items: flex-start;
-      padding: 6px 0; font-size: 12.5px; line-height: 1.4;
+      padding: 6px 0; font-size: 12px; line-height: 1.35;
       border-bottom: 1px solid rgba(120,150,180,0.08);
     }
     [data-ds-shim-tagline="1"] .ds-shim-step:last-child { border-bottom: none; }
@@ -210,27 +210,29 @@
     [data-ds-shim-tagline="1"] .ds-shim-step-desc { opacity: .7; font-size: 11.5px; margin-top: 2px; }
     [data-ds-shim-tagline="1"] .ds-shim-step.err .ds-shim-step-name { color: #f88; }
     [data-ds-shim-tagline="1"] {
-      margin: 8px 0 10px;
-      border-radius: 14px;
-      border: 1px solid rgba(120,150,180,0.16);
-      background: linear-gradient(180deg, rgba(36,48,64,0.55), rgba(24,32,44,0.42));
-      box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(0,0,0,0.12);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      margin: 4px 0 6px;
+      border-radius: 10px;
+      border: 1px solid rgba(120,150,180,0.12);
+      background: rgba(40,48,58,0.35);
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
       overflow: hidden;
     }
     [data-ds-shim-tagline="1"] .ds-shim-inner {
-      padding: 10px 12px;
+      padding: 6px 10px;
+      gap: 8px;
+      min-height: 0;
     }
     [data-ds-shim-tagline="1"] .ds-shim-chip {
       font-family: system-ui,-apple-system,"Segoe UI",sans-serif;
-      font-size: 11.5px; font-weight: 500;
-      padding: 3px 9px; border-radius: 999px;
-      background: rgba(77,150,255,0.12);
-      color: rgba(210,225,245,0.95);
-      border: 1px solid rgba(77,150,255,0.22);
-      display: inline-flex; align-items: center; gap: 5px;
-      margin-top: 5px; max-width: 100%;
+      font-size: 10.5px; font-weight: 500;
+      padding: 1px 7px; border-radius: 999px;
+      background: rgba(120,150,180,0.10);
+      color: rgba(200,210,220,0.92);
+      border: 1px solid rgba(120,150,180,0.16);
+      display: inline-flex; align-items: center; gap: 4px;
+      margin-top: 2px; max-width: 100%;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     [data-ds-shim-tagline="1"] .ds-shim-chip::before {
@@ -248,7 +250,7 @@
     }
     [data-ds-shim-tagline="1"][data-error="1"] .ds-shim-chip::before { background: #f77; }
     @media (pointer: coarse) {
-      [data-ds-shim-tagline="1"] .ds-shim-inner { min-height: 44px; }
+      [data-ds-shim-tagline="1"] .ds-shim-inner { min-height: 32px; }
     }
 
     #__ds_shim_fab {
@@ -2449,14 +2451,24 @@ async selftest() {
     tl.toggleAttribute('data-ds-shim-err', !!anyErr && !anyRun);
     const txt = tl.querySelector('.ds-shim-txt');
     if (txt) {
-      txt.textContent = anyRun
-        ? ('Working… · ' + n + (n === 1 ? ' step' : ' steps'))
-        : ('Tools used · ' + elapsed);
+      // Prefer concrete last-step label when single step; else aggregate
+      if (anyRun) {
+        var runStep = null;
+        for (var i = steps.length - 1; i >= 0; i--) {
+          if (steps[i].running) { runStep = steps[i]; break; }
+        }
+        txt.textContent = (runStep && runStep.title) ? runStep.title : ('Working… · ' + n);
+      } else {
+        var lastDone = n ? steps[n - 1] : null;
+        txt.textContent = (n === 1 && lastDone && lastDone.title)
+          ? lastDone.title
+          : ('Used ' + n + (n === 1 ? ' tool' : ' tools') + ' · ' + elapsed);
+      }
     }
     const sub = tl.querySelector('.ds-shim-sub');
     if (sub) sub.textContent = anyRun ? elapsed : (n + (n === 1 ? ' step' : ' steps'));
     const title = tl.querySelector('.ds-shim-panel-title');
-    if (title) title.textContent = anyRun ? 'In progress' : ('Worked for ' + elapsed);
+    if (title) title.textContent = anyRun ? 'In progress' : ('Finished · ' + elapsed);
     renderChainSteps(tl);
   }
 
@@ -2496,9 +2508,9 @@ async selftest() {
 
     const txt = document.createElement('span');
     txt.className = 'ds-shim-txt';
-    txt.textContent = running ? 'Running tools…' : 'Tools';
-    el._dsRunLabel = 'Running tools…';
-    el._dsDoneLabel = 'Tools';
+    txt.textContent = running ? 'Working…' : 'Done';
+    el._dsRunLabel = 'Working…';
+    el._dsDoneLabel = 'Done';
     inner.appendChild(txt);
 
     const sub = document.createElement('span');
@@ -2536,7 +2548,7 @@ async selftest() {
     if (sub) {
       const n = steps.length;
       const running = steps.some(function (s) { return s.running; });
-      sub.textContent = running ? ('Running ' + n + (n === 1 ? ' tool' : ' tools')) : (n + (n === 1 ? ' step' : ' steps'));
+      sub.textContent = running ? (n === 1 ? 'In progress' : (n + ' in progress')) : (n === 1 ? 'Done' : (n + ' done'));
     }
   }
 
@@ -2548,9 +2560,10 @@ async selftest() {
     tagline.toggleAttribute('data-ds-shim-running', !!running);
     tagline.toggleAttribute('data-ds-shim-err', !!isError);
     const n = (tagline._dsSteps || []).length;
-    const headRun = n > 1 ? ('Thought for tools · ' + n) : (tagline._dsRunLabel || 'Running tools…');
-    const headDone = n > 1 ? ('Used ' + n + ' tools') : (tagline._dsDoneLabel || 'Tools');
-    tagline.querySelector('.ds-shim-txt').textContent = running ? headRun : headDone;
+    const headRun = tagline._dsRunLabel || 'Working…';
+    const headDone = n > 1 ? ('Used ' + n + ' tools') : (tagline._dsDoneLabel || 'Done');
+    const txtEl = tagline.querySelector('.ds-shim-txt');
+    if (txtEl) txtEl.textContent = running ? headRun : headDone;
     renderChainSteps(tagline);
   }
 
@@ -2998,7 +3011,9 @@ async function maybeAutoContinue() {
         if (last && last.running) {
           last.running = false;
           last.err = !res.ok;
-          if (!res.ok) last.title = (last.title || last.tool) + ' failed';
+          last.title = res.ok ? doneLabel : ((doneLabel || last.title || last.tool) + ' failed');
+          last.tool = res.ok ? doneLabel : last.tool;
+          last.desc = '';
         }
         toolChain.lastAt = Date.now();
         refreshChainHeader(false);

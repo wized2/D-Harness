@@ -1,10 +1,11 @@
 ---
 name: protocol
-description: How to emit tool calls (Claude XML and DSML). Read if unsure about format.
+description: Required tool-call format (function_calls + invoke). Read if format is unclear.
 ---
-# Protocol skill
+# Protocol
 
-## Preferred (Claude / Claude Code style)
+## Required format (only)
+
 ```
 <function_calls>
 <invoke name="shell">
@@ -13,20 +14,14 @@ description: How to emit tool calls (Claude XML and DSML). Read if unsure about 
 </function_calls>
 ```
 
-## Also accepted (DeepSeek DSML — if the model emits it)
-```
-<｜DSML｜function_calls>
-<｜DSML｜invoke name="shell">
-<｜DSML｜parameter name="cmd" string="true">ls -la</｜DSML｜parameter>
-</｜DSML｜invoke>
-</｜DSML｜function_calls>
-```
+- `name` on invoke = real tool from list_tools  
+- Parameters only via `<parameter name="…">…</parameter>`  
+- Then **STOP** and wait for TOOL_RESULT  
 
-Variants with `tool_calls`, spaced ` calls`, or mangled `||DSML||` are parsed the same.
+## Do not use
+DSML / ｜DSML｜ / ||DSML|| wrappers, partial tags, or invented skill/tool names.
 
-## Compat
+## Compat (last resort)
 ```tool_call
 {"tool":"list_tools","description":"catalog","args":{}}
 ~~~```
-
-After any closed tool block: **STOP** and wait for `TOOL_RESULT`. Never invent results.
