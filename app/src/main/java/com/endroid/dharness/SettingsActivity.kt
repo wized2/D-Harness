@@ -134,7 +134,6 @@ class SettingsActivity : AppCompatActivity() {
         swInject.setOnCheckedChangeListener { _, _ -> persist() }
         swExecShell.setOnCheckedChangeListener { _, _ -> persist() }
         swDedupe.setOnCheckedChangeListener { _, _ -> persist() }
-        swDsml.setOnCheckedChangeListener { _, _ -> persist() }
         swTaskBar.setOnCheckedChangeListener { _, _ -> persist() }
 
         val larger = findViewById<MaterialSwitch>(R.id.switchLargerText)
