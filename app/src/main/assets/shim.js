@@ -209,13 +209,44 @@
     [data-ds-shim-tagline="1"] .ds-shim-step-name { font-weight: 600; word-break: break-word; }
     [data-ds-shim-tagline="1"] .ds-shim-step-desc { opacity: .7; font-size: 11.5px; margin-top: 2px; }
     [data-ds-shim-tagline="1"] .ds-shim-step.err .ds-shim-step-name { color: #f88; }
+    [data-ds-shim-tagline="1"] {
+      margin: 8px 0 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(120,150,180,0.16);
+      background: linear-gradient(180deg, rgba(36,48,64,0.55), rgba(24,32,44,0.42));
+      box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(0,0,0,0.12);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      overflow: hidden;
+    }
+    [data-ds-shim-tagline="1"] .ds-shim-inner {
+      padding: 10px 12px;
+    }
     [data-ds-shim-tagline="1"] .ds-shim-chip {
-      font-family: ui-monospace,SFMono-Regular,Menlo,monospace;
-      font-size: 11px; padding: 1px 6px; border-radius: 5px;
-      background: rgba(120,150,180,0.10); color: rgba(190,205,220,0.9);
-      display: inline-block; margin-top: 4px; max-width: 100%;
+      font-family: system-ui,-apple-system,"Segoe UI",sans-serif;
+      font-size: 11.5px; font-weight: 500;
+      padding: 3px 9px; border-radius: 999px;
+      background: rgba(77,150,255,0.12);
+      color: rgba(210,225,245,0.95);
+      border: 1px solid rgba(77,150,255,0.22);
+      display: inline-flex; align-items: center; gap: 5px;
+      margin-top: 5px; max-width: 100%;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    [data-ds-shim-tagline="1"] .ds-shim-chip::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%;
+      background: #5ad; flex-shrink: 0;
+    }
+    [data-ds-shim-tagline="1"][data-running="1"] .ds-shim-chip::before {
+      background: #4af; box-shadow: 0 0 0 0 rgba(68,170,255,0.5);
+      animation: dsshim-pulse 1.2s ease-in-out infinite;
+    }
+    [data-ds-shim-tagline="1"][data-error="1"] .ds-shim-chip {
+      background: rgba(255,100,100,0.10);
+      border-color: rgba(255,100,100,0.28);
+      color: #fbb;
+    }
+    [data-ds-shim-tagline="1"][data-error="1"] .ds-shim-chip::before { background: #f77; }
     @media (pointer: coarse) {
       [data-ds-shim-tagline="1"] .ds-shim-inner { min-height: 44px; }
     }
@@ -1972,7 +2003,7 @@ async selftest() {
         var tool = mapClaudeToolName(rawName);
         var params = parseInvokeParameters(im[2] || '');
         var args = mapClaudeArgs(tool, params);
-        var desc = args.description || args.desc || (tool + ' via Claude invoke');
+        var desc = args.description || args.desc || '';
         if (args.description) delete args.description;
         if (args.desc) delete args.desc;
         results.push({
@@ -2177,7 +2208,7 @@ async selftest() {
           var tool = mapClaudeToolName(rawName);
           var params = parseDsmlParameters(im[2] || '');
           var args = mapClaudeArgs(tool, params);
-          var desc = args.description || args.desc || (tool + ' via DSML');
+          var desc = args.description || args.desc || '';
           if (args.description) delete args.description;
           if (args.desc) delete args.desc;
           results.push({
@@ -2510,6 +2541,10 @@ async selftest() {
   }
 
   function updateTagline(tagline, preview, isError, running) {
+    try {
+      if (running) tagline.setAttribute('data-running', '1'); else tagline.removeAttribute('data-running');
+      if (isError) tagline.setAttribute('data-error', '1'); else tagline.removeAttribute('data-error');
+    } catch (_) {}
     tagline.toggleAttribute('data-ds-shim-running', !!running);
     tagline.toggleAttribute('data-ds-shim-err', !!isError);
     const n = (tagline._dsSteps || []).length;
@@ -2813,27 +2848,128 @@ async function maybeAutoContinue() {
     return str.slice(0, head) + '\n…[compacted ' + (str.length - head - tail) + ' chars]…\n' + str.slice(-tail);
   }
 
+
+  /** User-facing label for tool chips (no protocol jargon). */
+  function humanLabelForTool(toolName, args, description, phase) {
+    var name = String(toolName || '').trim();
+    var args = args && typeof args === 'object' ? args : {};
+    var d = String(description || '').trim();
+    // Strip protocol noise from model descriptions
+    d = d.replace(/\s*via\s*(DSML|Claude(\s*invoke)?|tool_call|fence)\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (/^(via\s+)?(dsml|claude)/i.test(d)) d = '';
+    if (d && d.length >= 3 && d.length <= 64 && !/^[a-z0-9_.]+$/i.test(d)) {
+      // Model gave a readable description
+      if (phase === 'run' && !/…$|\.\.\.$|ing\b/i.test(d)) return d;
+      if (phase === 'done') return d;
+      return d;
+    }
+    var base = name;
+    var a0 = function (k) { return args[k] != null && String(args[k]).trim() !== '' ? String(args[k]).trim() : ''; };
+    // Skills
+    if (name === 'skill.read' || name === 'skills.read' || name === 'skill') {
+      var sn = a0('name') || a0('skill') || a0('id') || 'skill';
+      return phase === 'run' ? ('Reading ' + sn + ' skill') : ('Read ' + sn + ' skill');
+    }
+    if (name === 'skill.list' || name === 'skills' || name === 'skills.list') {
+      return phase === 'run' ? 'Listing skills' : 'Listed skills';
+    }
+    if (name === 'list_tools' || name === 'list' || name === 'list tools') {
+      return phase === 'run' ? 'Listing tools' : 'Listed tools';
+    }
+    if (name === 'describe') {
+      var tn = a0('tool') || a0('name') || 'tool';
+      return phase === 'run' ? ('Describing ' + tn) : ('Described ' + tn);
+    }
+    if (name === 'shell' || name === 'Bash' || name === 'bash' || name === 'sh' || name === 'cmd') {
+      var c = a0('cmd') || a0('command') || a0('sh');
+      if (args.script) return phase === 'run' ? 'Running shell pipeline' : 'Shell pipeline done';
+      if (c) {
+        var short = c.length > 40 ? c.slice(0, 37) + '…' : c;
+        return phase === 'run' ? ('Running: ' + short) : ('Ran: ' + short);
+      }
+      return phase === 'run' ? 'Running shell' : 'Shell finished';
+    }
+    if (name === 'term' || name === 'exec') {
+      return phase === 'run' ? 'Running command' : 'Command finished';
+    }
+    if (name.indexOf('workspace.read') === 0) {
+      var path = a0('path') || a0('file') || 'file';
+      return phase === 'run' ? ('Reading ' + path) : ('Read ' + path);
+    }
+    if (name.indexOf('workspace.write') === 0) {
+      var path = a0('path') || a0('file') || 'file';
+      return phase === 'run' ? ('Writing ' + path) : ('Wrote ' + path);
+    }
+    if (name === 'workspace.ls' || name === 'workspace.list') {
+      return phase === 'run' ? 'Listing workspace' : 'Listed workspace';
+    }
+    if (name.indexOf('workspace.') === 0) {
+      var act = name.slice(10).replace(/_/g, ' ');
+      return phase === 'run' ? ('Workspace: ' + act) : ('Workspace ' + act + ' done');
+    }
+    if (name.indexOf('github.') === 0) {
+      var act = name.slice(7).replace(/_/g, ' ');
+      var map = {
+        'push file': phase === 'run' ? 'Pushing file to GitHub' : 'Pushed file to GitHub',
+        'pull': phase === 'run' ? 'Pulling from GitHub' : 'Pulled from GitHub',
+        'request': phase === 'run' ? 'GitHub API request' : 'GitHub API done',
+        'me': phase === 'run' ? 'Checking GitHub account' : 'GitHub account',
+        'pr create': phase === 'run' ? 'Creating pull request' : 'Pull request created',
+        'diff': phase === 'run' ? 'Fetching diff' : 'Diff ready'
+      };
+      if (map[act]) return map[act];
+      return phase === 'run' ? ('GitHub: ' + act) : ('GitHub ' + act);
+    }
+    if (name === 'http_request' || name === 'fetch_url') {
+      var u = a0('url') || a0('uri') || '';
+      var host = u.replace(/^https?:\/\//, '').split('/')[0] || 'URL';
+      return phase === 'run' ? ('Fetching ' + host) : ('Fetched ' + host);
+    }
+    if (name === 'http.fetch_to_file') {
+      return phase === 'run' ? 'Downloading file' : 'Downloaded file';
+    }
+    if (name.indexOf('research.') === 0) {
+      return phase === 'run' ? 'Researching' : 'Research done';
+    }
+    if (name.indexOf('device.') === 0) {
+      return phase === 'run' ? 'Reading device' : 'Device info ready';
+    }
+    if (name.indexOf('clipboard.') === 0) {
+      return phase === 'run' ? 'Clipboard' : 'Clipboard done';
+    }
+    // Generic: workspace.write style → "Workspace write"
+    var pretty = name.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim();
+    pretty = pretty.replace(/\b\w/g, function (c) { return c; }); // keep lower for calm UI
+    if (phase === 'run') {
+      if (/e$/.test(pretty)) return pretty.charAt(0).toUpperCase() + pretty.slice(1) + '…';
+      return pretty.charAt(0).toUpperCase() + pretty.slice(1);
+    }
+    return pretty.charAt(0).toUpperCase() + pretty.slice(1) + ' done';
+  }
+
   async function processToolCall(dsMessage, tool, mk, sig) {
     const tname = tool.obj.tool;
     const desc = String(tool.obj.description || tool.obj.discription || '').trim();
-    const runLabel = desc ? desc : ('Running ' + tname + '…');
-    const doneLabel = desc ? desc : 'Tool used';
-    log('tool call:', tname, desc || '(no description)', '| msg:', mk);
+    const args = tool.obj.args || {};
+    const runLabel = humanLabelForTool(tname, args, desc, 'run');
+    const doneLabel = humanLabelForTool(tname, args, desc, 'done');
+    log('tool call:', tname, runLabel, '| msg:', mk);
     toolsSinceUser++;
     lastToolChainAt = Date.now();
     // Always create/refresh a visible chip first (before any await)
     let chain = getOrCreateChain(dsMessage);
     if (!chain || !chain.tagline) {
-      collapseToolMessage(dsMessage, desc || tname, false, true, runLabel, doneLabel);
+      collapseToolMessage(dsMessage, runLabel, false, true, runLabel, doneLabel);
       chain = getOrCreateChain(dsMessage);
     }
     if (chain && chain.tagline) {
       try { chain.tagline.setAttribute('data-ds-shim-keep', '1'); } catch (_) {}
+      try { chain.tagline.setAttribute('data-running', '1'); chain.tagline.removeAttribute('data-error'); } catch (_) {}
       chain.tagline._dsSteps = chain.tagline._dsSteps || [];
       chain.tagline._dsSteps.push({
-        tool: tname,
-        title: desc || tname,
-        desc: desc || tname,
+        tool: runLabel,
+        title: runLabel,
+        desc: doneLabel,
         running: true,
         err: false
       });

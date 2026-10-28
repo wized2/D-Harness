@@ -33,6 +33,11 @@ After any closed block: stop and wait for `TOOL_RESULT`.
 | `github` | Any github.* |
 | `http` | http_request / fetch |
 | `device` | sensors, clipboard, keys |
+| `exec` | term, binaries, lang runners |
+| `memory` | on-device notes |
+| `tasks` | checklist helpers |
+| `research` | web research helpers |
+| `skill` | how skills load |
 
 ```
 skill.list

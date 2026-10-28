@@ -1,3 +1,10 @@
+## 1.33.0
+
+- Human-readable tool chips (e.g. "Reading shell skill" instead of protocol jargon)
+- Polished tool tagline UI (card, pill chips, running/error states)
+- More skills: skill, exec, memory, tasks, research
+- System prompt wording focused on behavior, not brand names of formats
+
 ## 1.32.0
 
 - **DSML tool calling restored & hardened**: V3.2/V4/V4.1 markers, spaced tags, mangled `||DSML||`, `string="true|false"`
