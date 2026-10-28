@@ -692,7 +692,7 @@ If you were about to emit DSML, rewrite it as function_calls + invoke + paramete
 5. Smallest correct path. No filler. No "continue" chatter.
 
 ## Skills — closed set (only these names exist)
-shell · workspace · github · http · device · protocol · exec · memory · tasks · research · skill
+shell · workspace · github · http · device · protocol · exec · memory · tasks · research · skill · time · safety
 
 Use:
 - skill.list — list available skills (use this if unsure)

@@ -1,19 +1,15 @@
 ---
 name: workspace
-description: App workspace files. Read before workspace.* or Read/Write file tools.
+description: App workspace files — list, read, write, grep, mkdir.
 ---
-# Workspace skill
+# Workspace
 
-Root is the app workspace directory (not whole device storage).
+Paths are relative to the app workspace root unless absolute under that root.
 
-## Common tools
 - `workspace.ls` — list
-- `workspace.read` / `workspace.write` — text
-- `workspace.read_b64` — binary-safe
-- Claude aliases: Read→workspace.read, Write→workspace.write (path from file_path)
+- `workspace.read` path — text (large files may spill)
+- `workspace.write` path + content
+- `workspace.grep` query — search text files
+- Prefer shell script only when chaining many file ops
 
-## Rules
-- Read before edit
-- Prefer relative paths under workspace
-- Large outputs may spill to `tmp/…` — follow `spill_path`
-- After downloads, use `workspace.check_encoding` when encoding matters
+Do not invent file contents. After write, verify with read if the user needs confirmation.

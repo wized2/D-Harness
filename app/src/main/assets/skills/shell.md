@@ -1,19 +1,22 @@
 ---
 name: shell
-description: Primary execution surface. Run device commands and multi-tool pipelines. Read before shell/Bash/term/exec.
+description: Primary multi-step tool. Pipelines, argv, script steps with $VAR / $LAST.
 ---
-# Shell skill
+# Shell (primary)
 
-Prefer **one** `shell` (or Bash) invoke over many separate tools.
+Prefer **one shell call** over many tiny tools.
 
-## Forms
-- `cmd` / `command`: shell string (pipes need exec_shell enabled in Settings)
-- `argv`: JSON array `["ls","-la"]`
-- `script`: JSON array of steps `[{"tool":"…","args":{…},"as":"VAR"}]`
+## Parameters
+- `cmd` / `command` — shell string
+- `argv` — JSON array of args (no shell expansion)
+- `script` — array of `{ "tool", "args", "as?" }` steps; later steps may use `$VAR` and `$LAST`
 
-## Pipeline
-Later steps may use `$VAR` / `${VAR}` and `$LAST` from previous compact output.
-`stop_on_error` defaults true. Nested shell is forbidden.
+## Patterns
+- List then read: workspace.ls → workspace.read
+- Fetch then save: http.fetch_to_file → workspace.read
+- GitHub push: write file → github.push_file
 
-## When
-Use for 2+ steps, file handoff, or anything that is naturally a pipeline.
+## Failures
+- Missing binary → report error; try exec.which or a different path
+- Never invent stdout
+- Keep pipelines short and check intermediate ok flags when using script

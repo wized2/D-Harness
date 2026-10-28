@@ -25,6 +25,24 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener { finish() }
 
+        // Theme: system / light / dark
+        val themeToggle = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.themeToggle)
+        when (ThemeHelper.current(this)) {
+            ThemeHelper.MODE_LIGHT -> themeToggle.check(R.id.themeLight)
+            ThemeHelper.MODE_DARK -> themeToggle.check(R.id.themeDark)
+            else -> themeToggle.check(R.id.themeSystem)
+        }
+        themeToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            val mode = when (checkedId) {
+                R.id.themeLight -> ThemeHelper.MODE_LIGHT
+                R.id.themeDark -> ThemeHelper.MODE_DARK
+                else -> ThemeHelper.MODE_SYSTEM
+            }
+            ThemeHelper.save(this, mode)
+        }
+
+
         val prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
         val keys = SecureStore.keys(this)
         val mem = getSharedPreferences("dharness_mem", MODE_PRIVATE)
@@ -188,14 +206,12 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         findViewById<TextView>(R.id.toolsList).text = """
-            Quick map (DHarness primary API):
-            selftest / help / capabilities / list_tools
-            research.web · preview · html_text · plan
-            workspace.* · workspace.grep · paste_box
-            exec (allowlist) · exec.lang · exec.langs · toybox
-            Shell via sh -c only if exec_shell preference is enabled
-            http_request (no CORS) · github.* (encrypted keys)
-            sensors · torch · geo · clipboard · memory · keys
+            Quick map:
+            list_tools · describe · skill.list · skill.read
+            shell (primary) · term · exec.*
+            workspace.* · paste_box · github.* · http_request
+            research.web · device · clipboard · memory · keys · tasks
+            Use skill.read before a domain. Only closed skill names exist.
         """.trimIndent()
 
         

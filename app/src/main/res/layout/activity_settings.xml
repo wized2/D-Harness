@@ -47,6 +47,83 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingBottom="8dp"
+                android:text="Appearance"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?attr/colorTertiary" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.DHarness.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingBottom="8dp"
+                        android:text="Theme"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/themeToggle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:singleSelection="true"
+                        app:selectionRequired="true">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/themeSystem"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="System"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/themeLight"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Light"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/themeDark"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Dark"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="8dp"
+                        android:text="System follows your phone light/dark setting."
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

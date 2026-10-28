@@ -225,7 +225,7 @@ class HarnessBridge(
         tool("list_tools", "Full catalog: name, params, example, common failures. Call before inventing tool names. No args.", JSONObject(), example = "{\"tool\":\"list_tools\",\"description\":\"catalog\",\"args\":{}}")
         tool("run_js", "Execute custom JS in the tool sandbox (last resort). Prefer native dotted tools. args.code required.", JSONObject().put("code", "string"), example = "{\"tool\":\"run_js\",\"args\":{\"code\":\"return await workspace.ls()\"}}")
         tool("skill.list", "List the closed set of skills (name + description). Only those names exist — never invent skill names.", JSONObject())
-        tool("skill.read", "Read skill markdown. args.name MUST be one of: shell|workspace|github|http|device|protocol|exec|memory|tasks|research|skill. Unknown → returns available list.", JSONObject().put("name", "string"))
+        tool("skill.read", "Read skill markdown. args.name MUST be one of: shell|workspace|github|http|device|protocol|exec|memory|tasks|research|skill|time|safety. Unknown → returns available list.", JSONObject().put("name", "string"))
         tool("selftest", "Probe which tools are actually bound", JSONObject())
         tool("research.web", "Multi-source web research (DDG + Wikipedia + pages)", JSONObject().put("query", "string").put("maxSources", "number?"))
         tool("research.preview", "URL title/description preview", JSONObject().put("url", "string"))

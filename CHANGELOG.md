@@ -1,3 +1,9 @@
+## 1.35.0
+
+- Settings: Light / Dark / System theme (Material toggle, persists, applies app-wide)
+- Skills: time, safety; clearer shell/workspace skill docs; closed set updated
+- Settings tools map cleaned up
+
 ## 1.34.0
 
 - Tool format is mandatory function_calls + invoke (DSML strongly discouraged in instructions)
