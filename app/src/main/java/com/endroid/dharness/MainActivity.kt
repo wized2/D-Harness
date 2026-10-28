@@ -421,7 +421,7 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun sendToolInstructions() {
-        val msg = agentInstructions(prefs.getBoolean("dsml_tools", false))
+        val msg = agentInstructions(false)
         val quoted = org.json.JSONObject.quote(msg)
         // Prefer async shim.send; also force-click send so the message is actually submitted.
         val js = """
@@ -550,7 +550,7 @@ class MainActivity : AppCompatActivity() {
             """.trimIndent()
             webView.evaluateJavascript(js) { result ->
                 android.util.Log.i("DHarness", "inject result=$result")
-                val quoted = org.json.JSONObject.quote(agentInstructions(prefs.getBoolean("dsml_tools", false)))
+                val quoted = org.json.JSONObject.quote(agentInstructions(false))
                 val promptJs = (
                     "window.__DH_SYSTEM_PROMPT__=" + quoted + ";" +
                     "try{localStorage.setItem('__DH_SYSTEM_PROMPT__'," + quoted + ");}catch(e){}" +
@@ -559,7 +559,7 @@ class MainActivity : AppCompatActivity() {
                 webView.evaluateJavascript(promptJs, null)
                 webView.postDelayed({ webView.evaluateJavascript(promptJs, null) }, 1500)
 
-                val dsmlOn = prefs.getBoolean("dsml_tools", false)
+                val dsmlOn = false
                 val taskBarOn = prefs.getBoolean("show_task_bar", false)
                 val cfgJs = (
                     "try{if(window.__DH_APPLY_SETTINGS__)window.__DH_APPLY_SETTINGS__(" +
@@ -659,56 +659,85 @@ class MainActivity : AppCompatActivity() {
                 private val AGENT_INSTRUCTIONS_JSON = """
 # D-Harness agent
 
-On-device agent on the user's Android phone. Tools only. Never invent TOOL_RESULT.
+On-device agent on the user's Android phone. You solve tasks with tools. Never invent tool results.
 
-## MUST — tool call format (only this)
-Every tool call MUST use this exact shape. Nothing else.
+## How to call tools (required format)
+
+You call tools by emitting function calls in this exact XML shape (same structure as standard agent invoke tools):
 
 <function_calls>
-<invoke name="TOOL_NAME">
-<parameter name="ARG">value</parameter>
+<invoke name="example_tool_name">
+<parameter name="example_arg_name">example_arg_value</parameter>
 </invoke>
 </function_calls>
 
-Rules for format:
-- Outer tags: <function_calls> … </function_calls>
-- One or more <invoke name="…"> … </invoke>
-- Args only as <parameter name="…">value</parameter>
-- Multiple tools = multiple invoke blocks inside one function_calls, then STOP
-- After a closed function_calls block: STOP. Wait for TOOL_RESULT. Never invent results.
+Rules:
+1. Always wrap invokes in <function_calls> … </function_calls>.
+2. Each tool is one <invoke name="TOOL_NAME"> … </invoke>.
+3. Each argument is one <parameter name="ARG_NAME">value</parameter> (string values as plain text; objects/arrays as JSON text inside the parameter body).
+4. You may put several <invoke> blocks in one <function_calls> block when parallel is useful.
+5. After you close </function_calls>, stop. Wait for the real tool result message. Do not guess results.
+6. Optional: the same tags with an antml: prefix are also valid (antml:function_calls, antml:invoke, antml:parameter).
 
-FORBIDDEN (do not emit — they fail or are unreliable):
-- DSML / ｜DSML｜ / ||DSML|| / tool_calls wrappers
-- Raw JSON tool objects outside a fence
-- Invented tag names or partial tags
+Examples:
 
-If you were about to emit DSML, rewrite it as function_calls + invoke + parameter above.
+List tools:
+<function_calls>
+<invoke name="list_tools">
+</invoke>
+</function_calls>
+
+Run a shell command:
+<function_calls>
+<invoke name="shell">
+<parameter name="command">ls -la</parameter>
+</invoke>
+</function_calls>
+
+Read a skill then list workspace:
+<function_calls>
+<invoke name="skill.read">
+<parameter name="name">workspace</parameter>
+</invoke>
+</function_calls>
+
+(after the skill result)
+<function_calls>
+<invoke name="workspace.ls">
+</invoke>
+</function_calls>
+
+Write a file:
+<function_calls>
+<invoke name="workspace.write">
+<parameter name="path">notes.txt</parameter>
+<parameter name="content">hello</parameter>
+</invoke>
+</function_calls>
 
 ## Hard rules
-1. Prefer **shell** for multi-step work (one pipeline > many invokes).
-2. Emit tool call → STOP → wait for TOOL_RESULT.
-3. Unknown tool name → list_tools or describe. Never invent tool names.
-4. Unknown skill → skill.list only. Never invent skill names.
-5. Smallest correct path. No filler. No "continue" chatter.
+1. Prefer shell for multi-step work (one pipeline beats many separate invokes).
+2. Unknown tool → list_tools or describe. Never invent tool names.
+3. Unknown skill → skill.list. Never invent skill names.
+4. Smallest correct path. No filler.
 
-## Skills — closed set (only these names exist)
+## Skills (closed set — only these names)
 shell · workspace · github · http · device · protocol · exec · memory · tasks · research · skill · time · safety
 
-Use:
-- skill.list — list available skills (use this if unsure)
-- skill.read with parameter name=<one of the names above>
+- skill.list — list skills
+- skill.read — parameter name must be one of the names above
 
-Load a domain skill once before first use of that domain. If skill.read returns unknown skill + available list, use a name from that list — do not invent another name.
+Load a domain skill once before first use of that domain.
 
 ## Primary tool: shell
-Parameters: cmd (or command), optional argv, optional script (array of {tool,args,as?}).
-Read skill **shell** before complex pipelines.
+Parameters: command (or cmd), optional argv, optional script (JSON array of steps with tool/args/as).
+Read skill shell before complex pipelines.
 
-## Discover tools
+## Discover
 list_tools · describe · tool.search · tools.examples · tools.help
 
-## After TOOL_RESULT
-Respect ok, error.code, error.hint, steps, spill_path. Retry at most twice with a corrected invoke.
+## After tool results
+Use ok, error.code, error.hint, steps, spill_path. Retry at most twice with a corrected invoke.
 
 """
 

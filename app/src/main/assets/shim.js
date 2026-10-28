@@ -2135,14 +2135,15 @@ async selftest() {
   }
 
   function extractAllToolCalls(raw) {
-    var dsml = extractDsmlInvokes(raw);
-    if (dsml.length) return dsml;
     var claude = extractClaudeInvokes(raw);
     if (claude.length) return claude;
     var fences = extractToolCallFences(raw);
     if (fences.length) return fences;
     var legacy = extractLegacyBareToolJson(raw);
-    return legacy;
+    if (legacy.length) return legacy;
+    // Silent fallback only (never instructed)
+    var other = extractDsmlInvokes(raw);
+    return other;
   }
 
 
@@ -2374,9 +2375,8 @@ async selftest() {
 
   // DSML disabled permanently (1.18+)
   try {
-    if (CONFIG.dsmlEnabled === false && !localStorage.getItem('__ds_shim__cfg_v2')) {
-      CONFIG.dsmlEnabled = true;
-    }
+    /* legacy flag ignored — invoke format is the only instructed path */
+
   } catch (_) {}
 
 
@@ -4108,8 +4108,8 @@ async function maybeAutoContinue() {
   window.__DH_APPLY_SETTINGS__ = function(cfg) {
     try {
       if (!cfg || typeof cfg !== 'object') return;
-      if ('dsmlEnabled' in cfg) CONFIG.dsmlEnabled = !!cfg.dsmlEnabled;
-      if ('dsmlPreferred' in cfg) CONFIG.dsmlPreferred = !!cfg.dsmlPreferred;
+      if ('dsmlEnabled' in cfg) CONFIG.dsmlEnabled = false;
+      if ('dsmlPreferred' in cfg) CONFIG.dsmlPreferred = false;
       if ('showTaskBar' in cfg) CONFIG.showTaskBar = !!cfg.showTaskBar;
       if ('dedupe' in cfg) CONFIG.dedupe = !!cfg.dedupe;
       persistConfig();

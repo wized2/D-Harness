@@ -4,7 +4,7 @@
 chat.deepseek.com (WebView)
         │
         ▼
-   shim.js  ── detect JSON / DSML tool calls
+   shim.js  ── detect function_calls / invoke tool calls
         │      settle + requestId validation
         │      TOOL_RESULT inject + auto-continue
         │      slash commands, task bar, compaction
@@ -25,10 +25,6 @@ chat.deepseek.com (WebView)
 2. Native: policy check → mode gates → `dispatchByName` → envelope with `requestId`, `tool`, `durationMs`.
 3. Shim rejects mismatched `requestId` / tool (`STALE_RESPONSE`).
 4. Result posted as `TOOL_RESULT:…` user message.
-
-## DSML
-
-Optional. Parses V4, V4.1 spaced tags, mangled `||DSML||`, bare `function_calls`, JSON-in-invoke.
 
 ## Design rules
 

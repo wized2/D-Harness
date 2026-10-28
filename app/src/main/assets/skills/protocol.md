@@ -1,27 +1,40 @@
 ---
 name: protocol
-description: Required tool-call format (function_calls + invoke). Read if format is unclear.
+description: Required tool-call format using function_calls and invoke.
 ---
 # Protocol
 
-## Required format (only)
+## Required format
 
 ```
 <function_calls>
 <invoke name="shell">
-<parameter name="cmd">ls -la</parameter>
+<parameter name="command">ls -la</parameter>
 </invoke>
 </function_calls>
 ```
 
-- `name` on invoke = real tool from list_tools  
-- Parameters only via `<parameter name="…">…</parameter>`  
-- Then **STOP** and wait for TOOL_RESULT  
+- Outer: function_calls
+- Tool: invoke with name=
+- Args: parameter with name=
+- Optional antml: prefix on the same tags is valid
+- After </function_calls>: stop and wait for the tool result
 
-## Do not use
-DSML / ｜DSML｜ / ||DSML|| wrappers, partial tags, or invented skill/tool names.
+## Examples
 
-## Compat (last resort)
-```tool_call
-{"tool":"list_tools","description":"catalog","args":{}}
-~~~```
+```
+<function_calls>
+<invoke name="list_tools">
+</invoke>
+</function_calls>
+```
+
+```
+<function_calls>
+<invoke name="workspace.read">
+<parameter name="path">readme.md</parameter>
+</invoke>
+</function_calls>
+```
+
+Never invent tool results. Never invent tool or skill names.

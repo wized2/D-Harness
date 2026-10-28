@@ -1,3 +1,9 @@
+## 1.36.0
+
+- Agent instructions: invoke-only (`function_calls` / `invoke` / `parameter`), Claude Code–aligned examples
+- Removed DSML wording from settings, skills, and user-facing docs (do not name alternate formats to the model)
+- Harness still accepts the same invoke tags with optional antml: prefix
+
 ## 1.35.0
 
 - Settings: Light / Dark / System theme (Material toggle, persists, applies app-wide)

@@ -67,12 +67,12 @@ In the chat box: `/ls`, `/read path`, `/grep q`, `/tasks`, `/task …`, `/memory
 - Paste / store secrets (e.g. GitHub PAT under key `github`)
 - Send system instructions into the current chat
 - Explore workspace files on device
-- FAB panel: debug, dedupe, DSML detect, auto-continue
+- FAB panel: debug, dedupe, auto-continue
 
 ## Architecture
 
 ```
-DeepSeek WebView  ←→  shim.js (JSON + DSML detect, TOOL_RESULT, auto-continue)
+DeepSeek WebView  ←→  shim.js (invoke detect, TOOL_RESULT, auto-continue)
                          ↓
                    native_bridge.js
                          ↓

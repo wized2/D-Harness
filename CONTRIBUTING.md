@@ -9,7 +9,7 @@
 
 ## Shim
 
-- Tool detection: `extractToolCall` (JSON) + `extractDsmlToolCall` (optional).
+- Tool detection: `extractClaudeInvokes` (function_calls / invoke) plus fence JSON fallback.
 - Keep settle/scan timeouts configurable via `CONFIG`.
 
 ## Build

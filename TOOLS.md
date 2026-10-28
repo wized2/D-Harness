@@ -11,10 +11,6 @@
 </function_calls>
 ```
 
-2. **DeepSeek DSML** (also executed if the model emits it)
-- `<｜DSML｜function_calls>` / `tool_calls` / spaced ` calls`
-- `<｜DSML｜invoke name="…">` + `<｜DSML｜parameter name="…" string="true|false">`
-- Mangled `||DSML||` forms from some gateways
 
 3. **tool_call fence** (compat)
 ```tool_call
