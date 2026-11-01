@@ -35,6 +35,9 @@ jobs:
             echo "WARNING: no keystore secret"
           fi
 
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+
       - name: Build release APK
         env:
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
