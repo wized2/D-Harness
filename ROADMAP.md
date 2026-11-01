@@ -1,3 +1,8 @@
+## Done in 1.39.0
+- [x] Fence-only tool detection (invoke/dsml)
+- [x] System prompt requires ```invoke
+- [x] Color resources restored (CI)
+
 # D-Harness roadmap (execution tracker)
 
 ## Done in 1.38.0

@@ -1,12 +1,17 @@
-# D-Harness 1.38.0
+# D-Harness 1.39.0
 
-Stability & polish pass from the performance / professional UI roadmap.
+## Tool calling (fence-only)
+- Tools run **only** from closed code fences: `invoke` (preferred), `dsml` (compat), `tool_call` (legacy)
+- Plain-text XML / DSML / bare JSON is **not** executed (cleaner chat, reliable hide)
+- Fence body may be Claude-style XML or JSON
 
-- **Faster catalog**: `list_tools` cached for the process lifetime
-- **Bridge**: interruptible sleeps; shared workspace path helpers
-- **Shim**: fewer timer ticks, debounced DOM observer, quieter tool rows (running/done/error dots)
-- **UI**: neutral surfaces; Anthropic Sans / JetBrains Mono loaded for native settings typeface
-- **Tests**: workspace path + catalog cache unit tests
+## Shim
+- Faster detection path; hide whole code box → compact tool UI
+- Selectors aligned with mobile DeepSeek (`.ds-message`, assistant markdown)
+
+## Native
+- Restored full M3 color tokens (CI fix)
+- System instructions require ```invoke fences
 
 ## Install
-Uninstall older debug builds if package signature differs.
+Uninstall older builds if signature differs.

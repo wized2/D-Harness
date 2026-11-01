@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.30.0';
+  const VERSION = '1.31.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -1689,13 +1689,13 @@ async selftest() {
         if (el.getAttribute('data-dh-tool-hidden') === '1') continue;
         const cls = (el.className || '') + ' ' + (el.parentElement && el.parentElement.className || '');
         const text = el.textContent || '';
-        const isFence = /language-tool_call|tool_call/i.test(cls) || /function_calls|DSML|<(?:antml:)?invoke\b/i.test(text) || /^\s*\{\s*"tool"\s*:/.test(text.trim());
+        const isFence = /language-(?:invoke|dsml|tool_call)|\b(?:invoke|dsml|tool_call)\b/i.test(cls) || (/^```(?:invoke|dsml|tool_call)\b/i.test(text.trim()) && /<(?:antml:)?(?:function_calls|invoke)\b|"tool"\s*:/.test(text));
         // Only hide if inside assistant message and looks like tool JSON
         if (!isFence && text.indexOf('"tool"') === -1) continue;
         const msg = el.closest('div.ds-message, div[class*="message"]');
         if (!msg) continue;
         // Prefer class language-tool_call
-        if (/tool_call/i.test(cls) || (text.indexOf('"tool"') !== -1 && text.indexOf('"args"') !== -1)) {
+        if (/language-(?:invoke|dsml|tool_call)|\b(?:invoke|dsml|tool_call)\b/i.test(cls) || (/<(?:antml:)?function_calls\b/i.test(text) && /language-/i.test(cls))) {
           const pre = el.tagName === 'PRE' ? el : el.closest('pre') || el;
           if (pre.getAttribute('data-dh-tool-hidden') === '1') continue;
           pre.setAttribute('data-dh-tool-hidden', '1');
@@ -2072,12 +2072,43 @@ async selftest() {
   function extractToolCallFences(raw) {
     var text = normalizeToolText(raw);
     var results = [];
-    // Match open ```tool_call ... body ... ~~~``` OR end_tool_call
-    var re = /```tool_call\b[^\n]*\r?\n([\s\S]*?)(?:\s*~~~```|\s*```~~~|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$))/gi;
+    // Only fenced blocks: ```invoke | ```dsml | ```tool_call
+    // Close: normal ``` OR ~~~``` OR end_tool_call line
+    var re = /```(?:invoke|dsml|tool_call)\b[^\n]*\r?\n([\s\S]*?)(?:\r?\n```\s*|(?:\s*~~~```|\s*```~~~)|(?:^|\n)\s*end_tool_call\s*(?=\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?=\n|$))/gi;
     var m;
     var n = 0;
     while ((m = re.exec(text)) !== null && n < 40) {
-      var parsed = parseToolCallBody(m[1], 'fence');
+      var body = m[1];
+      var parsed;
+      // Prefer XML invoke inside fence
+      if (/<(?:antml:)?(?:function_calls|invoke)\b/i.test(body)) {
+        var inv = extractClaudeInvokes(body);
+        if (inv && inv.length) {
+          parsed = inv.map(function (x) {
+            if (x && x.error) return x;
+            var o = (x && x.obj) ? x.obj : x;
+            return {
+              tool: o.tool,
+              description: o.description || '',
+              args: o.args || {},
+              full: x.full || JSON.stringify({ tool: o.tool, args: o.args || {} }),
+              source: 'fence-xml',
+              protocol: 'claude_invoke'
+            };
+          });
+        } else {
+          parsed = {
+            error: true,
+            code: 'XML_PARSE_ERROR',
+            message: 'Fence looks like invoke XML but could not parse',
+            source: 'fence',
+            raw: body.slice(0, 1500),
+            hint: 'Use <function_calls><invoke name="tool">…</invoke></function_calls> inside ```invoke'
+          };
+        }
+      } else {
+        parsed = parseToolCallBody(body, 'fence');
+      }
       if (Array.isArray(parsed)) {
         parsed.forEach(function (p) {
           p.end = m.index + m[0].length;
@@ -2148,37 +2179,25 @@ async selftest() {
 
   function isIncompleteToolJson(t) {
     t = normalizeToolText(t || '');
-    if (typeof hasOpenDsml === 'function' && hasOpenDsml(t)) return true;
-    if (hasOpenClaudeInvoke(t)) return true;
-    if (/```tool_call/i.test(t)) {
-      if (/```tool_call[\s\S]*?(?:~~~```|```~~~|(?:^|\n)\s*end_tool_call\s*(?:\n|$)|(?:^|\n)\s*END_TOOL_CALL\s*(?:\n|$))/i.test(t)) return false;
+    // Only care about incomplete fenced tool blocks (not bare XML).
+    if (/```(?:invoke|dsml|tool_call)\b/i.test(t)) {
+      if (/```(?:invoke|dsml|tool_call)\b[^\n]*\r?\n[\s\S]*?(?:\r?\n```\s*|(?:\s*~~~```|\s*```~~~)|(?:^|\n)\s*end_tool_call\s*(?:\n|$))/i.test(t)) return false;
       return true;
     }
     return false;
   }
 
   function extractToolCall(raw) {
-    var all = extractAllToolCalls(raw);
-    for (var i = 0; i < all.length; i++) {
-      if (!all[i].error && all[i].obj) return all[i];
-    }
-    // Prefer first error for single-call path
-    for (var j = 0; j < all.length; j++) {
-      if (all[j].error) return all[j];
-    }
+    // Policy: only fenced ```invoke / ```dsml / ```tool_call blocks are tools.
+    // Plain-text XML or bare JSON is ignored (no gambling the chat).
+    var fences = extractToolCallFences(raw);
+    if (fences && fences.length) return fences[0];
     return null;
   }
 
   function extractAllToolCalls(raw) {
-    var claude = extractClaudeInvokes(raw);
-    if (claude.length) return claude;
-    var fences = extractToolCallFences(raw);
-    if (fences.length) return fences;
-    var legacy = extractLegacyBareToolJson(raw);
-    if (legacy.length) return legacy;
-    // Silent fallback only (never instructed)
-    var other = extractDsmlInvokes(raw);
-    return other;
+    // Fence-only policy: never execute plain-text XML/JSON/DSML outside a code fence.
+    return extractToolCallFences(raw) || [];
   }
 
 
