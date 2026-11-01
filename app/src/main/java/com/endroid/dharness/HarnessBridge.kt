@@ -128,12 +128,12 @@ class HarnessBridge(
     companion object {
         private const val HEX_CHARS = "0123456789abcdef"
 
-        // Pre-compiled regex patterns for hot paths (avoid recompilation)
-        private val REGEX_ARRAY_INDEX = REGEX_ARRAY_INDEX
-        private val REGEX_SAFE_FILENAME = REGEX_SAFE_FILENAME
-        private val REGEX_SAFE_EXPR = REGEX_SAFE_EXPR
-        private val REGEX_WORDS = REGEX_WORDS
-        private val REGEX_SHA_EXTRACT = REGEX_SHA_EXTRACT
+        // Pre-compiled regex patterns for hot paths
+        private val REGEX_ARRAY_INDEX = Regex("""\[(\d+)\]""")
+        private val REGEX_SAFE_FILENAME = Regex("""[^A-Za-z0-9._\-]""")
+        private val REGEX_SAFE_EXPR = Regex("""^[0-9+\-*/().\s]+$""")
+        private val REGEX_WORDS = Regex("""\S+""")
+        private val REGEX_SHA_EXTRACT = Regex("""[a-fA-F0-9]{7,40}""")
     }
 
 

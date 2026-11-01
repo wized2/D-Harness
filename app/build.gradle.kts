@@ -65,7 +65,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { viewBinding = false }
+    buildFeatures {
+        buildConfig = true
+        viewBinding = false
+    }
     packaging {
         resources {
             // Keep META-INF/*.RSA/*.SF/*.MF for APK signatures — only drop noisy deps
