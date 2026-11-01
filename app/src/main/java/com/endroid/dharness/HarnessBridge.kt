@@ -589,7 +589,7 @@ class HarnessBridge(
         tool("github.forks", "List forks of a repo.", JSONObject().put("owner", "string").put("repo", "string").put("per_page", "number?"))
         tool("github.tags", "List tags.", JSONObject().put("owner", "string").put("repo", "string").put("per_page", "number?"))
 
-        return JSONObject()
+        JSONObject()
             .put("tools", tools)
             .put("native", true)
             .put("version", try {
