@@ -11,33 +11,40 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Smooth indeterminate progress with Material You styling -->
     <ProgressBar
         android:id="@+id/progress"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="2dp"
+        android:layout_height="3dp"
         android:layout_gravity="top"
         android:max="100"
         android:progress="0"
         android:visibility="gone"
-        android:progressTint="#4D6BFE" />
+        android:progressTint="#4D6BFE"
+        android:progressBackgroundTint="#33FFFFFF"
+        android:indeterminateTint="#4D6BFE"
+        android:indeterminateBehavior="repeat"
+        android:indeterminateDuration="1200" />
 
-    <!-- Draggable FAB opens native settings -->
+    <!-- Draggable FAB with improved touch feedback -->
     <FrameLayout
         android:id="@+id/fab"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="8dp"
+        android:layout_marginEnd="12dp"
         android:background="@drawable/bg_fab"
-        android:elevation="6dp"
+        android:elevation="8dp"
         android:clickable="true"
-        android:focusable="true">
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/fab_settings">
 
         <View
             android:id="@+id/fabDot"
-            android:layout_width="12dp"
-            android:layout_height="12dp"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
             android:layout_gravity="center"
             android:background="@drawable/bg_fab_dot" />
     </FrameLayout>

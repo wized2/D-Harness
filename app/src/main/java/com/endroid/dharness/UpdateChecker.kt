@@ -1,5 +1,6 @@
 package com.endroid.dharness
 
+import android.util.Log
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -13,6 +14,7 @@ data class UpdateInfo(
 )
 
 object UpdateChecker {
+    private const val TAG = "UpdateChecker"
     private const val API =
         "https://api.github.com/repos/wized2/D-Harness/releases/latest"
 
@@ -27,7 +29,10 @@ object UpdateChecker {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream.bufferedReader().use { it.readText() }
-            if (code !in 200..299) return null
+            if (code !in 200..299) {
+                Log.w(TAG, "GitHub API returned $code")
+                return null
+            }
             val json = JSONObject(text)
             val tag = json.optString("tag_name").removePrefix("v")
             var apk: String? = null
@@ -49,7 +54,8 @@ object UpdateChecker {
                 htmlUrl = json.optString("html_url"),
                 apkUrl = apk
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch update info", e)
             null
         }
     }

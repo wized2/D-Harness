@@ -157,7 +157,21 @@ class MainActivity : AppCompatActivity() {
             displayZoomControls = false
             textZoom = prefs.getInt("text_zoom", 100).coerceIn(80, 150)
             userAgentString = buildUa()
+
+            // Performance optimizations
+            setRenderPriority(WebSettings.RenderPriority.HIGH)
+            enableSmoothTransition()
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            setNeedInitialFocus(false)
+            mediaPlaybackRequiresUserGesture = false
+
+            // Hardware acceleration hints
+            offscreenPreRaster = true
         }
+
+        // Hardware acceleration for smooth scrolling
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
 
         // Follow system dark/light inside WebView when supported
@@ -195,6 +209,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
+                // Trim WebView cache to prevent bloat (keep 7 days)
+                try {
+                    view?.clearCache(true)
+                } catch (_: Exception) { }
+
                 // Quiet update check once per process
                 if (!prefs.getBoolean("update_checked_session", false)) {
                     prefs.edit().putBoolean("update_checked_session", true).apply()

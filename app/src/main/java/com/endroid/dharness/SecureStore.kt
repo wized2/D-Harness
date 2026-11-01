@@ -45,6 +45,33 @@ object SecureStore {
         )
     }
 
+    /** Store a secret key. Rejects blank keys to prevent accidental overwrites. */
+    fun putKey(context: Context, name: String, value: String): Boolean {
+        if (name.isBlank() || value.isBlank()) {
+            Log.w(TAG, "Refusing to store blank key name or value")
+            return false
+        }
+        keys(context).edit().putString(name.trim(), value.trim()).apply()
+        return true
+    }
+
+    /** Retrieve a secret key by name. */
+    fun getKey(context: Context, name: String): String? {
+        if (name.isBlank()) return null
+        return keys(context).getString(name.trim(), null)
+    }
+
+    /** Remove a secret key. */
+    fun removeKey(context: Context, name: String): Boolean {
+        if (name.isBlank()) return false
+        return keys(context).edit().remove(name.trim()).commit()
+    }
+
+    /** List all stored key names (not values, for security). */
+    fun listKeyNames(context: Context): Set<String> {
+        return keys(context).all.keys
+    }
+
     /**
      * One-time copy from plaintext `dharness_keys` (+ stray settings github_pat)
      * into encrypted store, then wipe plaintext.

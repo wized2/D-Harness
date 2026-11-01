@@ -80,9 +80,25 @@
   let DONE = lsGet(LS.done, {});
   const saveDone = () => {
     const e = Object.entries(DONE);
-    if (e.length > 1000) { e.sort((a, b) => (b[1].t || 0) - (a[1].t || 0)); DONE = Object.fromEntries(e.slice(0, 1000)); }
+    if (e.length > 1000) { 
+      e.sort((a, b) => (b[1].t || 0) - (a[1].t || 0)); 
+      DONE = Object.fromEntries(e.slice(0, 1000)); 
+    }
     lsSet(LS.done, DONE);
   };
+
+  // Periodic cleanup of old entries to prevent memory bloat
+  const cleanupDone = () => {
+    const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days
+    const e = Object.entries(DONE);
+    const filtered = e.filter(([k, v]) => (v.t || 0) > cutoff);
+    if (filtered.length < e.length) {
+      DONE = Object.fromEntries(filtered);
+      saveDone();
+      log('cleaned up', e.length - filtered.length, 'old DONE entries');
+    }
+  };
+  setInterval(cleanupDone, 60 * 60 * 1000); // Run hourly
 
   const collapsedByMsg = new Map();
   for (const v of Object.values(DONE)) {
@@ -150,6 +166,8 @@
       transition: background .15s ease, border-color .15s ease;
       -webkit-tap-highlight-color: transparent;
       overflow: hidden;
+      contain: layout style paint;
+      will-change: transform;
     }
     [data-ds-shim-tagline="1"]:hover {
       background: var(--dsw-alias-bg-hover, rgba(120,150,180,0.10));
@@ -227,13 +245,20 @@
     [data-ds-shim-tagline="1"] .ds-shim-chip {
       font-family: system-ui,-apple-system,"Segoe UI",sans-serif;
       font-size: 10.5px; font-weight: 500;
-      padding: 1px 7px; border-radius: 999px;
-      background: rgba(120,150,180,0.10);
-      color: rgba(200,210,220,0.92);
-      border: 1px solid rgba(120,150,180,0.16);
-      display: inline-flex; align-items: center; gap: 4px;
-      margin-top: 2px; max-width: 100%;
+      padding: 2px 8px; border-radius: 999px;
+      background: rgba(120,150,180,0.12);
+      color: rgba(200,210,220,0.95);
+      border: 1px solid rgba(120,150,180,0.18);
+      display: inline-flex; align-items: center; gap: 5px;
+      margin-top: 3px; max-width: 100%;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      transition: all 0.2s ease;
+      cursor: default;
+    }
+    [data-ds-shim-tagline="1"] .ds-shim-chip:hover {
+      background: rgba(120,150,180,0.20);
+      border-color: rgba(120,150,180,0.30);
+      transform: translateY(-1px);
     }
     [data-ds-shim-tagline="1"] .ds-shim-chip::before {
       content: ""; width: 6px; height: 6px; border-radius: 50%;
@@ -3252,10 +3277,13 @@ async function maybeAutoContinue() {
     if (busy) {
       // Auto-recover if busy stuck (prevents 8-9 tool stop)
       if (!scanForToolCalls._busySince) scanForToolCalls._busySince = Date.now();
-      if (Date.now() - scanForToolCalls._busySince > 45000) {
-        log('busy watchdog: clearing stuck busy');
+      if (Date.now() - scanForToolCalls._busySince > 30000) {
+        log('busy watchdog: clearing stuck busy after 30s');
         busy = false;
         scanForToolCalls._busySince = 0;
+        // Force reset any pending operations
+        pendingInvokes = [];
+        currentInvoke = null;
       } else {
         return;
       }
@@ -3450,8 +3478,26 @@ async function maybeAutoContinue() {
     }
   }
 
-  const observer = new MutationObserver(() => scheduleTick(false));
-  observer.observe(document.body, { childList: true, subtree: true, characterData: false });
+  // Debounced observer - batch mutations to reduce layout thrashing
+  let mutationBatch = [];
+  let mutationRaf = null;
+  const observer = new MutationObserver((mutations) => {
+    mutationBatch.push(...mutations);
+    if (mutationRaf) return;
+    mutationRaf = requestAnimationFrame(() => {
+      mutationRaf = null;
+      // Filter out irrelevant mutations (style changes, our own DOM)
+      const relevant = mutationBatch.filter(m => {
+        if (!m.target) return false;
+        if (m.target.closest && m.target.closest('#__ds_shim_panel, #__ds_shim_fab, #__ds_shim_toast')) return false;
+        if (m.target.nodeType === 3) return false; // Text nodes
+        return true;
+      });
+      mutationBatch = [];
+      if (relevant.length > 0) scheduleTick(false);
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: false, attributes: false });
 
   let __dhWasGenerating = false;
   const fallbackTimer = setInterval(() => {
@@ -3462,8 +3508,30 @@ async function maybeAutoContinue() {
   }, CONFIG.fallbackScanMs);
 
   document.addEventListener('visibilitychange', () => {
-    scheduleTick(true);
+    if (document.hidden) {
+      // Save state when going to background
+      try {
+        sessionStorage.setItem('__ds_shim_session', JSON.stringify({
+          t: Date.now(),
+          handled: Array.from(handled).slice(-50),
+          baseline: Array.from(baseline.entries()),
+        }));
+      } catch (_) {}
+    } else {
+      // Restore and trigger immediate scan when returning
+      scheduleTick(true);
+    }
   });
+
+  // Restore session state on load
+  try {
+    const saved = sessionStorage.getItem('__ds_shim_session');
+    if (saved) {
+      const data = JSON.parse(saved);
+      if (data.handled) data.handled.forEach(h => handled.add(h));
+      if (data.baseline) data.baseline.forEach(([k, v]) => baseline.set(k, v));
+    }
+  } catch (_) {}
 
   setTimeout(() => scheduleTick(true), 600);
 

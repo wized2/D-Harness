@@ -118,9 +118,24 @@ class HarnessBridge(
 
     private fun hex(bytes: ByteArray): String {
         val sb = StringBuilder(bytes.size * 2)
-        for (b in bytes) sb.append(String.format("%02x", b))
+        for (b in bytes) {
+            val i = b.toInt() and 0xFF
+            sb.append(HEX_CHARS[i shr 4]).append(HEX_CHARS[i and 0x0F])
+        }
         return sb.toString()
     }
+
+    companion object {
+        private const val HEX_CHARS = "0123456789abcdef"
+
+        // Pre-compiled regex patterns for hot paths (avoid recompilation)
+        private val REGEX_ARRAY_INDEX = REGEX_ARRAY_INDEX
+        private val REGEX_SAFE_FILENAME = REGEX_SAFE_FILENAME
+        private val REGEX_SAFE_EXPR = REGEX_SAFE_EXPR
+        private val REGEX_WORDS = REGEX_WORDS
+        private val REGEX_SHA_EXTRACT = REGEX_SHA_EXTRACT
+    }
+
 
     private fun sha256(bytes: ByteArray): String =
         hex(MessageDigest.getInstance("SHA-256").digest(bytes))
@@ -1440,7 +1455,7 @@ class HarnessBridge(
     @JavascriptInterface
     fun saveFile(filename: String, content: String, mime: String): String {
         return try {
-            val safe = filename.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(80)
+            val safe = filename.replace(REGEX_SAFE_FILENAME, "_").take(80)
             val f = File(context.cacheDir, safe)
             f.writeText(content)
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
@@ -7165,7 +7180,7 @@ class HarnessBridge(
     @JavascriptInterface
     fun sessionSave(name: String, stateJson: String?): String {
         return try {
-            var safe = name.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(64).ifBlank { "default" }
+            var safe = name.replace(REGEX_SAFE_FILENAME, "_").take(64).ifBlank { "default" }
             if (safe.endsWith(".json")) safe = safe.removeSuffix(".json")
             val f = File(sessionRoot, "$safe.json")
             val payload = JSONObject()
@@ -7183,7 +7198,7 @@ class HarnessBridge(
     @JavascriptInterface
     fun sessionLoad(name: String): String {
         return try {
-            val safe = name.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(64)
+            val safe = name.replace(REGEX_SAFE_FILENAME, "_").take(64)
             val f = File(sessionRoot, "$safe.json")
             if (!f.isFile) return JSONObject().put("ok", false).put("error", "not found").toString()
             JSONObject().put("ok", true).put("session", JSONObject(f.readText())).toString()
