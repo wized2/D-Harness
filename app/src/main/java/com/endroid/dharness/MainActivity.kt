@@ -160,6 +160,7 @@ class MainActivity : AppCompatActivity() {
 
             // Performance optimizations
             setRenderPriority(WebSettings.RenderPriority.HIGH)
+            setOffscreenPreRaster(true)
             enableSmoothTransition()
             useWideViewPort = true
             loadWithOverviewMode = true

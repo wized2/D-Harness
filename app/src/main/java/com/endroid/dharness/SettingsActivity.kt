@@ -21,6 +21,7 @@ class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
+        ThemeHelper.applySansToTree(this, findViewById(android.R.id.content))
         SecureStore.migrateKeysIfNeeded(this)
 
         findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener { finish() }

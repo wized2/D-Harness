@@ -1,5 +1,9 @@
 package com.endroid.dharness
 
+import com.endroid.dharness.bridge.BridgeExec
+import com.endroid.dharness.bridge.CatalogCache
+import com.endroid.dharness.bridge.WorkspacePaths
+
 import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -218,7 +222,7 @@ class HarnessBridge(
     }
 
     @JavascriptInterface
-    fun listTools(): String {
+    fun listTools(): String = CatalogCache.getListOrBuild {
         val tools = JSONArray()
         fun tool(name: String, desc: String, params: JSONObject, call: String? = null, example: String? = null, status: String = "ready") {
             val o = JSONObject().put("name", name).put("description", desc).put("params", params).put("status", status)
@@ -621,7 +625,7 @@ class HarnessBridge(
                 .put("return await http_request({url:'https://example.com',method:'GET'})")
                 .put("return await device.info()")
             ).toString()
-    }
+        }
 
     @JavascriptInterface
     fun describeTool(name: String): String {
@@ -3654,7 +3658,7 @@ class HarnessBridge(
     fun timeSleep(ms: Int): String {
         return try {
             val wait = ms.coerceIn(0, 10_000)
-            Thread.sleep(wait.toLong())
+            BridgeExec.interruptibleSleep(wait.toLong())
             JSONObject().put("ok", true).put("sleptMs", wait).toString()
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message).toString()
@@ -6013,7 +6017,7 @@ class HarnessBridge(
                         var on = true
                         for (ms in times) {
                             torchSet(on)
-                            Thread.sleep(ms)
+                            BridgeExec.interruptibleSleep(ms)
                             on = !on
                         }
                     }
@@ -6050,7 +6054,7 @@ class HarnessBridge(
                 override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
             }
             sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
-            Thread.sleep(durationMs.coerceIn(100, 5000).toLong())
+            BridgeExec.interruptibleSleep(durationMs.coerceIn(100, 5000).toLong())
             sm.unregisterListener(listener)
             envelope(
                 true,

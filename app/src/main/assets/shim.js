@@ -243,12 +243,12 @@
       min-height: 0;
     }
     [data-ds-shim-tagline="1"] .ds-shim-chip {
-      font-family: system-ui,-apple-system,"Segoe UI",sans-serif;
-      font-size: 10.5px; font-weight: 500;
-      padding: 2px 8px; border-radius: 999px;
-      background: rgba(120,150,180,0.12);
-      color: rgba(200,210,220,0.95);
-      border: 1px solid rgba(120,150,180,0.18);
+      font-family: ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+      font-size: 11px; font-weight: 500;
+      padding: 2px 7px; border-radius: 6px;
+      background: rgba(255,255,255,0.06);
+      color: rgba(220,220,215,0.92);
+      border: 1px solid rgba(255,255,255,0.08);
       display: inline-flex; align-items: center; gap: 5px;
       margin-top: 3px; max-width: 100%;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -264,6 +264,16 @@
       content: ""; width: 6px; height: 6px; border-radius: 50%;
       background: #5ad; flex-shrink: 0;
     }
+    .ds-shim-step-ico {
+      width: 6px; height: 6px; border-radius: 50%; display: inline-block;
+      background: rgba(255,255,255,0.35); margin-right: 6px; flex-shrink: 0;
+    }
+    .ds-shim-step-ico[data-state="run"] {
+      background: #c4c4bc; animation: dsshim-pulse 1.1s ease-in-out infinite;
+    }
+    .ds-shim-step-ico[data-state="ok"] { background: #7d9b76; }
+    .ds-shim-step-ico[data-state="err"] { background: #c77; }
+
     [data-ds-shim-tagline="1"][data-running="1"] .ds-shim-chip::before {
       background: #4af; box-shadow: 0 0 0 0 rgba(68,170,255,0.5);
       animation: dsshim-pulse 1.2s ease-in-out infinite;
@@ -2565,7 +2575,7 @@ async selftest() {
       const desc = s.desc ? '<div class="ds-shim-step-desc">' + esc(s.desc) + '</div>' : '';
       const chip = s.tool ? '<span class="ds-shim-chip">' + esc(s.tool) + '</span>' : '';
       return '<div class="ds-shim-step' + err + '">' +
-        '<span class="ds-shim-step-ico">' + (s.running ? '⏳' : (s.err ? '!' : '•')) + '</span>' +
+        '<span class="ds-shim-step-ico" data-state="' + (s.running ? 'run' : (s.err ? 'err' : 'ok')) + '"></span>' +
         '<div class="ds-shim-step-body"><div class="ds-shim-step-name">' + esc(s.title || s.tool || 'step') + '</div>' +
         desc + chip + '</div></div>';
     }).join('');
@@ -3439,7 +3449,7 @@ async function maybeAutoContinue() {
       bar.style.display = 'block';
     } catch (_) {}
   }
-  setInterval(function() { renderTaskBar(); }, 4000);
+  setInterval(function() { renderTaskBar(); }, 8000);
   // Never cover the composer by default
   try {
     var _tb = document.getElementById('dh-task-bar');
@@ -3775,7 +3785,7 @@ async function maybeAutoContinue() {
     root.style.setProperty('--dh-code-bg', dark ? (claude ? '#1f1e1b' : '#2a2b30') : (claude ? '#f3f1ec' : '#f1f3f4'));
   }
   applyThemeTokens();
-  setInterval(applyThemeTokens, 5000);
+  setInterval(applyThemeTokens, 15000);
 
   function chartWrap(title, svg) {
     return `<div class="dh-ui-card dh-chart" data-dh-chart="1"><h4>${esc(title || 'Chart')}</h4>${svg}</div>`;
@@ -4149,12 +4159,21 @@ async function maybeAutoContinue() {
     if (d.action === 'toast') showToast(String(d.text || ''), 2000);
   });
 
-  let enhanceTimer = setInterval(enhanceAllMessages, 1500);
+  let enhanceTimer = setInterval(enhanceAllMessages, 2800);
   setInterval(() => {
     clearInterval(enhanceTimer);
-    enhanceTimer = setInterval(enhanceAllMessages, isGenerating() ? 900 : 2500);
+    enhanceTimer = setInterval(enhanceAllMessages, isGenerating() ? 1200 : 4000);
   }, 2000);
-  const uiObs = new MutationObserver(function () { enhanceAllMessages(); try { hideToolCallCodeBlocks(); } catch (_) {} });
+  let __dhEnhancePend = false;
+  const uiObs = new MutationObserver(function () {
+    if (__dhEnhancePend) return;
+    __dhEnhancePend = true;
+    requestAnimationFrame(function () {
+      __dhEnhancePend = false;
+      try { enhanceAllMessages(); } catch (_) {}
+      try { hideToolCallCodeBlocks(); } catch (_) {}
+    });
+  });
   try { uiObs.observe(document.body, { childList: true, subtree: true }); } catch {}
   enhanceAllMessages();
 

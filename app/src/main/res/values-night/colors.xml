@@ -1,19 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="md_primary">#FB923C</color>
-    <color name="md_on_primary">#431407</color>
-    <color name="md_primary_container">#9A3412</color>
-    <color name="md_on_primary_container">#FFDBCB</color>
-    <color name="md_secondary">#A8A29E</color>
-    <color name="md_on_secondary">#1C1917</color>
-    <color name="md_secondary_container">#44403C</color>
-    <color name="md_on_secondary_container">#F5F5F4</color>
-    <color name="md_tertiary">#FBBF24</color>
-    <color name="md_on_tertiary">#422006</color>
-    <color name="md_surface">#1C1917</color>
-    <color name="md_on_surface">#FAFAF9</color>
-    <color name="md_surface_container">#292524</color>
-    <color name="md_surface_container_high">#35302C</color>
-    <color name="md_outline">#78716C</color>
-    <color name="ic_launcher_background">#1C1917</color>
+    <color name="md_theme_primary">#A8B5A0</color>
+    <color name="md_theme_on_primary">#1A1A18</color>
+    <color name="md_theme_surface">#1C1C1A</color>
+    <color name="md_theme_on_surface">#E8E6E1</color>
+    <color name="md_theme_background">#141413</color>
+    <color name="ic_launcher_background">#1C1C1A</color>
 </resources>

@@ -1,3 +1,9 @@
+## 1.38.0
+
+- Catalog cache, bridge helpers, quieter shim timers/chips
+- Native Anthropic Sans typeface in settings
+- Neutral color tokens; unit tests for paths/cache
+
 ## 1.37.0
 
 - Fern-style README, RELEASE_NOTES.md, tighter TOOLS.md

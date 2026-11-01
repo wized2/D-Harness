@@ -1,25 +1,12 @@
-# D-Harness 1.37.0
+# D-Harness 1.38.0
 
-## Highlights
+Stability & polish pass from the performance / professional UI roadmap.
 
-- **Stronger invoke-only agent instructions** — `function_calls` / `invoke` / `parameter` with clear examples  
-- **Skills with concrete examples** — every domain skill shows a real invoke  
-- **Fern-style README & release notes** — badges, features table, install path  
-- **Tool chip UI** — compact, readable Running vs Done labels  
-- **Theme** — System / Light / Dark in Settings  
+- **Faster catalog**: `list_tools` cached for the process lifetime
+- **Bridge**: interruptible sleeps; shared workspace path helpers
+- **Shim**: fewer timer ticks, debounced DOM observer, quieter tool rows (running/done/error dots)
+- **UI**: neutral surfaces; Anthropic Sans / JetBrains Mono loaded for native settings typeface
+- **Tests**: workspace path + catalog cache unit tests
 
-## For users
-
-1. Install or update from [Releases](https://github.com/wized2/D-Harness/releases/latest)  
-2. Open Settings → Appearance for theme  
-3. Start a new chat so the agent gets the latest instructions  
-
-## For contributors
-
-- Tool surface: [TOOLS.md](TOOLS.md)  
-- Skills live in `app/src/main/assets/skills/`  
-- Prefer small PRs; keep CI green  
-
-## Notes
-
-The harness prioritizes Claude-style invoke parsing. Other historical shapes may still execute if the model emits them, but instructions only teach invoke.
+## Install
+Uninstall older debug builds if package signature differs.
