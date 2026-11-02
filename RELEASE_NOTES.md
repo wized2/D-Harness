@@ -1,17 +1,8 @@
-# D-Harness 1.39.0
+# DeepEase 1.0.0
 
-## Tool calling (fence-only)
-- Tools run **only** from closed code fences: `invoke` (preferred), `dsml` (compat), `tool_call` (legacy)
-- Plain-text XML / DSML / bare JSON is **not** executed (cleaner chat, reliable hide)
-- Fence body may be Claude-style XML or JSON
+First personal build on the `deepease` branch.
 
-## Shim
-- Faster detection path; hide whole code box → compact tool UI
-- Selectors aligned with mobile DeepSeek (`.ds-message`, assistant markdown)
-
-## Native
-- Restored full M3 color tokens (CI fix)
-- System instructions require ```invoke fences
-
-## Install
-Uninstall older builds if signature differs.
+- Colorful DeepEase theme on chat.deepseek.com
+- Everyday tools only (torch, panels, volume, brightness, timer)
+- Fenced `invoke` tool calls
+- Separate applicationId: com.endroid.deepease

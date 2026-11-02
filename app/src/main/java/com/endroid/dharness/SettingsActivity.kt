@@ -65,7 +65,7 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.versionText).text =
             try {
-                "D-Harness v${packageManager.getPackageInfo(packageName, 0).versionName}"
+                "DeepEase v${packageManager.getPackageInfo(packageName, 0).versionName}"
             } catch (_: Exception) {
                 ""
             }

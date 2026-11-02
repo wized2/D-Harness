@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">D-Harness</string>
+    <string name="app_name">DeepEase</string>
     <string name="menu_reload">Reload</string>
     <string name="menu_desktop">Desktop site</string>
-    <string name="menu_inject">Re-inject tools</string>
+    <string name="menu_inject">Refresh assistant</string>
     <string name="menu_clear_cache">Clear cache</string>
-    <string name="menu_share">Share page</string>
-    <string name="loading">Loading DeepSeek…</string>
-    <string name="settings_title">Settings</string>
-    <string name="fab_settings">Open settings</string>
+    <string name="menu_share">Share</string>
+    <string name="loading">Opening DeepEase…</string>
+    <string name="settings_title">DeepEase settings</string>
+    <string name="fab_settings">Settings</string>
 </resources>

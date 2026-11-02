@@ -54,7 +54,7 @@ class AgentService : Service() {
                 lastBeginAt = System.currentTimeMillis()
                 handler.removeCallbacks(stopIdle)
                 val title = if (desc.isNotBlank()) desc else if (tool.isNotBlank()) "Running $tool" else "Working…"
-                val text = if (tool.isNotBlank() && desc.isNotBlank()) tool else "D-Harness agent"
+                val text = if (tool.isNotBlank() && desc.isNotBlank()) tool else "DeepEase"
                 startAsForeground(title, text)
                 if (wakeLock?.isHeld != true) {
                     wakeLock?.acquire(60 * 60 * 1000L)

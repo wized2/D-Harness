@@ -8,12 +8,14 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.endroid.dharness"
+        applicationId = "com.endroid.deepease"
         minSdk = 26
         targetSdk = 35
-        versionCode = 93
-        versionName = "1.39.0"
+        versionCode = 1
+        versionName = "1.0.0"
         resourceConfigurations += listOf("en")
+        buildConfigField("String", "PRODUCT", "\"deepease\"")
+        buildConfigField("String", "APP_LABEL", "\"DeepEase\"")
     }
 
     val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")

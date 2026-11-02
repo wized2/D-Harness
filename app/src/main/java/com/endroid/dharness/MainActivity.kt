@@ -504,7 +504,7 @@ class MainActivity : AppCompatActivity() {
                 assets.open("shim.js").readBytes(), android.util.Base64.NO_WRAP
             )
             val themeB64 = android.util.Base64.encodeToString(
-                assets.open("claude_theme.js").readBytes(), android.util.Base64.NO_WRAP
+                assets.open("deepease_theme.js").readBytes(), android.util.Base64.NO_WRAP
             )
             val js = """
                 (function(){
@@ -532,7 +532,7 @@ class MainActivity : AppCompatActivity() {
                   // Skip full re-inject if same stable shim already live (avoids clearing session state)
                   var existing = window.__DS_TOOL_SHIM__;
                   if (existing && existing.version && !window.__DS_FORCE_REINJECT__) {
-                    console.log('[D-Harness] shim already live', existing.version);
+                    console.log('[DeepEase] shim already live', existing.version);
                     try {
                       if (window.__DH_M3_THEME__ && window.__DH_M3_THEME__.reinject) {
                         window.__DH_M3_THEME__.reinject();
@@ -555,7 +555,7 @@ class MainActivity : AppCompatActivity() {
                     } else {
                       (0, eval)(dec('$themeB64'));
                     }
-                    console.log('[D-Harness] Claude theme applied');
+                    console.log('[DeepEase] theme applied');
                   } catch(e) { console.error('theme', e); }
                   try {
                     var f = document.getElementById('__ds_shim_fab'); if (f) f.style.display='none';
@@ -564,7 +564,7 @@ class MainActivity : AppCompatActivity() {
                   try { delete window.__DS_FORCE_REINJECT__; } catch(e) {}
                   try { window.__DH_AUTO_SYS_PROMPT = true; } catch(e) {}
                   var ok = !!(window.__DS_TOOL_SHIM__);
-                  console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'v=', window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.version, 'theme=m3');
+                  console.log('[DeepEase] inject', ok ? 'ok' : 'FAIL', 'v=', window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.version, 'theme=m3');
                   return ok ? 'ok' : 'fail';
                 })();
             """.trimIndent()
@@ -677,84 +677,42 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
                 private val AGENT_INSTRUCTIONS_JSON = """
-# D-Harness agent
+# DeepEase — everyday assistant
 
-On-device agent on the user's Android phone. Solve tasks with tools. Never invent tool results.
+You help with simple phone tasks. You cannot run code or shell. You only use the allowed tools below.
 
 ## How to call tools (required)
 
-Tools MUST be inside a markdown code fence with language tag **invoke**.
-Never put tool XML or JSON in normal paragraph text — only inside the fence.
+Always use a fenced block with language **invoke**:
 
 ```invoke
 <function_calls>
 <invoke name="TOOL_NAME">
-<parameter name="ARG_NAME">value</parameter>
+<parameter name="ARG">value</parameter>
 </invoke>
 </function_calls>
 ```
 
-Rules:
-- Open fence: three backticks + invoke
-- Close fence: three backticks on their own line
-- Inside: standard function_calls / invoke / parameter XML
-- Several invokes may share one function_calls block
-- After the closed fence: stop. Wait for the real tool result. Do not guess.
+After the closed fence, stop and wait for the real result.
 
-### Examples
+## Allowed tools only
+- list_tools — show tools
+- torch.set — parameter on = true/false (flashlight)
+- device.info — battery, network summary
+- phone.wifi — open Wi‑Fi panel (parameter: none)
+- phone.bluetooth — open Bluetooth panel
+- phone.data — open mobile data / internet panel
+- phone.volume — parameter level 0-100 optional, or direction up/down
+- phone.brightness — parameter level 0-100 (may open settings if blocked)
+- phone.alarm — parameter minutes (number) or label (string) — sets a timer/alarm when possible
+- clipboard.read / clipboard.write — short text only
 
-```invoke
-<function_calls>
-<invoke name="list_tools">
-</invoke>
-</function_calls>
-```
-
-```invoke
-<function_calls>
-<invoke name="shell">
-<parameter name="command">ls -la</parameter>
-</invoke>
-</function_calls>
-```
-
-```invoke
-<function_calls>
-<invoke name="skill.read">
-<parameter name="name">workspace</parameter>
-</invoke>
-</function_calls>
-```
-
-```invoke
-<function_calls>
-<invoke name="workspace.write">
-<parameter name="path">note.txt</parameter>
-<parameter name="content">hello</parameter>
-</invoke>
-</function_calls>
-```
-
-## Hard rules
-1. Prefer shell for multi-step work.
-2. Unknown tool → list_tools or describe. Never invent names.
-3. Unknown skill → skill.list. Skills are a closed set.
-4. Smallest correct path. No filler.
-5. Only fenced invoke blocks are executed. Plain-text tool markup is ignored.
-
-## Skills (closed set)
-shell · workspace · github · http · device · protocol · exec · memory · tasks · research · skill · time · safety
-
-skill.list · skill.read with parameter name=<exact name above>
-
-## Primary tool: shell
-parameter command (or cmd). Optional argv, script. Read skill shell before complex pipelines.
-
-## Discover
-list_tools · describe · tool.search · tools.examples · tools.help
-
-## After tool results
-Respect ok, error.code, error.hint. Retry at most twice with a corrected invoke.
+## Rules
+1. Never invent tools. Never ask the user to enable developer options.
+2. Prefer one clear tool call.
+3. If a toggle is not allowed by Android, open the system panel and tell the user.
+4. Be warm, short, and clear. No developer jargon.
+5. Plain-text tool XML outside a fence is ignored — always use ```invoke.
 
 """
 

@@ -1,5 +1,6 @@
 package com.endroid.dharness
 
+
 import com.endroid.dharness.bridge.BridgeExec
 import com.endroid.dharness.bridge.CatalogCache
 import com.endroid.dharness.bridge.WorkspacePaths
@@ -222,7 +223,47 @@ class HarnessBridge(
     }
 
     @JavascriptInterface
-    fun listTools(): String = CatalogCache.getListOrBuild {
+
+    /** DeepEase: curated everyday tools only (no shell/exec/github). */
+    private fun lifeToolsCatalog(): String {
+        val tools = JSONArray()
+        fun tool(name: String, desc: String, params: JSONObject = JSONObject()) {
+            tools.put(
+                JSONObject()
+                    .put("name", name)
+                    .put("description", desc)
+                    .put("params", params)
+                    .put("status", "ready")
+                    .put("via", "dispatch")
+            )
+        }
+        tool("list_tools", "List allowed everyday tools")
+        tool("torch.set", "Flashlight on/off", JSONObject().put("on", "boolean"))
+        tool("device.info", "Battery, network, basic device summary")
+        tool("phone.wifi", "Open system Wi‑Fi panel")
+        tool("phone.bluetooth", "Open system Bluetooth panel")
+        tool("phone.data", "Open system mobile data / internet panel")
+        tool("phone.volume", "Adjust media volume", JSONObject().put("level", "number?").put("direction", "up|down?"))
+        tool("phone.brightness", "Set brightness 0-100 when allowed", JSONObject().put("level", "number"))
+        tool("phone.alarm", "Set a simple timer/alarm", JSONObject().put("minutes", "number?").put("label", "string?"))
+        tool("clipboard.read", "Read clipboard text")
+        tool("clipboard.write", "Write clipboard text", JSONObject().put("text", "string"))
+        return JSONObject()
+            .put("tools", tools)
+            .put("product", "deepease")
+            .put("native", true)
+            .put("version", try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
+            } catch (_: Exception) { "1.0.0" })
+            .put("notes", JSONObject().put("safety", "No shell, no code execution, no file workspace tools"))
+            .toString()
+    }
+
+    fun listTools(): String {
+        if (BuildConfig.PRODUCT == "deepease") {
+            return CatalogCache.getListOrBuild { lifeToolsCatalog() }
+        }
+        return CatalogCache.getListOrBuild {
         val tools = JSONArray()
         fun tool(name: String, desc: String, params: JSONObject, call: String? = null, example: String? = null, status: String = "ready") {
             val o = JSONObject().put("name", name).put("description", desc).put("params", params).put("status", status)
@@ -626,6 +667,7 @@ class HarnessBridge(
                 .put("return await device.info()")
             ).toString()
         }
+    }
 
     @JavascriptInterface
     fun describeTool(name: String): String {
@@ -4957,6 +4999,12 @@ class HarnessBridge(
             "sensors.list" -> sensorsList()
             "sensors.read" -> sensorsRead(sAny("type", "name", "sensor"))
             "torch.set" -> torchSet(args.optBoolean("on", sAny("on", "value", "state") in listOf("1", "true", "on", "yes")))
+            "phone.wifi" -> phoneOpenPanel("wifi")
+            "phone.bluetooth" -> phoneOpenPanel("bluetooth")
+            "phone.data" -> phoneOpenPanel("data")
+            "phone.volume" -> phoneVolume(args)
+            "phone.brightness" -> phoneBrightness(args)
+            "phone.alarm" -> phoneAlarm(args)
             "audio.volume" -> audioVolume(sAny("stream").ifBlank { null }, i("level", i("volume", 5)))
             "audio.ringer" -> audioRinger(sAny("mode").ifBlank { null })
             "wakelock.acquire" -> wakelockAcquire(i("ms", 5000).coerceIn(100, 60_000))
@@ -5487,6 +5535,116 @@ class HarnessBridge(
             envelope(true, JSONObject().put("on", on).put("cameraId", id))
         } catch (e: Exception) {
             envelope(false, error = e.message)
+        }
+    }
+
+
+    private fun phoneOpenPanel(kind: String): String {
+        return try {
+            val action = when (kind.lowercase()) {
+                "wifi" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q)
+                    android.provider.Settings.Panel.ACTION_WIFI
+                else android.provider.Settings.ACTION_WIFI_SETTINGS
+                "bluetooth" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
+                    android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+                else android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+                "data" -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q)
+                    android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY
+                else android.provider.Settings.ACTION_DATA_ROAMING_SETTINGS
+                else -> android.provider.Settings.ACTION_SETTINGS
+            }
+            val intent = android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            activity.runOnUiThread {
+                try { context.startActivity(intent) } catch (_: Exception) {
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            }
+            JSONObject().put("ok", true).put("opened", kind).put("hint", "Confirm the toggle in the system panel").toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message ?: "cannot open settings").toString()
+        }
+    }
+
+    private fun phoneVolume(args: JSONObject): String {
+        return try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val stream = android.media.AudioManager.STREAM_MUSIC
+            val max = am.getStreamMaxVolume(stream)
+            val cur = am.getStreamVolume(stream)
+            val dir = args.optString("direction", "").lowercase()
+            val level = if (args.has("level")) args.optInt("level", -1) else -1
+            val target = when {
+                level in 0..100 -> (max * (level / 100.0)).toInt().coerceIn(0, max)
+                dir == "up" -> (cur + 1).coerceAtMost(max)
+                dir == "down" -> (cur - 1).coerceAtLeast(0)
+                else -> cur
+            }
+            am.setStreamVolume(stream, target, android.media.AudioManager.FLAG_SHOW_UI)
+            JSONObject().put("ok", true).put("volume", target).put("max", max).put("percent", if (max == 0) 0 else (target * 100 / max)).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun phoneBrightness(args: JSONObject): String {
+        return try {
+            val level = args.optInt("level", -1).coerceIn(0, 100)
+            if (level < 0) return JSONObject().put("ok", false).put("error", "level 0-100 required").toString()
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M &&
+                !android.provider.Settings.System.canWrite(context)
+            ) {
+                val i = android.content.Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS)
+                    .setData(android.net.Uri.parse("package:" + context.packageName))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                activity.runOnUiThread { context.startActivity(i) }
+                return JSONObject().put("ok", false).put("error", "need write-settings permission")
+                    .put("hint", "Allow modify system settings, then retry").toString()
+            }
+            val v = (level / 100.0 * 255).toInt().coerceIn(1, 255)
+            android.provider.Settings.System.putInt(
+                context.contentResolver,
+                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                v
+            )
+            JSONObject().put("ok", true).put("level", level).put("raw", v).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun phoneAlarm(args: JSONObject): String {
+        return try {
+            val minutes = args.optInt("minutes", 0).coerceIn(0, 24 * 60)
+            val label = args.optString("label", "DeepEase timer").ifBlank { "DeepEase timer" }
+            if (minutes <= 0) {
+                return JSONObject().put("ok", false).put("error", "minutes must be > 0").toString()
+            }
+            val trigger = System.currentTimeMillis() + minutes * 60_000L
+            val intent = android.content.Intent(android.provider.AlarmClock.ACTION_SET_TIMER)
+                .putExtra(android.provider.AlarmClock.EXTRA_LENGTH, minutes * 60)
+                .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, label)
+                .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            activity.runOnUiThread {
+                try {
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    // fallback: alarm clock UI
+                    try {
+                        context.startActivity(
+                            android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (_: Exception) {}
+                }
+            }
+            JSONObject().put("ok", true).put("minutes", minutes).put("label", label)
+                .put("triggerAt", trigger).put("hint", "Confirm in the clock app if shown").toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
 
