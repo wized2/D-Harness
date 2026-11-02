@@ -2801,7 +2801,7 @@ class HarnessBridge(
             return
         }
         val safePath = (path ?: "paste.txt").trim().ifEmpty { "paste.txt" }
-        activity.runOnUiThread {
+        (context as? android.app.Activity)?.runOnUiThread {
             try {
                 val density = activity.resources.displayMetrics.density
                 val pad = (20 * density).toInt()
@@ -2877,12 +2877,12 @@ class HarnessBridge(
                                         .put("bytes", f.length())
                                         .toString()
                                 )
-                                activity.runOnUiThread {
+                                (context as? android.app.Activity)?.runOnUiThread {
                                     try { dialog.dismiss() } catch (_: Exception) {}
                                 }
                             } catch (e: Exception) {
                                 once(JSONObject().put("ok", false).put("error", e.message ?: "write failed").toString())
-                                activity.runOnUiThread {
+                                (context as? android.app.Activity)?.runOnUiThread {
                                     try { dialog.dismiss() } catch (_: Exception) {}
                                 }
                             }
@@ -5554,7 +5554,7 @@ class HarnessBridge(
                 else -> android.provider.Settings.ACTION_SETTINGS
             }
             val intent = android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            activity.runOnUiThread {
+            (context as? android.app.Activity)?.runOnUiThread {
                 try { context.startActivity(intent) } catch (_: Exception) {
                     context.startActivity(
                         android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
@@ -5599,7 +5599,7 @@ class HarnessBridge(
                 val i = android.content.Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS)
                     .setData(android.net.Uri.parse("package:" + context.packageName))
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                activity.runOnUiThread { context.startActivity(i) }
+                (context as? android.app.Activity)?.runOnUiThread { context.startActivity(i) }
                 return JSONObject().put("ok", false).put("error", "need write-settings permission")
                     .put("hint", "Allow modify system settings, then retry").toString()
             }
@@ -5628,7 +5628,7 @@ class HarnessBridge(
                 .putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, label)
                 .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            activity.runOnUiThread {
+            (context as? android.app.Activity)?.runOnUiThread {
                 try {
                     context.startActivity(intent)
                 } catch (_: Exception) {
