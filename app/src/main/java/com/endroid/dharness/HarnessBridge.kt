@@ -248,6 +248,12 @@ class HarnessBridge(
         tool("phone.alarm", "Set a simple timer/alarm", JSONObject().put("minutes", "number?").put("label", "string?"))
         tool("clipboard.read", "Read clipboard text")
         tool("clipboard.write", "Write clipboard text", JSONObject().put("text", "string"))
+        tool("phone.vibrate", "Short vibration", JSONObject().put("ms", "number?"))
+        tool("phone.ringer", "Ringer mode", JSONObject().put("mode", "normal|vibrate|silent"))
+        tool("phone.battery", "Battery level and charging state")
+        tool("phone.notify", "Show a local notification", JSONObject().put("title", "string").put("text", "string"))
+        tool("phone.share", "Share text via system sheet", JSONObject().put("text", "string"))
+        tool("phone.settings", "Open app or system settings", JSONObject().put("which", "app|system|display|sound?"))
         return JSONObject()
             .put("tools", tools)
             .put("product", "deepease")
@@ -5005,6 +5011,12 @@ class HarnessBridge(
             "phone.volume" -> phoneVolume(args)
             "phone.brightness" -> phoneBrightness(args)
             "phone.alarm" -> phoneAlarm(args)
+            "phone.vibrate" -> phoneVibrate(args)
+            "phone.ringer" -> phoneRinger(args)
+            "phone.battery" -> phoneBattery()
+            "phone.notify" -> phoneNotify(args)
+            "phone.share" -> phoneShare(args)
+            "phone.settings" -> phoneSettings(args)
             "audio.volume" -> audioVolume(sAny("stream").ifBlank { null }, i("level", i("volume", 5)))
             "audio.ringer" -> audioRinger(sAny("mode").ifBlank { null })
             "wakelock.acquire" -> wakelockAcquire(i("ms", 5000).coerceIn(100, 60_000))
@@ -5647,6 +5659,121 @@ class HarnessBridge(
             JSONObject().put("ok", false).put("error", e.message).toString()
         }
     }
+
+    private fun phoneVibrate(args: JSONObject): String {
+        return try {
+            val ms = args.optLong("ms", 40L).coerceIn(20L, 1000L)
+            val v = if (android.os.Build.VERSION.SDK_INT >= 31) {
+                (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION") v.vibrate(ms)
+            }
+            JSONObject().put("ok", true).put("ms", ms).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun phoneRinger(args: JSONObject): String {
+        return try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val mode = args.optString("mode", "normal").lowercase()
+            val target = when (mode) {
+                "silent" -> android.media.AudioManager.RINGER_MODE_SILENT
+                "vibrate", "vib" -> android.media.AudioManager.RINGER_MODE_VIBRATE
+                else -> android.media.AudioManager.RINGER_MODE_NORMAL
+            }
+            am.ringerMode = target
+            JSONObject().put("ok", true).put("mode", mode).put("ringerMode", am.ringerMode).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message)
+                .put("hint", "Notification policy access may be required on some devices").toString()
+        }
+    }
+
+    private fun phoneBattery(): String {
+        return try {
+            val bm = context.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+            val level = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            val statusIntent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+            val status = statusIntent?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val charging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == android.os.BatteryManager.BATTERY_STATUS_FULL
+            JSONObject().put("ok", true).put("level", level).put("charging", charging).put("status", status).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun phoneNotify(args: JSONObject): String {
+        return try {
+            val title = args.optString("title", "DeepEase").ifBlank { "DeepEase" }
+            val text = args.optString("text", args.optString("body", "")).ifBlank { "Notification" }
+            val channelId = "deepease"
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(
+                    android.app.NotificationChannel(channelId, "DeepEase", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+                )
+            }
+            val n = androidx.core.app.NotificationCompat.Builder(context, channelId)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setAutoCancel(true)
+                .build()
+            nm.notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), n)
+            JSONObject().put("ok", true).put("title", title).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun phoneShare(args: JSONObject): String {
+        return try {
+            val text = args.optString("text", "").ifBlank {
+                return JSONObject().put("ok", false).put("error", "text required").toString()
+            }
+            val i = android.content.Intent(android.content.Intent.ACTION_SEND)
+                .setType("text/plain")
+                .putExtra(android.content.Intent.EXTRA_TEXT, text)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            (context as? android.app.Activity)?.runOnUiThread {
+                context.startActivity(android.content.Intent.createChooser(i, "Share").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } ?: context.startActivity(android.content.Intent.createChooser(i, "Share").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
+    private fun phoneSettings(args: JSONObject): String {
+        return try {
+            val which = args.optString("which", "app").lowercase()
+            val action = when (which) {
+                "system" -> android.provider.Settings.ACTION_SETTINGS
+                "display" -> android.provider.Settings.ACTION_DISPLAY_SETTINGS
+                "sound" -> android.provider.Settings.ACTION_SOUND_SETTINGS
+                else -> android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+            }
+            val i = android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (which == "app" || action == android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS) {
+                i.data = android.net.Uri.parse("package:" + context.packageName)
+            }
+            (context as? android.app.Activity)?.runOnUiThread { context.startActivity(i) }
+                ?: context.startActivity(i)
+            JSONObject().put("ok", true).put("opened", which).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message).toString()
+        }
+    }
+
 
     @JavascriptInterface
     fun audioVolume(stream: String?, level: Int): String {

@@ -706,6 +706,12 @@ After the closed fence, stop and wait for the real result.
 - phone.brightness — parameter level 0-100 (may open settings if blocked)
 - phone.alarm — parameter minutes (number) or label (string) — sets a timer/alarm when possible
 - clipboard.read / clipboard.write — short text only
+- phone.vibrate — optional ms
+- phone.ringer — mode normal|vibrate|silent
+- phone.battery — level + charging
+- phone.notify — title + text
+- phone.share — text share sheet
+- phone.settings — which app|system|display|sound
 
 ## Rules
 1. Never invent tools. Never ask the user to enable developer options.
