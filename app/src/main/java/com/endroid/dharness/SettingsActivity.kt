@@ -3,10 +3,6 @@ package com.endroid.dharness
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
-import android.os.Build
-import androidx.core.content.FileProvider
-import android.provider.DocumentsContract
-import java.io.File
 import android.os.Bundle
 import android.widget.TextView
 import android.widget.Toast
@@ -16,30 +12,18 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_settings)
-        if (BuildConfig.PRODUCT == "deepease") {
-            try {
-                findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar).title = "DeepEase"
-            } catch (_: Exception) {}
-            // Hide only known developer controls by id (never climb the view tree)
-            val hideIds = intArrayOf(
-                R.id.btnSendInstructions,
-                R.id.btnExploreWorkspace,
-            )
-            for (id in hideIds) {
-                try { findViewById<android.view.View>(id)?.visibility = android.view.View.GONE } catch (_: Exception) {}
-            }
-        }
+        val isDeepEase = BuildConfig.PRODUCT == "deepease"
+        setContentView(if (isDeepEase) R.layout.activity_settings_deepease else R.layout.activity_settings)
         ThemeHelper.applySansToTree(this, findViewById(android.R.id.content))
         SecureStore.migrateKeysIfNeeded(this)
 
         findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener { finish() }
 
-        // Theme: system / light / dark
         val themeToggle = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.themeToggle)
         when (ThemeHelper.current(this)) {
             ThemeHelper.MODE_LIGHT -> themeToggle.check(R.id.themeLight)
@@ -56,52 +40,26 @@ class SettingsActivity : AppCompatActivity() {
             ThemeHelper.save(this, mode)
         }
 
-
         val prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
         val keys = SecureStore.keys(this)
         val mem = getSharedPreferences("dharness_mem", MODE_PRIVATE)
-        val keysList = findViewById<TextView>(R.id.keysList)
-        val patLayout = findViewById<TextInputLayout>(R.id.patLayout)
-        val patInput = findViewById<TextInputEditText>(R.id.patInput)
 
-        fun refreshKeys(store: SharedPreferences = keys) {
-            val names = store.all.keys.sorted()
-            keysList.text = if (names.isEmpty()) "(no keys)" else names.joinToString("\n") { "• $it" }
-        }
+        val ver = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (_: Exception) { "" }
+        findViewById<TextView>(R.id.versionText)?.text =
+            if (isDeepEase) "DeepEase v$ver" else "D-Harness v$ver"
 
-        fun updatePatHelper() {
-            val saved = keys.contains("github") || keys.contains("github_pat")
-            patLayout.helperText =
-                if (saved) "Saved — enter a new token to replace"
-                else "Stored as key github"
-        }
-
-        findViewById<TextView>(R.id.versionText).text =
-            try {
-                "DeepEase v${packageManager.getPackageInfo(packageName, 0).versionName}"
-            } catch (_: Exception) {
-                ""
-            }
-
-        findViewById<MaterialButton>(R.id.btnCheckUpdate).setOnClickListener {
-            // MainActivity will check when we set flag and finish, or run inline
-            Toast.makeText(this, "Checking…", Toast.LENGTH_SHORT).show()
+        findViewById<MaterialButton>(R.id.btnCheckUpdate)?.setOnClickListener {
             Thread {
-                val installed = try {
-                    packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
-                } catch (_: Exception) { "0" }
-                val info = UpdateChecker.fetchLatest()
+                val info = UpdateChecker.fetchLatest(this)
                 runOnUiThread {
                     if (info == null) {
-                        Toast.makeText(this, "Update check failed", Toast.LENGTH_SHORT).show()
-                        return@runOnUiThread
-                    }
-                    if (!UpdateChecker.isNewer(info.tag, installed)) {
-                        Toast.makeText(this, "Up to date (v$installed)", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "No update info", Toast.LENGTH_SHORT).show()
                         return@runOnUiThread
                     }
                     android.app.AlertDialog.Builder(this)
-                        .setTitle("Update v${info.tag}")
+                        .setTitle("Update ${info.tag}")
                         .setMessage(info.body.take(600).ifBlank { info.name })
                         .setPositiveButton("Open") { _, _ ->
                             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl)))
@@ -112,16 +70,20 @@ class SettingsActivity : AppCompatActivity() {
             }.start()
         }
 
-        updatePatHelper()
+        val patInput = findViewById<TextInputEditText>(R.id.patInput)
+        fun refreshKeys(store: SharedPreferences = keys) {
+            val names = store.all.keys.sorted().joinToString(", ").ifBlank { "(none)" }
+            findViewById<TextView>(R.id.keysList)?.text = "Saved keys: $names"
+        }
+        if (!isDeepEase) refreshKeys()
 
-        findViewById<MaterialButton>(R.id.btnSavePat).setOnClickListener {
-            val v = patInput.text?.toString()?.trim().orEmpty()
+        findViewById<MaterialButton>(R.id.btnSavePat)?.setOnClickListener {
+            val v = patInput?.text?.toString()?.trim().orEmpty()
             if (v.isNotEmpty()) {
                 keys.edit().putString("github", v).putString("github_pat", v).apply()
-                patInput.setText("")
-                updatePatHelper()
-                Toast.makeText(this, "GitHub PAT saved", Toast.LENGTH_SHORT).show()
+                patInput?.setText("")
                 refreshKeys()
+                Toast.makeText(this, "GitHub PAT saved", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -130,111 +92,103 @@ class SettingsActivity : AppCompatActivity() {
         val swDedupe = findViewById<MaterialSwitch>(R.id.switchDedupe)
         val swExecShell = findViewById<MaterialSwitch>(R.id.switchExecShell)
         val swTaskBar = findViewById<MaterialSwitch>(R.id.switchTaskBar)
-        swDesktop.isChecked = prefs.getBoolean("desktop", false)
-        swInject.isChecked = prefs.getBoolean("auto_inject", true)
-        swDedupe.isChecked = prefs.getBoolean("dedupe", true)
-        swExecShell.isChecked = prefs.getBoolean("exec_shell", false)
-        swTaskBar.isChecked = prefs.getBoolean("show_task_bar", false)
+        val swLarger = findViewById<MaterialSwitch>(R.id.switchLargerText)
+
+        swDesktop?.isChecked = prefs.getBoolean("desktop", false)
+        swInject?.isChecked = prefs.getBoolean("auto_inject", true)
+        swDedupe?.isChecked = prefs.getBoolean("dedupe", true)
+        swExecShell?.isChecked = prefs.getBoolean("exec_shell", false)
+        swTaskBar?.isChecked = prefs.getBoolean("show_task_bar", false)
+        swLarger?.isChecked = prefs.getInt("text_zoom", 100) >= 110
+
         fun persist() {
+            val ed = prefs.edit()
+                .putBoolean("desktop", swDesktop?.isChecked == true)
+                .putBoolean("auto_inject", swInject?.isChecked != false) // default on if missing
+                .putBoolean("dedupe", swDedupe?.isChecked != false)
+                .putBoolean("exec_shell", if (isDeepEase) false else swExecShell?.isChecked == true)
+                .putBoolean("show_task_bar", if (isDeepEase) false else swTaskBar?.isChecked == true)
+            if (swLarger != null) {
+                ed.putInt("text_zoom", if (swLarger.isChecked) 110 else 100)
+            }
+            ed.apply()
+        }
+        swDesktop?.setOnCheckedChangeListener { _, _ -> persist() }
+        swInject?.setOnCheckedChangeListener { _, _ -> persist() }
+        swDedupe?.setOnCheckedChangeListener { _, _ -> persist() }
+        swExecShell?.setOnCheckedChangeListener { _, _ -> persist() }
+        swTaskBar?.setOnCheckedChangeListener { _, _ -> persist() }
+        swLarger?.setOnCheckedChangeListener { _, _ -> persist() }
+
+        // DeepEase: force tools on, shell off
+        if (isDeepEase) {
             prefs.edit()
-                .putBoolean("desktop", swDesktop.isChecked)
-                .putBoolean("auto_inject", swInject.isChecked)
-                .putBoolean("dedupe", swDedupe.isChecked)
-                .putBoolean("exec_shell", swExecShell.isChecked)
-                .putBoolean("show_task_bar", swTaskBar.isChecked)
+                .putBoolean("auto_inject", swInject?.isChecked != false)
+                .putBoolean("exec_shell", false)
+                .putBoolean("show_task_bar", false)
                 .apply()
         }
-        swDesktop.setOnCheckedChangeListener { _, _ -> persist() }
-        swInject.setOnCheckedChangeListener { _, _ -> persist() }
-        swExecShell.setOnCheckedChangeListener { _, _ -> persist() }
-        swDedupe.setOnCheckedChangeListener { _, _ -> persist() }
-        swTaskBar.setOnCheckedChangeListener { _, _ -> persist() }
 
-        val larger = findViewById<MaterialSwitch>(R.id.switchLargerText)
-        larger.isChecked = prefs.getInt("text_zoom", 100) >= 110
-        larger.setOnCheckedChangeListener { _, on ->
-            prefs.edit().putInt("text_zoom", if (on) 110 else 100).apply()
-        }
-
-        val keyName = findViewById<TextInputEditText>(R.id.keyName)
-        val keyValue = findViewById<TextInputEditText>(R.id.keyValue)
-        refreshKeys()
-
-        findViewById<MaterialButton>(R.id.btnSaveKey).setOnClickListener {
-            val n = keyName.text?.toString()?.trim().orEmpty()
-            val v = keyValue.text?.toString()?.trim().orEmpty()
-            if (n.isNotEmpty() && v.isNotEmpty()) {
-                keys.edit().putString(n, v).apply()
-                keyName.setText("")
-                keyValue.setText("")
-                Toast.makeText(this, "Saved key $n", Toast.LENGTH_SHORT).show()
+        findViewById<MaterialButton>(R.id.btnSaveKey)?.setOnClickListener {
+            val name = findViewById<TextInputEditText>(R.id.keyName)?.text?.toString()?.trim().orEmpty()
+            val value = findViewById<TextInputEditText>(R.id.keyValue)?.text?.toString()?.trim().orEmpty()
+            if (name.isNotEmpty() && value.isNotEmpty()) {
+                keys.edit().putString(name, value).apply()
                 refreshKeys()
+                Toast.makeText(this, "Saved $name", Toast.LENGTH_SHORT).show()
             }
         }
-        findViewById<MaterialButton>(R.id.btnDeleteKey).setOnClickListener {
-            val n = keyName.text?.toString()?.trim().orEmpty()
-            if (n.isNotEmpty()) {
-                keys.edit().remove(n).apply()
-                Toast.makeText(this, "Deleted $n", Toast.LENGTH_SHORT).show()
+        findViewById<MaterialButton>(R.id.btnDeleteKey)?.setOnClickListener {
+            val name = findViewById<TextInputEditText>(R.id.keyName)?.text?.toString()?.trim().orEmpty()
+            if (name.isNotEmpty()) {
+                keys.edit().remove(name).apply()
                 refreshKeys()
             }
         }
 
-        findViewById<MaterialButton>(R.id.btnSendInstructions).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnSendInstructions)?.setOnClickListener {
             prefs.edit().putBoolean("pending_send_instructions", true).apply()
             Toast.makeText(this, "Sending tool instructions…", Toast.LENGTH_SHORT).show()
             finish()
         }
-        // Long-press Explore already opens Files; add stop agent via clear-cache row reuse if needed
-        try {
-            findViewById<MaterialButton>(R.id.btnClearMemory).setOnLongClickListener {
-                AgentService.stop(this)
-                Toast.makeText(this, "Background agent stopped", Toast.LENGTH_SHORT).show()
-                true
-            }
-        } catch (_: Exception) { }
-        findViewById<MaterialButton>(R.id.btnReload).setOnClickListener {
+
+        findViewById<MaterialButton>(R.id.btnReload)?.setOnClickListener {
             prefs.edit().putBoolean("pending_reload", true).apply()
             finish()
         }
-        findViewById<MaterialButton>(R.id.btnReinject).setOnClickListener {
-            prefs.edit().putBoolean("pending_inject", true).apply()
+        findViewById<MaterialButton>(R.id.btnReinject)?.setOnClickListener {
+            prefs.edit().putBoolean("pending_inject", true).putBoolean("auto_inject", true).apply()
+            Toast.makeText(this, "Assistant will refresh", Toast.LENGTH_SHORT).show()
             finish()
         }
-        findViewById<MaterialButton>(R.id.btnClearCache).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnClearCache)?.setOnClickListener {
             prefs.edit().putBoolean("pending_clear_cache", true).apply()
             finish()
         }
-        findViewById<MaterialButton>(R.id.btnClearMemory).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnClearMemory)?.setOnClickListener {
             mem.edit().clear().apply()
-            Toast.makeText(this, "Agent memory cleared", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Memory cleared", Toast.LENGTH_SHORT).show()
         }
-        findViewById<MaterialButton>(R.id.btnClearFs).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnClearFs)?.setOnClickListener {
             prefs.edit().putBoolean("pending_clear_fs", true).apply()
-            Toast.makeText(this, "Native FS clear queued", Toast.LENGTH_SHORT).show()
             finish()
         }
 
-        findViewById<TextView>(R.id.toolsList).text = """
-            Quick map:
-            list_tools · describe · skill.list · skill.read
-            shell (primary) · term · exec.*
-            workspace.* · paste_box · github.* · http_request
-            research.web · device · clipboard · memory · keys · tasks
-            Use skill.read before a domain. Only closed skill names exist.
-        """.trimIndent()
+        findViewById<TextView>(R.id.toolsList)?.text = if (isDeepEase) {
+            "Everyday tools: flashlight, Wi‑Fi/Bluetooth/data panels, volume, brightness, timer, battery, notify, share."
+        } else {
+            "list_tools · describe · shell · workspace · github · device · memory"
+        }
 
-        
         val workspaceRoot = run {
             val ext = getExternalFilesDir(null)
             if (ext != null) File(ext, "workspace") else File(filesDir, "workspace")
         }.also { it.mkdirs() }
-
-        findViewById<TextView>(R.id.workspacePathText).text = workspaceRoot.absolutePath
-
-        findViewById<MaterialButton>(R.id.btnExploreWorkspace).setOnClickListener {
+        findViewById<TextView>(R.id.workspacePathText)?.text = workspaceRoot.absolutePath
+        findViewById<MaterialButton>(R.id.btnExploreWorkspace)?.setOnClickListener {
             startActivity(Intent(this, WorkspaceBrowserActivity::class.java))
         }
 
-        findViewById<MaterialButton>(R.id.btnClose).setOnClickListener { finish() }
-    }}
+        findViewById<MaterialButton>(R.id.btnClose)?.setOnClickListener { finish() }
+    }
+}

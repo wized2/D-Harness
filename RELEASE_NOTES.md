@@ -1,9 +1,9 @@
-# DeepEase 1.1.4
+# DeepEase 1.1.5
 
-## Input bar
-- Safe, input-only CSS on the composer dock (rounded shell, soft shadow, clean textarea)
-- Does **not** restyle messages, sidebar, or page layout
-- Selectors limited to known DeepSeek mobile composer classes
+## Settings
+- Dedicated personal settings (no Keys, shell, workspace, agent harness UI)
+- Neutral teal theme (not D-Harness colors)
 
-## Also
-- Slim “Ran N commands” tool chips from 1.1.3
+## Shim
+- Stronger inject retries + force reinject
+- “Refresh assistant” from settings reliably re-injects

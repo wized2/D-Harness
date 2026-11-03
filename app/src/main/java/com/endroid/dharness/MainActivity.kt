@@ -248,11 +248,12 @@ class MainActivity : AppCompatActivity() {
                 progress.visibility = View.GONE
                 setFabStatus("#4DB")
                 if (prefs.getBoolean("auto_inject", true)) {
-                    // SPA: inject after DOM settles; retry if first pass races React
-                    view?.postDelayed({ injectShim(force = false) }, 300)
-                    view?.postDelayed({ injectShim(force = false) }, 1200)
-                    view?.postDelayed({ injectShim(force = false) }, 3000)
-                    view?.postDelayed({ injectShim(force = false) }, 7000)
+                    // SPA: inject after DOM settles; DeepEase always forces first pass
+                    val forceFirst = BuildConfig.PRODUCT == "deepease"
+                    view?.postDelayed({ injectShim(force = forceFirst) }, 400)
+                    view?.postDelayed({ injectShim(force = false) }, 1500)
+                    view?.postDelayed({ injectShim(force = true) }, 3500)
+                    view?.postDelayed({ injectShim(force = false) }, 8000)
                 }
             }
         }
@@ -559,7 +560,8 @@ class MainActivity : AppCompatActivity() {
                   if (existing && existing.version && !window.__DS_FORCE_REINJECT__) {
                     console.log('[DeepEase] shim already live', existing.version);
                     try { (0, eval)(dec('$themeB64')); } catch(e) { console.error('theme-live', e); }
-                    return 'already';
+                    try { if (existing.scan) existing.scan(); } catch(e) {}
+                    return 'already:' + existing.version;
                   }
                   try {
                     if (existing && existing.stop) existing.stop();
@@ -654,6 +656,20 @@ class MainActivity : AppCompatActivity() {
         webView.onResume()
         CookieManager.getInstance().flush()
         WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.statusBars())
+        if (prefs.getBoolean("pending_inject", false)) {
+            prefs.edit().putBoolean("pending_inject", false).apply()
+            webView.postDelayed({ injectShim(force = true) }, 300)
+            webView.postDelayed({ injectShim(force = true) }, 2000)
+        }
+        if (prefs.getBoolean("pending_reload", false)) {
+            prefs.edit().putBoolean("pending_reload", false).apply()
+            webView.reload()
+        }
+        if (prefs.getBoolean("pending_clear_cache", false)) {
+            prefs.edit().putBoolean("pending_clear_cache", false).apply()
+            try { webView.clearCache(true) } catch (_: Exception) {}
+            webView.reload()
+        }
     }
 
     override fun onDestroy() {
