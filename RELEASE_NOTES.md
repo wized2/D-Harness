@@ -1,10 +1,7 @@
-# DeepEase 1.1.0
+# DeepEase 1.1.1
 
-## UI
-- Fixed stretched user bubbles (surgical CSS on real DeepSeek selectors)
-- Softer personal-assistant palette, message hierarchy, calmer composer
-- Settings hides developer / harness-only sections
-
-## Capabilities
-- torch, wifi/bt/data panels, volume, brightness, timer
-- vibrate, ringer mode, battery, notify, share, settings
+## Fix: black screen
+- Settings no longer hides the whole tree (was blanking FAB → Settings)
+- Main root/WebView use surface background instead of pure black
+- Stop clearing WebView cache on every page finish
+- Show a recoverable error page if DeepSeek fails to load

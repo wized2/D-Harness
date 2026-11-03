@@ -25,32 +25,14 @@ class SettingsActivity : AppCompatActivity() {
             try {
                 findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar).title = "DeepEase"
             } catch (_: Exception) {}
-            fun hideTree(v: android.view.View) {
-                if (v is android.widget.TextView) {
-                    val s = (v.text?.toString() ?: "").lowercase()
-                    if (s == "keys" || s == "agent" || s == "workspace" || s == "maintenance" ||
-                        s.contains("shell") || s.contains("github") || s.contains("pat") ||
-                        s.contains("auto-inject") || s.contains("dedupe") || s.contains("task bar") ||
-                        s.contains("native fs") || s.contains("agent memory") || s.contains("re-inject") ||
-                        s.contains("send tool") || s.contains("explore workspace") ||
-                        s.contains("save as key") || s.contains("save key") || s.contains("delete key")
-                    ) {
-                        var p: android.view.View? = v
-                        // climb to card when possible
-                        for (i in 0..4) {
-                            val par = p?.parent as? android.view.View
-                            if (par is com.google.android.material.card.MaterialCardView) { p = par; break }
-                            p = par
-                        }
-                        p?.visibility = android.view.View.GONE
-                        v.visibility = android.view.View.GONE
-                    }
-                }
-                if (v is android.view.ViewGroup) {
-                    for (i in 0 until v.childCount) hideTree(v.getChildAt(i))
-                }
+            // Hide only known developer controls by id (never climb the view tree)
+            val hideIds = intArrayOf(
+                R.id.btnSendInstructions,
+                R.id.btnExploreWorkspace,
+            )
+            for (id in hideIds) {
+                try { findViewById<android.view.View>(id)?.visibility = android.view.View.GONE } catch (_: Exception) {}
             }
-            try { hideTree(findViewById(android.R.id.content)) } catch (_: Exception) {}
         }
         ThemeHelper.applySansToTree(this, findViewById(android.R.id.content))
         SecureStore.migrateKeysIfNeeded(this)

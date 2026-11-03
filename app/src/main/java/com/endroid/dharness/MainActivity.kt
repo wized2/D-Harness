@@ -172,6 +172,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Hardware acceleration for smooth scrolling
+        webView.setBackgroundColor(android.graphics.Color.WHITE)
+        try {
+            val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+            if (night) webView.setBackgroundColor(android.graphics.Color.parseColor("#12121A"))
+        } catch (_: Exception) { }
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
 
@@ -209,12 +215,31 @@ class MainActivity : AppCompatActivity() {
                 setFabStatus("#4AF")
             }
 
-            override fun onPageFinished(view: WebView?, url: String?) {
-                // Trim WebView cache to prevent bloat (keep 7 days)
-                try {
-                    view?.clearCache(true)
-                } catch (_: Exception) { }
+            @Suppress("DEPRECATION")
+            override fun onReceivedError(
+                view: WebView?,
+                errorCode: Int,
+                description: String?,
+                failingUrl: String?
+            ) {
+                progress.visibility = View.GONE
+                setFabStatus("#F55")
+                val msg = (description ?: "load failed").replace("<", "&lt;")
+                view?.loadData(
+                    """
+                    <html><body style="margin:0;background:#F4F2FF;color:#1B1B23;font-family:sans-serif;padding:24px;">
+                    <h2 style="color:#5B5FC7;">DeepEase</h2>
+                    <p>Could not open DeepSeek chat.</p>
+                    <p style="opacity:.75;">$msg</p>
+                    <p><a href="https://chat.deepseek.com/">Retry</a></p>
+                    </body></html>
+                    """.trimIndent(),
+                    "text/html",
+                    "utf-8"
+                )
+            }
 
+            override fun onPageFinished(view: WebView?, url: String?) {
                 // Quiet update check once per process
                 if (!prefs.getBoolean("update_checked_session", false)) {
                     prefs.edit().putBoolean("update_checked_session", true).apply()
