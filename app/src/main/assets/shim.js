@@ -13,7 +13,7 @@
     try { delete window.__DS_TOOL_SHIM__; } catch (e) {}
   }
 
-  const VERSION = '1.31.0';
+  const VERSION = '1.32.0';
   const getConvId = () => location.pathname.split('/').filter(Boolean).pop() || 'unknown';
   const CONFIG = Object.assign({
     debug: false,
@@ -146,413 +146,147 @@
   style.textContent = `
     [data-ds-shim-hidden="1"] { display: none !important; }
 
+    /* Claude-like slim tool summary */
     [data-ds-shim-tagline="1"] {
-      display: inline-flex !important;
-      flex-direction: column;
-      align-items: stretch;
-      height: auto;
-      min-height: 0;
+      display: block !important;
+      width: fit-content;
+      max-width: min(100%, 420px);
+      margin: 2px 0 8px 0;
       padding: 0;
-      margin: 4px 0 6px 0;
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      border-radius: 0;
+      color: rgba(120,120,128,0.95);
+      font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       cursor: pointer;
       user-select: none;
-      width: auto;
-      max-width: min(100%, 280px);
-      border-radius: 10px;
-      border: 1px solid var(--dsw-alias-border, rgba(120,150,180,0.12));
-      background: var(--dsw-alias-bg-elevated, rgba(120,150,180,0.06));
-      color: var(--dsw-alias-label-secondary, rgba(180,195,210,0.9));
-      font: 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
-      transition: background .15s ease, border-color .15s ease;
       -webkit-tap-highlight-color: transparent;
-      overflow: hidden;
-      contain: layout style paint;
-      will-change: transform;
+      overflow: visible;
     }
-    [data-ds-shim-tagline="1"]:hover {
-      background: var(--dsw-alias-bg-hover, rgba(120,150,180,0.10));
+    body.dark [data-ds-shim-tagline="1"],
+    body.en_US.dark [data-ds-shim-tagline="1"] {
+      color: rgba(160,160,170,0.95);
     }
     [data-ds-shim-tagline="1"] .ds-shim-inner {
-      display: flex; align-items: center; gap: 8px;
-      min-height: 32px; padding: 6px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 22px;
+      padding: 2px 0;
+      background: transparent !important;
+      border: none !important;
     }
     [data-ds-shim-tagline="1"] .ds-shim-ico {
-      width: 16px; height: 16px;
-      display: inline-flex; align-items: center; justify-content: center;
-      opacity: .8; flex-shrink: 0;
+      width: 14px;
+      height: 14px;
+      opacity: 0.55;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
-    [data-ds-shim-tagline="1"] .ds-shim-ico svg { display: block; width: 100%; height: 100%; }
+    [data-ds-shim-tagline="1"] .ds-shim-ico svg { width: 14px; height: 14px; display: block; }
     [data-ds-shim-tagline="1"][data-ds-shim-running="1"] .ds-shim-ico {
-      animation: dsshim-pulse-ico 1.2s ease-in-out infinite;
+      animation: dsshim-pulse-ico 1.1s ease-in-out infinite;
     }
-    @keyframes dsshim-pulse-ico { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+    @keyframes dsshim-pulse-ico { 0%,100% { opacity: .3; } 50% { opacity: .9; } }
     [data-ds-shim-tagline="1"] .ds-shim-txt {
-      font-weight: 600; font-size: 13px; flex: 1;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      color: var(--dsw-alias-label-primary, inherit);
+      font-weight: 400;
+      font-size: 13px;
+      letter-spacing: -0.01em;
+      color: inherit;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    [data-ds-shim-tagline="1"][data-ds-shim-err="1"] .ds-shim-txt { color: #f88; }
-    [data-ds-shim-tagline="1"] .ds-shim-sub {
-      font-weight: 400; font-size: 12px; opacity: .7;
-      margin-left: auto; padding-left: 8px; white-space: nowrap;
-    }
+    [data-ds-shim-tagline="1"][data-ds-shim-err="1"] .ds-shim-txt { color: #c45c5c; }
+    [data-ds-shim-tagline="1"] .ds-shim-sub { display: none !important; }
     [data-ds-shim-tagline="1"] .ds-shim-chev {
-      width: 14px; height: 14px;
-      display: inline-flex; align-items: center; justify-content: center;
-      opacity: .55; margin-left: 4px; transition: transform .2s ease;
+      width: 12px;
+      height: 12px;
+      opacity: 0.45;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform .18s ease;
+      flex-shrink: 0;
     }
-    [data-ds-shim-tagline="1"] .ds-shim-chev svg { display: block; }
-    [data-ds-shim-tagline="1"][data-ds-shim-expanded="1"] .ds-shim-chev { transform: rotate(180deg); }
+    [data-ds-shim-tagline="1"] .ds-shim-chev svg { width: 12px; height: 12px; display: block; }
+    [data-ds-shim-tagline="1"][data-ds-shim-expanded="1"] .ds-shim-chev { transform: rotate(90deg); }
+
+    /* Expanded detail — clean list, not a heavy card */
     [data-ds-shim-tagline="1"] .ds-shim-panel {
       display: none;
-      border-top: 1px solid var(--dsw-alias-border, rgba(120,150,180,0.12));
-      padding: 10px 12px 12px;
-      background: var(--dsw-alias-bg-elevated, rgba(0,0,0,0.12));
+      margin: 6px 0 4px 0;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(0,0,0,0.06);
+      background: rgba(255,255,255,0.92);
+      box-shadow: 0 8px 28px rgba(0,0,0,0.06);
+      max-width: min(100vw - 32px, 420px);
+    }
+    body.dark [data-ds-shim-tagline="1"] .ds-shim-panel,
+    body.en_US.dark [data-ds-shim-tagline="1"] .ds-shim-panel {
+      background: rgba(40,40,46,0.96);
+      border-color: rgba(255,255,255,0.08);
+      box-shadow: 0 8px 28px rgba(0,0,0,0.35);
     }
     [data-ds-shim-tagline="1"][data-ds-shim-expanded="1"] .ds-shim-panel { display: block; }
     [data-ds-shim-tagline="1"] .ds-shim-panel-title {
-      font-size: 12px; font-weight: 600; opacity: .75; margin-bottom: 8px;
-      letter-spacing: 0.02em;
+      font-size: 12px;
+      font-weight: 500;
+      opacity: 0.55;
+      margin-bottom: 8px;
     }
     [data-ds-shim-tagline="1"] .ds-shim-step {
-      display: flex; gap: 8px; align-items: flex-start;
-      padding: 6px 0; font-size: 12px; line-height: 1.35;
-      border-bottom: 1px solid rgba(120,150,180,0.08);
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+      font-size: 13px;
     }
-    [data-ds-shim-tagline="1"] .ds-shim-step:last-child { border-bottom: none; }
+    body.dark [data-ds-shim-tagline="1"] .ds-shim-step,
+    body.en_US.dark [data-ds-shim-tagline="1"] .ds-shim-step {
+      border-bottom-color: rgba(255,255,255,0.06);
+    }
+    [data-ds-shim-tagline="1"] .ds-shim-step:last-child { border-bottom: none; padding-bottom: 2px; }
     [data-ds-shim-tagline="1"] .ds-shim-step-ico {
-      width: 14px; flex-shrink: 0; opacity: .65; margin-top: 2px;
-    }
-    [data-ds-shim-tagline="1"] .ds-shim-step-body { flex: 1; min-width: 0; }
-    [data-ds-shim-tagline="1"] .ds-shim-step-name { font-weight: 600; word-break: break-word; }
-    [data-ds-shim-tagline="1"] .ds-shim-step-desc { opacity: .7; font-size: 11.5px; margin-top: 2px; }
-    [data-ds-shim-tagline="1"] .ds-shim-step.err .ds-shim-step-name { color: #f88; }
-    [data-ds-shim-tagline="1"] {
-      margin: 4px 0 6px;
-      border-radius: 10px;
-      border: 1px solid rgba(120,150,180,0.12);
-      background: rgba(40,48,58,0.35);
-      box-shadow: none;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-      overflow: hidden;
-    }
-    [data-ds-shim-tagline="1"] .ds-shim-inner {
-      padding: 6px 10px;
-      gap: 8px;
-      min-height: 0;
-    }
-    [data-ds-shim-tagline="1"] .ds-shim-chip {
-      font-family: ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-      font-size: 11px; font-weight: 500;
-      padding: 2px 7px; border-radius: 6px;
-      background: rgba(255,255,255,0.06);
-      color: rgba(220,220,215,0.92);
-      border: 1px solid rgba(255,255,255,0.08);
-      display: inline-flex; align-items: center; gap: 5px;
-      margin-top: 3px; max-width: 100%;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      transition: all 0.2s ease;
-      cursor: default;
-    }
-    [data-ds-shim-tagline="1"] .ds-shim-chip:hover {
-      background: rgba(120,150,180,0.20);
-      border-color: rgba(120,150,180,0.30);
-      transform: translateY(-1px);
-    }
-    [data-ds-shim-tagline="1"] .ds-shim-chip::before {
-      content: ""; width: 6px; height: 6px; border-radius: 50%;
-      background: #5ad; flex-shrink: 0;
-    }
-    .ds-shim-step-ico {
-      width: 6px; height: 6px; border-radius: 50%; display: inline-block;
-      background: rgba(255,255,255,0.35); margin-right: 6px; flex-shrink: 0;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-top: 5px;
+      flex-shrink: 0;
+      background: #bdbdbd;
     }
     .ds-shim-step-ico[data-state="run"] {
-      background: #c4c4bc; animation: dsshim-pulse 1.1s ease-in-out infinite;
+      background: #8b8b95;
+      box-shadow: 0 0 0 3px rgba(139,139,149,0.2);
     }
-    .ds-shim-step-ico[data-state="ok"] { background: #7d9b76; }
-    .ds-shim-step-ico[data-state="err"] { background: #c77; }
-
-    [data-ds-shim-tagline="1"][data-running="1"] .ds-shim-chip::before {
-      background: #4af; box-shadow: 0 0 0 0 rgba(68,170,255,0.5);
-      animation: dsshim-pulse 1.2s ease-in-out infinite;
+    .ds-shim-step-ico[data-state="ok"] { background: #7a7a82; }
+    .ds-shim-step-ico[data-state="err"] { background: #d46a6a; }
+    [data-ds-shim-tagline="1"] .ds-shim-step-body { flex: 1; min-width: 0; }
+    [data-ds-shim-tagline="1"] .ds-shim-step-name {
+      font-weight: 500;
+      color: rgba(30,30,34,0.92);
+      word-break: break-word;
     }
-    [data-ds-shim-tagline="1"][data-error="1"] .ds-shim-chip {
-      background: rgba(255,100,100,0.10);
-      border-color: rgba(255,100,100,0.28);
-      color: #fbb;
+    body.dark [data-ds-shim-tagline="1"] .ds-shim-step-name,
+    body.en_US.dark [data-ds-shim-tagline="1"] .ds-shim-step-name {
+      color: rgba(235,235,240,0.92);
     }
-    [data-ds-shim-tagline="1"][data-error="1"] .ds-shim-chip::before { background: #f77; }
-    @media (pointer: coarse) {
-      [data-ds-shim-tagline="1"] .ds-shim-inner { min-height: 32px; }
+    [data-ds-shim-tagline="1"] .ds-shim-step-desc {
+      margin-top: 3px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      opacity: 0.62;
+      word-break: break-all;
     }
-
-    #__ds_shim_fab {
-      position: fixed; z-index: 2147483645;
-      width: 28px; height: 28px;
-      cursor: grab;
-      display: flex; align-items: center; justify-content: center;
-      opacity: .35;
-      transition: opacity .2s ease, transform .2s ease;
-      pointer-events: auto;
-      touch-action: none;
-      -webkit-tap-highlight-color: transparent;
-      user-select: none;
+    [data-ds-shim-tagline="1"] .ds-shim-step.err .ds-shim-step-name { color: #c45c5c; }
+    [data-ds-shim-tagline="1"] .ds-shim-chip {
+      display: none !important;
     }
-    #__ds_shim_fab:hover, #__ds_shim_fab:focus-visible { opacity: 1; }
-    #__ds_shim_fab.dragging { opacity: 1; cursor: grabbing; transform: scale(1.15); }
-    #__ds_shim_fab .ds-shim-dot {
-      width: 11px; height: 11px; border-radius: 50%; background: #888;
-      transition: background .25s, box-shadow .25s;
-      pointer-events: none;
-    }
-    #__ds_shim_fab[data-status="idle"]    .ds-shim-dot { background: #4db; }
-    #__ds_shim_fab[data-status="running"] .ds-shim-dot { background: #4af; animation: dsshim-pulse 1.2s ease-in-out infinite; }
-    #__ds_shim_fab[data-status="error"]   .ds-shim-dot { background: #f77; }
-    #__ds_shim_fab[data-status="warn"]    .ds-shim-dot { background: #fa4; }
-    #__ds_shim_fab[data-status="off"]     .ds-shim-dot { background: #888; }
-    @keyframes dsshim-pulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(68,170,255,0.55); }
-      50%      { box-shadow: 0 0 0 7px rgba(68,170,255,0); }
-    }
-    #__ds_shim_fab[data-hidden="1"] { opacity: 0; width: 12px; background: linear-gradient(to left, rgba(120,150,180,0.35), transparent); }
-    #__ds_shim_fab[data-hidden="1"]:hover { opacity: 1; }
-
-    #__ds_shim_panel {
-      position: fixed; z-index: 2147483646;
-      width: 280px; max-width: calc(100vw - 52px); max-height: 72vh; overflow-y: auto;
-      background: rgba(24,28,34,0.95);
-      -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-      border: 1px solid rgba(120,150,180,0.22); border-radius: 12px;
-      color: #dde3ea; font: 13px/1.5 system-ui,-apple-system,sans-serif;
-      box-shadow: 0 12px 36px rgba(0,0,0,0.45);
-      animation: dsshim-panel-in .18s ease;
-    }
-    @keyframes dsshim-panel-in { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
-    #__ds_shim_panel[hidden] { display: none; }
-    .ds-shim-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid rgba(120,150,180,0.15); font-weight: 500; }
-    .ds-shim-panel-header b { color: #4db; font-weight: 600; }
-    .ds-shim-close { background: transparent; border: none; color: #aab; font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; border-radius: 4px; }
-    .ds-shim-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
-    .ds-shim-panel-body { padding: 8px 14px 14px; }
-    .ds-shim-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 12.5px; }
-    .ds-shim-row span { color: rgba(180,195,210,0.7); }
-    .ds-shim-row b { color: #dde3ea; font-weight: 500; }
-    .ds-shim-row code { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size: 11.5px; color: #9ab; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; }
-    .ds-shim-status { display: inline-flex; align-items: center; gap: 6px; }
-    .ds-shim-status::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #888; }
-    .ds-shim-status[data-status="idle"]::before { background: #4db; }
-    .ds-shim-status[data-status="running"]::before { background: #4af; }
-    .ds-shim-status[data-status="error"]::before { background: #f77; }
-    .ds-shim-status[data-status="warn"]::before { background: #fa4; }
-    .ds-shim-status[data-status="off"]::before { background: #888; }
-    #__ds_shim_panel hr { border: none; border-top: 1px solid rgba(120,150,180,0.15); margin: 10px 0; }
-    .ds-shim-toggle { display: flex; align-items: center; gap: 8px; padding: 7px 0; cursor: pointer; font-size: 12.5px; }
-    .ds-shim-toggle input { accent-color: #4af; }
-    .ds-shim-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-    .ds-shim-actions button { background: rgba(120,150,180,0.10); border: 1px solid rgba(120,150,180,0.20); color: #dde3ea; padding: 7px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit; transition: background .15s; }
-    .ds-shim-actions button:hover { background: rgba(120,150,180,0.22); }
-    .ds-shim-actions button.danger { color: #f88; border-color: rgba(240,130,130,0.35); }
-    .ds-shim-actions button.danger:hover { background: rgba(240,130,130,0.15); }
-    .ds-shim-actions button.wide { grid-column: span 2; }
-
-    #__ds_shim_toast {
-      position: fixed; z-index: 2147483647; padding: 6px 12px;
-      background: rgba(20,24,30,0.92); color: #dde3ea;
-      font: 12px/1.4 system-ui,-apple-system,sans-serif; border-radius: 8px;
-      border: 1px solid rgba(120,150,180,0.25);
-      pointer-events: none; opacity: 0; transition: opacity .2s ease;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.35);
-    }
-    #__ds_shim_toast.show { opacity: 1; }
-
-    :root {
-      --dh-card-bg: rgba(255,255,255,0.92);
-      --dh-card-fg: #1a1a1a;
-      --dh-card-border: rgba(0,0,0,0.12);
-      --dh-accent: #4d6bfe;
-      --dh-muted: #666;
-      --dh-code-bg: #f6f8fa;
-      --dh-bar: #4d6bfe;
-    }
-    html.dark, body.dark, [data-theme="dark"], .dark {
-      --dh-card-bg: rgba(30,32,40,0.95);
-      --dh-card-fg: #e8eaed;
-      --dh-card-border: rgba(255,255,255,0.12);
-      --dh-accent: #8ab4ff;
-      --dh-muted: #9aa0a6;
-      --dh-code-bg: #1e1e24;
-      --dh-bar: #8ab4ff;
-    }
-
-    #claude-ds-theme-v3 ~ * , body:has(#claude-ds-theme-v3) {
-      --dh-accent: #da7756;
-      --dh-bar: #da7756;
-    }
-    .dh-ui-card {
-      margin: 10px 0; padding: 12px 14px; border-radius: 12px;
-      background: var(--dh-card-bg); border: 1px solid var(--dh-card-border);
-      color: var(--dh-card-fg); font-family: inherit;
-    }
-    .dh-ui-card h4 { margin: 0 0 8px; font-size: 13px; color: var(--dh-accent); font-weight: 600; }
-    .dh-chart svg { width: 100%; max-width: 420px; height: auto; display: block; }
-    .dh-chart .bar { fill: var(--dh-bar); }
-    .dh-chart .axis { stroke: var(--dh-muted); stroke-width: 1; opacity: 0.5; }
-    .dh-chart text { fill: var(--dh-muted); font-size: 10px; }
-    .dh-code-wrap { position: relative; margin: 8px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--dh-card-border); }
-    .dh-code-wrap pre { margin: 0; padding: 12px 14px; overflow-x: auto; background: var(--dh-code-bg); font-size: 12px; }
-    .dh-code-copy {
-      position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 3px 8px;
-      border-radius: 6px; border: 1px solid var(--dh-card-border); background: var(--dh-card-bg);
-      color: var(--dh-accent); cursor: pointer;
-    }
-    .dh-table-wrap { overflow-x: auto; margin: 8px 0; border-radius: 10px; border: 1px solid var(--dh-card-border); }
-    .dh-table-wrap table { border-collapse: collapse; width: 100%; font-size: 12px; color: var(--dh-card-fg); }
-    .dh-table-wrap th, .dh-table-wrap td { border: 1px solid var(--dh-card-border); padding: 6px 10px; text-align: left; }
-    .dh-table-wrap th { background: var(--dh-code-bg); color: var(--dh-accent); }
-    .dh-file-tree { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.45; }
-    .dh-file-tree .f { color: var(--dh-accent); } .dh-file-tree .d { color: var(--dh-accent); font-weight: 600; opacity: 0.85; }
-    .dh-proj-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--dh-card-border); font-size: 12px; }
-    .dh-proj-item button { font-size: 11px; padding: 2px 8px; }
-    .dh-artifact {
-      margin: 12px 0; border-radius: 14px; overflow: hidden;
-      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg);
-      color: var(--dh-card-fg);
-    }
-    .dh-artifact-bar {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 8px 12px; background: var(--dh-code-bg); border-bottom: 1px solid var(--dh-card-border);
-      font-size: 12px; color: var(--dh-muted);
-    }
-    .dh-artifact-bar b { color: var(--dh-accent); }
-    .dh-artifact-bar .acts { display: flex; gap: 6px; flex-wrap: wrap; }
-    .dh-artifact-bar button {
-      font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer;
-      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg); color: var(--dh-accent);
-    }
-    .dh-artifact iframe {
-      width: 100%; height: 380px; border: 0; display: block; background: #fff;
-    }
-    .dh-artifact.dh-artifact-tall iframe { height: 520px; }
-    .dh-artifact-fs {
-      position: fixed; inset: 0; z-index: 2147483000; background: rgba(0,0,0,0.72);
-      display: flex; flex-direction: column; padding: 12px;
-    }
-    .dh-artifact-fs iframe { flex: 1; border-radius: 12px; background: #fff; }
-
-    .dh-artifact {
-      margin: 12px 0; border-radius: 16px; overflow: hidden;
-      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg);
-      color: var(--dh-card-fg); box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-    }
-    .dh-artifact-bar {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 10px 14px; background: var(--dh-code-bg);
-      border-bottom: 1px solid var(--dh-card-border); font-size: 12px; color: var(--dh-muted);
-    }
-    .dh-artifact-bar b { color: var(--dh-accent); font-weight: 600; }
-    .dh-artifact-bar .acts { display: flex; gap: 6px; }
-    .dh-artifact-bar button {
-      font-size: 11px; padding: 4px 10px; border-radius: 20px; cursor: pointer;
-      border: 1px solid var(--dh-card-border); background: var(--dh-card-bg); color: var(--dh-accent);
-    }
-    .dh-artifact-frame-wrap { position: relative; background: #f8f9fa; min-height: 120px; }
-    html.dark .dh-artifact-frame-wrap, body.dark .dh-artifact-frame-wrap { background: #1e1f24; }
-    .dh-artifact iframe {
-      width: 100%; height: 380px; border: 0; display: block; background: #fff;
-    }
-    .dh-artifact.dh-artifact-tall iframe { height: 520px; }
-    .dh-artifact-loading {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 10px; min-height: 140px; padding: 24px; color: var(--dh-muted);
-      background: var(--dh-code-bg); font-size: 13px;
-    }
-    .dh-artifact-loading .spin {
-      width: 28px; height: 28px; border-radius: 50%;
-      border: 3px solid var(--dh-card-border); border-top-color: var(--dh-accent);
-      animation: dh-spin .8s linear infinite;
-    }
-    @keyframes dh-spin { to { transform: rotate(360deg); } }
-    .dh-artifact-fs {
-      position: fixed; inset: 0; z-index: 2147483000; background: rgba(0,0,0,0.55);
-      display: flex; flex-direction: column; padding: 12px;
-    }
-    .dh-artifact-fs .dh-artifact-frame-wrap { flex: 1; border-radius: 12px; overflow: hidden; }
-    .dh-artifact-fs iframe { height: 100% !important; min-height: 0; }
-    .dh-ui-card {
-      margin: 10px 0; padding: 12px 14px; border-radius: 16px;
-      background: var(--dh-card-bg); border: 1px solid var(--dh-card-border);
-      color: var(--dh-card-fg); font-family: inherit;
-    }
-    .dh-ui-card h4 { margin: 0 0 8px; font-size: 13px; color: var(--dh-accent); font-weight: 600; }
-    .dh-chart svg { width: 100%; max-width: 420px; height: auto; display: block; }
-    .dh-chart .bar { fill: var(--dh-bar); }
-    .dh-chart .axis { stroke: var(--dh-muted); stroke-width: 1; opacity: 0.45; }
-    .dh-chart text { fill: var(--dh-muted); font-size: 10px; }
-    .dh-chart-loading {
-      padding: 16px; text-align: center; color: var(--dh-muted); font-size: 12px;
-      border-radius: 16px; border: 1px dashed var(--dh-card-border); background: var(--dh-code-bg);
-    }
-`;
-  document.head.appendChild(style);
-
-  const fab = document.createElement('div');
-  fab.id = '__ds_shim_fab';
-  fab.setAttribute('data-status', 'idle');
-  fab.setAttribute('role', 'button');
-  fab.setAttribute('tabindex', '0');
-  fab.setAttribute('aria-label', 'DeepSeek Shim');
-  fab.innerHTML = '<div class="ds-shim-dot"></div>';
-
-  const savedPos = lsGet(LS.fabPos, null);
-  const applyPos = (pos) => {
-    if (pos) {
-      fab.style.left = pos.x + 'px'; fab.style.top = pos.y + 'px';
-      fab.style.right = 'auto'; fab.style.transform = 'none';
-    } else {
-      fab.style.right = '6px'; fab.style.left = 'auto';
-      fab.style.top = '50%'; fab.style.transform = 'translateY(-50%)';
-    }
-  };
-  applyPos(savedPos);
-
-  const panel = document.createElement('div');
-  panel.id = '__ds_shim_panel';
-  panel.hidden = true;
-  panel.innerHTML = `
-    <div class="ds-shim-panel-header">
-      <span>DeepSeek Shim <b>v${VERSION}</b></span>
-      <button class="ds-shim-close" aria-label="Close">×</button>
-    </div>
-    <div class="ds-shim-panel-body">
-      <div class="ds-shim-row"><span>Status</span><span class="ds-shim-status" data-status="idle">idle</span></div>
-      <div class="ds-shim-row"><span>Conversation</span><code class="ds-shim-conv">${esc(getConvId().slice(0, 12))}…</code></div>
-      <hr />
-      <div class="ds-shim-row"><span>Deduped calls</span><b class="ds-shim-done-count">0</b></div>
-      <div class="ds-shim-row"><span>Memory keys</span><b class="ds-shim-mem-count">0</b></div>
-      <div class="ds-shim-row"><span>FS files</span><b class="ds-shim-fs-count">0</b></div>
-      <hr />
-      <label class="ds-shim-toggle"><input type="checkbox" data-opt="debug" /><span>Debug (show TOOL_RESULT)</span></label>
-      <label class="ds-shim-toggle"><input type="checkbox" data-opt="dedupe" checked /><span>Dedupe executed tool calls</span></label>
-      <label class="ds-shim-toggle"><input type="checkbox" data-opt="confirmSensitive" checked /><span>Confirm clipboard / geo / POST</span></label>
-      <label style="display:flex;gap:8px;align-items:center;margin:6px 0;font-size:12px;color:#ccc">
-        <!-- DSML removed -->
-      </label>
-      <label style="display:flex;gap:8px;align-items:center;margin:6px 0;font-size:12px;color:#ccc">
-        <input type="checkbox" data-opt="autoContinue"/> Auto-continue chains</label>
-      <hr />
-      <div class="ds-shim-actions">
-        <button data-act="resetFab">Reset dot</button>
-        <button data-act="hideFab">Hide dot</button>
-        <button data-act="clearDone">Clear done</button>
-        <button data-act="clearMemory">Clear memory</button>
-        <button data-act="clearFs">Clear FS</button>
-        <button data-act="copyLogs">Copy logs</button>
-        <button data-act="stop" class="danger wide">Stop shim</button>
-      </div>
-      <label class="ds-shim-toggle"><input type="checkbox" data-opt="uiEnhance" checked /><span>In-chat charts / code / tables</span></label>
-    </div>
   `;
 
   document.body.appendChild(fab);
@@ -2511,12 +2245,12 @@ async selftest() {
         for (var i = steps.length - 1; i >= 0; i--) {
           if (steps[i].running) { runStep = steps[i]; break; }
         }
-        txt.textContent = (runStep && runStep.title) ? runStep.title : ('Working… · ' + n);
+        txt.textContent = (runStep && runStep.title) ? runStep.title : (n <= 1 ? 'Running command…' : ('Running ' + n + ' commands…'));
       } else {
         var lastDone = n ? steps[n - 1] : null;
         txt.textContent = (n === 1 && lastDone && lastDone.title)
           ? lastDone.title
-          : ('Used ' + n + (n === 1 ? ' tool' : ' tools') + ' · ' + elapsed);
+          : ((n === 1 ? 'Ran 1 command' : ('Ran ' + n + ' commands')) + (elapsed ? (' · ' + elapsed) : ''));
       }
     }
     const sub = tl.querySelector('.ds-shim-sub');
@@ -2535,7 +2269,7 @@ async selftest() {
       hideMsgBody(dsMessage, toolChain.tagline);
       return toolChain;
     }
-    const tagline = collapseToolMessage(dsMessage, '', false, true, 'Working…', 'Tools used');
+    const tagline = collapseToolMessage(dsMessage, '', false, true, 'Running command…', 'Ran 1 command');
     if (!tagline) return null;
     try { tagline.setAttribute('data-ds-shim-keep', '1'); } catch (_) {}
     tagline._dsSteps = [];
@@ -2562,9 +2296,9 @@ async selftest() {
 
     const txt = document.createElement('span');
     txt.className = 'ds-shim-txt';
-    txt.textContent = running ? 'Working…' : 'Done';
-    el._dsRunLabel = 'Working…';
-    el._dsDoneLabel = 'Done';
+    txt.textContent = running ? 'Running command…' : 'Ran 1 command';
+    el._dsRunLabel = 'Running command…';
+    el._dsDoneLabel = 'Ran 1 command';
     inner.appendChild(txt);
 
     const sub = document.createElement('span');
@@ -2580,7 +2314,7 @@ async selftest() {
 
     const panel = document.createElement('div');
     panel.className = 'ds-shim-panel';
-    panel.innerHTML = '<div class="ds-shim-panel-title">Thoughts</div><div class="ds-shim-steps"></div>';
+    panel.innerHTML = '<div class="ds-shim-panel-title">Commands</div><div class="ds-shim-steps"></div>';
     el.appendChild(panel);
     return el;
   }
@@ -2614,8 +2348,8 @@ async selftest() {
     tagline.toggleAttribute('data-ds-shim-running', !!running);
     tagline.toggleAttribute('data-ds-shim-err', !!isError);
     const n = (tagline._dsSteps || []).length;
-    const headRun = tagline._dsRunLabel || 'Working…';
-    const headDone = n > 1 ? ('Used ' + n + ' tools') : (tagline._dsDoneLabel || 'Done');
+    const headRun = tagline._dsRunLabel || (n <= 1 ? 'Running command…' : ('Running ' + n + ' commands…'));
+    const headDone = n <= 1 ? (n === 1 ? 'Ran 1 command' : (tagline._dsDoneLabel || 'Done')) : ('Ran ' + n + ' commands');
     const txtEl = tagline.querySelector('.ds-shim-txt');
     if (txtEl) txtEl.textContent = running ? headRun : headDone;
     renderChainSteps(tagline);

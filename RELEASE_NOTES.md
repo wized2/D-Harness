@@ -1,4 +1,6 @@
-# DeepEase 1.1.2
+# DeepEase 1.1.3
 
-- No CSS or layout changes on chat.deepseek.com (stock DeepSeek UI)
-- Black-screen fixes from 1.1.1 kept (settings tree, WebView background)
+## Tool UI
+- Slim Claude-style tool summary: “Ran N commands” with chevron
+- Expanded panel lists each command cleanly (no bulky chips)
+- No changes to stock DeepSeek chat layout or composer CSS
