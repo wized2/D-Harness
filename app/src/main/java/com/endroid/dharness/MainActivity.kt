@@ -529,7 +529,7 @@ class MainActivity : AppCompatActivity() {
                 assets.open("shim.js").readBytes(), android.util.Base64.NO_WRAP
             )
             val themeB64 = android.util.Base64.encodeToString(
-                ByteArray(0), android.util.Base64.NO_WRAP
+                assets.open("deepease_theme.js").readBytes(), android.util.Base64.NO_WRAP
             )
             val js = """
                 (function(){
@@ -558,7 +558,7 @@ class MainActivity : AppCompatActivity() {
                   var existing = window.__DS_TOOL_SHIM__;
                   if (existing && existing.version && !window.__DS_FORCE_REINJECT__) {
                     console.log('[DeepEase] shim already live', existing.version);
-                    /* DeepEase: no chat.deepseek.com CSS/layout theme */
+                    try { (0, eval)(dec('$themeB64')); } catch(e) { console.error('theme-live', e); }
                     return 'already';
                   }
                   try {
@@ -569,11 +569,7 @@ class MainActivity : AppCompatActivity() {
                   try { (0, eval)(bridge); } catch(e) { console.error('bridge', e); }
                   try { (0, eval)(shim); } catch(e) { console.error('shim', e); }
                   try {
-                    if (window.__DH_M3_THEME__ && window.__DH_M3_THEME__.reinject) {
-                      window.__DH_M3_THEME__.reinject();
-                    } else {
-                      /* no theme */
-                    }
+                    try { (0, eval)(dec('$themeB64')); } catch(e) { console.error('theme', e); }
                     console.log('[DeepEase] theme applied');
                   } catch(e) { console.error('theme', e); }
                   try {
