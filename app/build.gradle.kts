@@ -11,8 +11,8 @@ android {
         applicationId = "com.endroid.deepease"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.1"
+        versionCode = 5
+        versionName = "1.1.2"
         resourceConfigurations += listOf("en")
         buildConfigField("String", "PRODUCT", "\"deepease\"")
         buildConfigField("String", "APP_LABEL", "\"DeepEase\"")
