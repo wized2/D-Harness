@@ -1,15 +1,26 @@
-name: Build & Release
+name: CI & Release
+
+# Pull requests: check JS, run unit tests, build the R8-shrunk release APK (debug-signed test build).
+# Pushes to main: the same checks, then sign with the release key and publish a GitHub release.
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
+    env:
+      IS_RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,55 +30,84 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.9"
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Decode release keystore
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      - name: Check JavaScript assets
         run: |
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
-            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/dharness-release.jks"
-            echo "Keystore OK: $(wc -c < "$GITHUB_WORKSPACE/dharness-release.jks") bytes"
-          else
-            echo "WARNING: no keystore secret"
-          fi
+          for f in app/src/main/assets/*.js; do
+            node --check "$f"
+            echo "syntax ok: $f"
+          done
 
-      - name: Unit tests
-        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
-
-      - name: Build release APK
-        env:
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: |
-          set -e
-          if [ -f "$GITHUB_WORKSPACE/dharness-release.jks" ]; then
-            export RELEASE_STORE_FILE="$GITHUB_WORKSPACE/dharness-release.jks"
-            echo "RELEASE_STORE_FILE=$RELEASE_STORE_FILE"
-            echo "alias set: ${RELEASE_KEY_ALIAS:+yes}"
-          else
-            echo "WARNING: building without release keystore — will use debug sign"
-          fi
-          gradle :app:assembleRelease --no-daemon --stacktrace
-          find app/build/outputs -name '*.apk' -ls
-
-      - name: Read version
+      - name: Read version and check changelog
         id: ver
         run: |
           VN=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$VN" ]; then
+            echo "::error::versionName not found in app/build.gradle.kts"
+            exit 1
+          fi
           echo "name=$VN" >> "$GITHUB_OUTPUT"
           echo "tag=v$VN" >> "$GITHUB_OUTPUT"
+          # Releases must have notes; pull requests may add them in a later commit.
+          if [ "$IS_RELEASE" = "true" ] && ! grep -qE "^## ${VN//./\\.}([[:space:]]|$)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $VN' section. Add release notes before bumping the version."
+            exit 1
+          fi
+          echo "Version $VN"
 
-      - name: Setup Android build-tools (apksigner/zipalign)
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Prepare release signing key
+        if: env.IS_RELEASE == 'true'
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "::error::Secret RELEASE_KEYSTORE_BASE64 is missing. Refusing to publish a debug-signed APK."
+            exit 1
+          fi
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/dharness-release.jks"
+          echo "Keystore OK: $(wc -c < "$RUNNER_TEMP/dharness-release.jks") bytes"
+
+      - name: Build release APK
+        env:
+          # Only set on releases: Gradle treats any non-blank value as "sign with this key".
+          RELEASE_STORE_FILE: ${{ env.IS_RELEASE == 'true' && format('{0}/dharness-release.jks', runner.temp) || '' }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Upload test build (pull requests)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: D-Harness-pr-${{ github.event.number }}-test-build
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 7
+
+      - name: Set up Android build-tools
+        if: env.IS_RELEASE == 'true'
         uses: android-actions/setup-android@v3
         with:
           packages: build-tools;35.0.0
 
-      - name: Prepare, align, verify APK
+      - name: Align, sign and verify APK
+        if: env.IS_RELEASE == 'true'
         env:
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
@@ -79,69 +119,61 @@ jobs:
           test -n "$SRC"
           echo "Using APK: $SRC ($(wc -c < "$SRC") bytes)"
 
-          BT=$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -type d -name '35*' | sort | tail -1)
-          if [ -z "$BT" ]; then BT=$(ls -d "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools"/* | sort -V | tail -1); fi
-          AS="$BT/apksigner"
-          ZA="$BT/zipalign"
+          BT="${ANDROID_HOME:?}/build-tools/35.0.0"
+          if [ ! -d "$BT" ]; then
+            BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          fi
           echo "build-tools: $BT"
 
-          # Re-sign with v1+v2+v3 so every installer path accepts the package
-          if [ -f "$GITHUB_WORKSPACE/dharness-release.jks" ]; then
-            ALIGNED="$GITHUB_WORKSPACE/aligned.apk"
-            SIGNED="$GITHUB_WORKSPACE/signed.apk"
-            "$ZA" -f -p 4 "$SRC" "$ALIGNED"
-            "$AS" sign               --ks "$GITHUB_WORKSPACE/dharness-release.jks"               --ks-key-alias "$RELEASE_KEY_ALIAS"               --ks-pass "pass:$RELEASE_STORE_PASSWORD"               --key-pass "pass:$RELEASE_KEY_PASSWORD"               --v1-signing-enabled true               --v2-signing-enabled true               --v3-signing-enabled true               --out "$SIGNED"               "$ALIGNED"
-            SRC="$SIGNED"
-          fi
+          # Align, then sign with v1+v2+v3 so every installer path accepts the package.
+          "$BT/zipalign" -f -p 4 "$SRC" aligned.apk
+          "$BT/apksigner" sign \
+            --ks "$RUNNER_TEMP/dharness-release.jks" \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass env:RELEASE_STORE_PASSWORD \
+            --key-pass env:RELEASE_KEY_PASSWORD \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out signed.apk \
+            aligned.apk
 
-          "$AS" verify --verbose --print-certs "$SRC" | tee /tmp/apk-verify.txt
+          "$BT/apksigner" verify --verbose --print-certs signed.apk | tee /tmp/apk-verify.txt
           grep -q '^Verifies$' /tmp/apk-verify.txt
           grep -E 'Verified using v2 scheme.*true' /tmp/apk-verify.txt
-
-          # Fail if still looks unsigned for v1+v2 both false
-          if grep -q 'Verified using v1 scheme (JAR signing): false' /tmp/apk-verify.txt              && grep -q 'Verified using v2 scheme (APK Signature Scheme v2): false' /tmp/apk-verify.txt; then
-            echo "FATAL: no usable APK signature"
+          if grep -qi 'CN=Android Debug' /tmp/apk-verify.txt; then
+            echo "::error::APK is signed with the Android debug key"
             exit 1
           fi
 
-          OUT="dist/D-Harness-${{ steps.ver.outputs.name }}.apk"
-          cp "$SRC" "$OUT"
+          cp signed.apk "dist/D-Harness-${{ steps.ver.outputs.name }}.apk"
           ls -la dist/
-          echo "APK ready: $OUT"
 
-      - name: Upload artifact
+      - name: Keep R8 mapping file
+        if: env.IS_RELEASE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-${{ steps.ver.outputs.name }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+
+      - name: Upload release APK
+        if: env.IS_RELEASE == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: D-Harness-release
           path: dist/*.apk
 
-      - name: Release
+      - name: Publish release
+        if: env.IS_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: D-Harness ${{ steps.ver.outputs.name }}
-          body: |
-            ## D-Harness ${{ steps.ver.outputs.name }} (signed)
-
-            DeepSeek Chat WebView + **tool shim** + **native bridge**.
-
-            ### Agent
-            - Paste-ready system instructions in-app
-            - `list_tools()` / `describe()` with examples — no guessing tool APIs
-            - One JSON tool call per reply → `TOOL_RESULT:` → continue
-
-            ### Stack
-            - Shim: upstream dsh.js + native tools
-            - Theme: Claude.js v3.1 (optional)
-            - Logo: updated brand SVG
-
-            ### Install
-            Download **D-Harness-${{ steps.ver.outputs.name }}.apk** below.
-
-            MIT
-
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true
           files: dist/D-Harness-${{ steps.ver.outputs.name }}.apk
           fail_on_unmatched_files: true
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
