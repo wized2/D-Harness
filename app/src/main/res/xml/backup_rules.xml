@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older. Encrypted secrets are bound to this device's Keystore and must
+     never be restored onto another install, where they could not be decrypted. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="dharness_keys_enc.xml" />
+    <exclude domain="sharedpref" path="dharness_keys.xml" />
+    <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__.xml" />
+</full-backup-content>

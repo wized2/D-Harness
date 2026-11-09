@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.security.KeyStore
 
 /**
  * Encrypted at-rest store for secrets (GitHub PAT, custom keys).
@@ -25,8 +26,8 @@ object SecureStore {
         synchronized(this) {
             cached?.let { return it }
             val app = context.applicationContext
-            migrateKeysIfNeeded(app)
-            val prefs = createEncrypted(app)
+            val prefs = openEncrypted(app)
+            migrateInto(app, prefs)
             cached = prefs
             return prefs
         }
@@ -43,6 +44,35 @@ object SecureStore {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+    }
+
+    /**
+     * Opens the encrypted store. If the file and the Keystore master key are out of sync
+     * (restored backup, Keystore reset by the OS) the stored secrets are unreadable and
+     * every launch would crash, so reset the store once and start empty.
+     */
+    private fun openEncrypted(context: Context): SharedPreferences =
+        try {
+            createEncrypted(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "encrypted store unreadable, resetting it", e)
+            resetEncrypted(context)
+            createEncrypted(context)
+        }
+
+    private fun resetEncrypted(context: Context) {
+        try {
+            context.deleteSharedPreferences(ENC_FILE)
+        } catch (e: Exception) {
+            Log.w(TAG, "delete encrypted prefs: ${e.message}")
+        }
+        try {
+            val ks = KeyStore.getInstance("AndroidKeyStore")
+            ks.load(null)
+            ks.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+        } catch (e: Exception) {
+            Log.w(TAG, "delete master key: ${e.message}")
+        }
     }
 
     /** Store a secret key. Rejects blank keys to prevent accidental overwrites. */
@@ -72,16 +102,21 @@ object SecureStore {
         return keys(context).all.keys
     }
 
+    /** Opens the store and runs the one-time migration if it has not run yet. */
+    fun migrateKeysIfNeeded(context: Context) {
+        keys(context)
+    }
+
     /**
      * One-time copy from plaintext `dharness_keys` (+ stray settings github_pat)
-     * into encrypted store, then wipe plaintext.
+     * into the encrypted store, then wipe the plaintext. The plaintext is only wiped
+     * after the encrypted copy has been written to disk.
      */
-    fun migrateKeysIfNeeded(context: Context) {
+    private fun migrateInto(context: Context, enc: SharedPreferences) {
         val settings = context.getSharedPreferences(SETTINGS_FILE, Context.MODE_PRIVATE)
         if (settings.getBoolean(MIGRATE_FLAG, false)) return
 
         try {
-            val enc = createEncrypted(context)
             val editor = enc.edit()
             var migrated = 0
 
@@ -103,10 +138,13 @@ object SecureStore {
                 }
             }
 
-            editor.apply()
+            if (!editor.commit()) {
+                Log.e(TAG, "keys migration: could not write encrypted store; keeping plaintext")
+                return // flag not set, retry next launch
+            }
 
             if (legacy.all.isNotEmpty()) {
-                legacy.edit().clear().apply()
+                legacy.edit().clear().commit()
                 try {
                     context.deleteSharedPreferences(LEGACY_FILE)
                 } catch (e: Exception) {
@@ -114,14 +152,14 @@ object SecureStore {
                 }
             }
             if (!stray.isNullOrBlank()) {
-                settings.edit().remove("github_pat").apply()
+                settings.edit().remove("github_pat").commit()
             }
 
             settings.edit().putBoolean(MIGRATE_FLAG, true).apply()
-            Log.i(TAG, "keys migration done, entries≈$migrated")
+            Log.i(TAG, "keys migration done, entries~$migrated")
         } catch (e: Exception) {
             Log.e(TAG, "keys migration failed", e)
-            // Do not set flag — retry next launch
+            // Do not set flag; retry next launch
         }
     }
 }
