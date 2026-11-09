@@ -1,3 +1,18 @@
+# Signing material: never commit
 *.jks
-local.properties
+*.keystore
 dharness-release.jks
+local.properties
+
+# Build output
+build/
+.gradle/
+*.apk
+*.aab
+captures/
+.cxx/
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
