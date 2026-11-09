@@ -35,6 +35,9 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
       - name: Check JavaScript assets
         run: |
           for f in app/src/main/assets/*.js; do
