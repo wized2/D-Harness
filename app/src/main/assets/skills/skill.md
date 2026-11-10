@@ -1,26 +1,36 @@
 ---
 name: skill
-description: Closed skill set and how to load them.
+description: The closed set of skills and how to load one.
 ---
 # Skills
 
-**Names that exist:** shell, workspace, github, http, device, protocol, exec, memory, tasks, research, skill, time, safety
+Skills are short guides, one per domain. The set is closed:
 
-## Example
+`shell`, `workspace`, `github`, `http`, `device`, `protocol`, `exec`, `memory`, `tasks`, `research`, `skill`, `time`, `safety`
 
-```xml
+Never invent a skill name. An unknown name returns an error with the list of names that exist.
+
+## List them
+
+```invoke
 <function_calls>
 <invoke name="skill.list">
 </invoke>
 </function_calls>
 ```
 
-```xml
+## Read one
+
+```invoke
 <function_calls>
 <invoke name="skill.read">
-<parameter name="name">shell</parameter>
+<parameter name="name">workspace</parameter>
 </invoke>
 </function_calls>
 ```
 
-Never invent a skill name. Unknown → use `available` from the error.
+## When to read
+Read a skill once, before the first use of its domain in a conversation. Do not re-read it after every call.
+
+## Related
+`tool.search` finds a tool by keyword; `describe` shows one tool's parameters, example and failure modes.
