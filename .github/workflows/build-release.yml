@@ -67,7 +67,7 @@ jobs:
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports
           path: app/build/reports/tests
@@ -97,7 +97,7 @@ jobs:
 
       - name: Upload test build (pull requests)
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: D-Harness-pr-${{ github.event.number }}-test-build
           path: app/build/outputs/apk/release/*.apk
@@ -154,7 +154,7 @@ jobs:
 
       - name: Keep R8 mapping file
         if: env.IS_RELEASE == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mapping-${{ steps.ver.outputs.name }}
           path: app/build/outputs/mapping/release/mapping.txt
@@ -162,7 +162,7 @@ jobs:
 
       - name: Upload release APK
         if: env.IS_RELEASE == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: D-Harness-release
           path: dist/*.apk
