@@ -1,22 +1,23 @@
-## Done in 1.39.0
-- [x] Fence-only tool detection (invoke/dsml)
-- [x] System prompt requires ```invoke
-- [x] Color resources restored (CI)
+# Roadmap
 
-# D-Harness roadmap (execution tracker)
+Planned work, most important first. No dates.
 
-## Done in 1.38.0
-- [x] Catalog cache (`CatalogCache`) for `listTools`
-- [x] Interruptible bridge delays (`BridgeExec`) — no raw `Thread.sleep` left
-- [x] Workspace path helper + unit tests
-- [x] Payload truncate helper
-- [x] Shim: debounced MutationObserver, slower enhance timers, neutral tool chips, no emoji step icons
-- [x] Native typeface from Anthropic Sans + JetBrains Mono assets
-- [x] Neutral Material color tokens (light/dark)
+## Security
+- Restrict the JavaScript bridge to the chat origin (WebMessage-based channel instead of `addJavascriptInterface`)
+- Strict policy for state-changing tools, based on an explicit list rather than name matching
+- Stream and cap all reads (HTTP, files, archives) so no tool can exhaust memory
+- Send the GitHub token only to api.github.com
+- Give `exec` and `shell` children a closed stdin and bounded output
 
-## Next
-- [ ] Split `HarnessBridge.kt` into feature modules (workspace/shell/github/device)
-- [ ] Further shim code-split (core / ui / theme)
-- [ ] Settings sectioned list redesign (XML pass)
-- [ ] AgentService notification = tool description only
-- [ ] Device multi-tool scenario checklist
+## Reliability
+- Shut down worker pools and child processes when the activity is destroyed
+- Clean up spill and temp files
+- Android instrumented tests for the WebView and bridge
+
+## Product
+- Tool chips: collapsible long output, copy result
+- More skills as tool groups grow, each with tested examples
+- In-app update download (verified against the release signing certificate)
+
+## Docs
+- Troubleshooting guide for the most common tool errors
