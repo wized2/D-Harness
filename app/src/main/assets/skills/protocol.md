@@ -5,7 +5,7 @@ description: Required tool-call format - a fenced invoke block with function_cal
 # Protocol
 
 Tools run ONLY when they sit inside a markdown code fence whose language tag is `invoke`.
-Tool markup in normal text, or inside a ```xml fence, is shown to the user and never executed.
+Tool markup in normal text, or inside a fence labelled xml, is shown to the user and never executed.
 
 ## Format
 
