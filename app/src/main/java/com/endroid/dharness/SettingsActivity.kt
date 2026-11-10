@@ -79,6 +79,7 @@ class SettingsActivity : AppCompatActivity() {
                 } catch (_: Exception) { "0" }
                 val info = UpdateChecker.fetchLatest()
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     if (info == null) {
                         Toast.makeText(this, "Update check failed", Toast.LENGTH_SHORT).show()
                         return@runOnUiThread
