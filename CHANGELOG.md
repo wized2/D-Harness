@@ -1,3 +1,42 @@
+## 1.40.0
+
+Hardening release.
+
+### Fixed
+- Background agent service was never declared in the manifest, so it could not start; it is now registered (specialUse foreground type, `START_NOT_STICKY`) and stops itself when idle
+- Encrypted key store could crash every launch after a restore: backup exclusions added and the store resets itself if unreadable
+- Key migration wrote with `apply()` and wiped the plaintext copy immediately; it now commits first
+- Renderer crashes no longer kill the app (`onRenderProcessGone`)
+- Update check ran only once ever (flag persisted forever); it now runs once per launch, on one shared executor, and never shows a dialog on a finished activity
+- Workspace browser read whole files on the UI thread; reads are now capped
+- `exec` never closed stdin (a bare `cat` hung until the timeout) and read all output before truncating
+- Path cleaning deleted `..` from names (`a/../b` became `a/b`); it now rejects traversal, and the inside-root check requires a separator
+- `github.request` sent the token to any URL; it now only calls `https://api.github.com`
+- Strict policy mode matched tool names by substring (blocked `time.format`, missed `fs.append`, `github.*`, `keys.set`) and failed open; it now uses an explicit mutating-tool list and fails closed
+
+### Performance
+- No WebView cache wipe on every page load
+- Injection payload (3 assets, base64) built once off the main thread; repeat injections skip work when the shim is already live and are debounced
+- Camera, microphone and location only for deepseek.com origins
+- Location permission asked once, not on every launch
+- HTTP and exec output read with caps instead of fully buffered
+
+### Skills and docs
+- All 13 skills rewritten with executable `invoke` fences (they used `xml` fences the shim never runs), real tool names and limits; `SkillsTest` guards them
+- README, TOOLS, ARCHITECTURE, CONTRIBUTING, ROADMAP, SECURITY rewritten; LICENSE added
+
+### Build
+- `gradlew` could not start the Gradle wrapper; replaced
+- CI: JS syntax check, unit tests and the R8 release build on every pull request; release job signs with the release key, verifies it, and refuses a debug-signed APK
+- Dependabot, issue and PR templates
+
+## 1.39.0
+
+- Tool calls run only from closed code fences: `invoke` (preferred), `dsml`, `tool_call`
+- Faster detection path; whole code box hidden behind a compact tool UI
+- Selectors aligned with mobile DeepSeek
+- Restored full M3 color tokens
+
 ## 1.38.0
 
 - Catalog cache, bridge helpers, quieter shim timers/chips
