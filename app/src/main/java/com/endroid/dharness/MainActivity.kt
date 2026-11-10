@@ -46,6 +46,9 @@ class MainActivity : AppCompatActivity() {
     private var desktopMode = false
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val startUrl = "https://chat.deepseek.com/"
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val injectRunnable = Runnable { injectShim(force = false) }
+    private var webViewDead = false
 
     private val fileChooser = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -100,8 +103,12 @@ class MainActivity : AppCompatActivity() {
         SecureStore.migrateKeysIfNeeded(this)
         setContentView(R.layout.activity_main)
 
-        // Location optional for geo.get — request once (user can deny)
-        if (android.os.Build.VERSION.SDK_INT >= 23) {
+        prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
+        desktopMode = prefs.getBoolean("desktop", false)
+
+        // Location is optional (geo.get). Ask once; a denial is respected on later launches.
+        if (!prefs.getBoolean("location_asked", false)) {
+            prefs.edit().putBoolean("location_asked", true).apply()
             val need = arrayOf(
                 android.Manifest.permission.ACCESS_COARSE_LOCATION,
                 android.Manifest.permission.ACCESS_FINE_LOCATION
@@ -113,8 +120,9 @@ class MainActivity : AppCompatActivity() {
                 androidx.core.app.ActivityCompat.requestPermissions(this, need.toTypedArray(), 42)
             }
         }
-        prefs = getSharedPreferences("dharness_settings", MODE_PRIVATE)
-        desktopMode = prefs.getBoolean("desktop", false)
+
+        // Warm the injection payload off the main thread so the first page load does not stall.
+        Thread { injectPayload }.apply { isDaemon = true }.start()
 
         rootLayout = findViewById(R.id.root)
         webView = findViewById(R.id.webView)
@@ -133,8 +141,6 @@ class MainActivity : AppCompatActivity() {
         // Keyboard: pad root so composer stays above IME (better-deepseek style)
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { v, insets ->
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            val sys = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val bottom = maxOf(ime.bottom, if (ime.bottom > 0) 0 else sys.bottom)
             // Only lift for keyboard; status bar stays immersive
             v.setPadding(0, 0, 0, ime.bottom)
             insets
@@ -143,7 +149,7 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-                with(webView.settings) {
+        with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
@@ -158,22 +164,13 @@ class MainActivity : AppCompatActivity() {
             textZoom = prefs.getInt("text_zoom", 100).coerceIn(80, 150)
             userAgentString = buildUa()
 
-            // Performance optimizations
-            setRenderPriority(WebSettings.RenderPriority.HIGH)
-            setOffscreenPreRaster(true)
-            enableSmoothTransition()
             useWideViewPort = true
             loadWithOverviewMode = true
             setNeedInitialFocus(false)
-            mediaPlaybackRequiresUserGesture = false
-
-            // Hardware acceleration hints
-            offscreenPreRaster = true
         }
 
         // Hardware acceleration for smooth scrolling
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-
 
         // Follow system dark/light inside WebView when supported
         try {
@@ -193,9 +190,23 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (_: Exception) { }
         webView.addJavascriptInterface(HarnessBridge(this, webView), "DHarness")
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
         webView.webViewClient = object : WebViewClient() {
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: android.webkit.RenderProcessGoneDetail?
+            ): Boolean {
+                // The renderer crashed or was killed. Returning false would kill the whole app;
+                // tear the dead WebView down and rebuild the activity instead.
+                android.util.Log.w("DHarness", "render process gone, crashed=${detail?.didCrash()}")
+                webViewDead = true
+                handler.removeCallbacksAndMessages(null)
+                (view?.parent as? ViewGroup)?.removeView(view)
+                try { view?.destroy() } catch (_: Exception) { }
+                if (!isFinishing && !isDestroyed) recreate()
+                return true
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return false
                 if (LinkRouting.shouldOpenExternally(uri)) {
@@ -207,27 +218,23 @@ class MainActivity : AppCompatActivity() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 progress.visibility = View.VISIBLE
                 setFabStatus("#4AF")
+                // A new navigation makes any queued injection for the old page stale.
+                handler.removeCallbacks(injectRunnable)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                // Trim WebView cache to prevent bloat (keep 7 days)
-                try {
-                    view?.clearCache(true)
-                } catch (_: Exception) { }
-
                 // Quiet update check once per process
-                if (!prefs.getBoolean("update_checked_session", false)) {
-                    prefs.edit().putBoolean("update_checked_session", true).apply()
+                if (!updateCheckedThisProcess) {
+                    updateCheckedThisProcess = true
                     checkForUpdates(false)
                 }
                 progress.visibility = View.GONE
                 setFabStatus("#4DB")
                 if (prefs.getBoolean("auto_inject", true)) {
-                    // SPA: inject after DOM settles; retry if first pass races React
-                    view?.postDelayed({ injectShim(force = false) }, 300)
-                    view?.postDelayed({ injectShim(force = false) }, 1200)
-                    view?.postDelayed({ injectShim(force = false) }, 3000)
-                    view?.postDelayed({ injectShim(force = false) }, 7000)
+                    // SPA: inject after the DOM settles; later passes catch late React renders.
+                    // The script skips work when the shim is already live, so retries are cheap.
+                    handler.removeCallbacks(injectRunnable)
+                    for (delay in INJECT_DELAYS_MS) handler.postDelayed(injectRunnable, delay)
                 }
             }
         }
@@ -242,11 +249,14 @@ class MainActivity : AppCompatActivity() {
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
             ) {
-                callback?.invoke(origin, true, false)
+                // Only the chat site itself may read location; other frames get a denial.
+                callback?.invoke(origin, isTrustedOrigin(origin), false)
             }
 
             override fun onPermissionRequest(request: PermissionRequest?) {
-                request?.grant(request.resources)
+                request ?: return
+                if (isTrustedOrigin(request.origin?.toString())) request.grant(request.resources)
+                else request.deny()
             }
 
             override fun onCreateWindow(
@@ -491,22 +501,20 @@ class MainActivity : AppCompatActivity() {
         }, 400)
     }
 
-    private fun injectShim(force: Boolean = false) {
-        if (force) {
-            webView.evaluateJavascript("window.__DS_FORCE_REINJECT__=true;", null)
-        }
+    private fun isTrustedOrigin(origin: String?): Boolean {
+        val host = try { Uri.parse(origin ?: return false).host } catch (_: Exception) { null }
+        return host != null && TRUSTED_HOSTS.any { host == it || host.endsWith(".$it") }
+    }
 
-        try {
-            val bridgeB64 = android.util.Base64.encodeToString(
-                assets.open("native_bridge.js").readBytes(), android.util.Base64.NO_WRAP
-            )
-            val shimB64 = android.util.Base64.encodeToString(
-                assets.open("shim.js").readBytes(), android.util.Base64.NO_WRAP
-            )
-            val themeB64 = android.util.Base64.encodeToString(
-                assets.open("claude_theme.js").readBytes(), android.util.Base64.NO_WRAP
-            )
-            val js = """
+    private fun assetB64(name: String): String =
+        assets.open(name).use { android.util.Base64.encodeToString(it.readBytes(), android.util.Base64.NO_WRAP) }
+
+    /** The injection script with all three assets embedded. Built once; assets never change at runtime. */
+    private val injectPayload: String by lazy {
+        val bridgeB64 = assetB64("native_bridge.js")
+        val shimB64 = assetB64("shim.js")
+        val themeB64 = assetB64("claude_theme.js")
+        """
                 (function(){
                   function dec(b){
                     try {
@@ -567,17 +575,29 @@ class MainActivity : AppCompatActivity() {
                   console.log('[D-Harness] inject', ok ? 'ok' : 'FAIL', 'v=', window.__DS_TOOL_SHIM__ && window.__DS_TOOL_SHIM__.version, 'theme=m3');
                   return ok ? 'ok' : 'fail';
                 })();
-            """.trimIndent()
-            webView.evaluateJavascript(js) { result ->
+        """.trimIndent()
+    }
+
+    private val promptJs: String by lazy {
+        val quoted = org.json.JSONObject.quote(agentInstructions(false))
+        "window.__DH_SYSTEM_PROMPT__=" + quoted + ";" +
+            "try{localStorage.setItem('__DH_SYSTEM_PROMPT__'," + quoted + ");}catch(e){}" +
+            "window.__DH_AUTO_SYS_PROMPT=true;"
+    }
+
+    private fun injectShim(force: Boolean = false) {
+        if (isFinishing || isDestroyed) return
+        if (force) {
+            webView.evaluateJavascript("window.__DS_FORCE_REINJECT__=true;", null)
+        }
+
+        try {
+            webView.evaluateJavascript(injectPayload) { result ->
                 android.util.Log.i("DHarness", "inject result=$result")
-                val quoted = org.json.JSONObject.quote(agentInstructions(false))
-                val promptJs = (
-                    "window.__DH_SYSTEM_PROMPT__=" + quoted + ";" +
-                    "try{localStorage.setItem('__DH_SYSTEM_PROMPT__'," + quoted + ");}catch(e){}" +
-                    "window.__DH_AUTO_SYS_PROMPT=true;"
-                )
+                // The shim was already live: its prompt/config were applied by an earlier pass.
+                if (result != null && result.contains("already") && !force) return@evaluateJavascript
                 webView.evaluateJavascript(promptJs, null)
-                webView.postDelayed({ webView.evaluateJavascript(promptJs, null) }, 1500)
+                handler.postDelayed({ if (!isDestroyed) webView.evaluateJavascript(promptJs, null) }, 1500)
 
                 val dsmlOn = false
                 val taskBarOn = prefs.getBoolean("show_task_bar", false)
@@ -593,9 +613,10 @@ class MainActivity : AppCompatActivity() {
                     "}catch(e){}"
                 )
                 webView.evaluateJavascript(cfgJs, null)
-                webView.postDelayed({ webView.evaluateJavascript(cfgJs, null) }, 1600)
+                handler.postDelayed({ if (!isDestroyed) webView.evaluateJavascript(cfgJs, null) }, 1600)
 
-                webView.postDelayed({
+                handler.postDelayed({
+                    if (isDestroyed) return@postDelayed
                     webView.evaluateJavascript(
                         """
                         (async function(){
@@ -622,13 +643,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        webView.saveState(outState)
+        if (!webViewDead) webView.saveState(outState)
     }
 
     override fun onPause() {
         super.onPause()
         // Keep WebView JS alive while agent tool-chain runs in background
-        if (!AgentService.running) {
+        if (!webViewDead && !AgentService.running) {
             webView.onPause()
         }
         CookieManager.getInstance().flush()
@@ -636,15 +657,23 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        webView.onResume()
+        if (!webViewDead) webView.onResume()
         CookieManager.getInstance().flush()
         WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.statusBars())
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        // Unblock a pending <input type=file> so the page does not wait forever.
+        filePathCallback?.onReceiveValue(null)
+        filePathCallback = null
         closePopup()
         CookieManager.getInstance().flush()
-        webView.destroy()
+        if (!webViewDead) {
+            (webView.parent as? ViewGroup)?.removeView(webView)
+            webView.removeJavascriptInterface("DHarness")
+            webView.destroy()
+        }
         super.onDestroy()
     }
 
@@ -652,9 +681,10 @@ class MainActivity : AppCompatActivity() {
         val installed = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
         } catch (_: Exception) { "0" }
-        Executors.newSingleThreadExecutor().execute {
+        UPDATE_EXECUTOR.execute {
             val info = UpdateChecker.fetchLatest()
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 if (info == null) {
                     if (interactive) Toast.makeText(this, "Update check failed", Toast.LENGTH_SHORT).show()
                     return@runOnUiThread
@@ -676,7 +706,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-                private val AGENT_INSTRUCTIONS_JSON = """
+        private val INJECT_DELAYS_MS = longArrayOf(300, 1200, 3000, 7000)
+        private val TRUSTED_HOSTS = listOf("deepseek.com")
+        private val UPDATE_EXECUTOR = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "dharness-update").apply { isDaemon = true }
+        }
+
+        @Volatile
+        private var updateCheckedThisProcess = false
+
+        private val AGENT_INSTRUCTIONS_JSON = """
 # D-Harness agent
 
 On-device agent on the user's Android phone. Solve tasks with tools. Never invent tool results.

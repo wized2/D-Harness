@@ -113,8 +113,10 @@ class WorkspaceBrowserActivity : AppCompatActivity() {
                     }
                     3 -> {
                         try {
-                            copyText(f.readText())
-                            Toast.makeText(this, "Contents copied", Toast.LENGTH_SHORT).show()
+                            val text = readCapped(f, COPY_MAX_CHARS)
+                            copyText(text)
+                            val note = if (f.length() > COPY_MAX_CHARS) " (first ${COPY_MAX_CHARS / 1000}k chars)" else ""
+                            Toast.makeText(this, "Contents copied$note", Toast.LENGTH_SHORT).show()
                         } catch (e: Exception) {
                             Toast.makeText(this, "Read failed: ${e.message}", Toast.LENGTH_SHORT).show()
                         }
@@ -152,9 +154,16 @@ class WorkspaceBrowserActivity : AppCompatActivity() {
         }
     }
 
+    /** Reads at most [max] chars; never loads a whole multi-MB file onto the heap. */
+    private fun readCapped(f: File, max: Int): String {
+        val buf = CharArray(max)
+        val n = f.reader(Charsets.UTF_8).use { it.read(buf) }
+        return if (n <= 0) "" else String(buf, 0, n)
+    }
+
     private fun viewText(f: File) {
         try {
-            val text = f.readText().take(50_000)
+            val text = readCapped(f, 50_000)
             MaterialAlertDialogBuilder(this)
                 .setTitle(f.name)
                 .setMessage(text.ifBlank { "(empty)" })
@@ -347,3 +356,5 @@ class WorkspaceBrowserActivity : AppCompatActivity() {
         }
     }
 }
+
+private const val COPY_MAX_CHARS = 1_000_000

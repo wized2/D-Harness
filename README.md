@@ -3,96 +3,107 @@
 <p align="center">
   <b>On-device agent harness for DeepSeek Chat</b><br/>
   WebView + native tools + sandboxed workspace.<br/>
-  Offline-capable tools · No ads · No trackers
+  No ads · No trackers · No analytics
 </p>
 
 <p align="center">
-  <a href="https://github.com/wized2/D-Harness/actions/workflows/build.yml"><img src="https://github.com/wized2/D-Harness/actions/workflows/build.yml/badge.svg" alt="Build &amp; Release"/></a>
+  <a href="https://github.com/wized2/D-Harness/actions/workflows/build-release.yml"><img src="https://github.com/wized2/D-Harness/actions/workflows/build-release.yml/badge.svg" alt="CI &amp; Release"/></a>
   <a href="https://github.com/wized2/D-Harness/releases/latest"><img src="https://img.shields.io/github/v/release/wized2/D-Harness?label=release" alt="Release"/></a>
-  <a href="https://github.com/wized2/D-Harness/stargazers"><img src="https://img.shields.io/github/stars/wized2/D-Harness?style=social" alt="Stars"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT"/></a>
   <img src="https://img.shields.io/badge/Android-8%2B-green.svg" alt="Android 8+"/>
-  <img src="https://img.shields.io/badge/Material%20You-3-purple.svg" alt="Material You"/>
 </p>
 
 <p align="center">
   <a href="https://github.com/wized2/D-Harness/releases/latest"><b>Download APK</b></a> ·
   <a href="#features"><b>Features</b></a> ·
   <a href="TOOLS.md"><b>Tools</b></a> ·
-  <a href="#tool-calls"><b>Tool calls</b></a>
+  <a href="ARCHITECTURE.md"><b>Architecture</b></a> ·
+  <a href="SECURITY.md"><b>Security</b></a>
 </p>
+
+D-Harness wraps the DeepSeek chat site in an Android app and gives the model real tools: files, shell, HTTP, GitHub, device features. The model asks for a tool in a special code fence, the app runs it on your phone, and the result goes back into the chat.
 
 ## Features
 
-- **Shell-first agent** — multi-step work in one pipeline when possible  
-- **Workspace** — list, read, write, grep under an app sandbox  
-- **GitHub & HTTP** — PAT in encrypted keys; fetch and research helpers  
-- **Skills** — progressive docs (`skill.list` / `skill.read`) before a domain  
-- **Device tools** — clipboard, sensors, notify, and more when permitted  
-- **Material You settings** — light / dark / system theme  
-- **Clean tool chips** — human-readable steps (Reading… / Read…)  
+- **Shell-first agent**: multi-step work in one pipeline (needs *Settings > exec_shell*)
+- **Sandboxed workspace**: list, read, write, edit, search files in an app-private folder
+- **GitHub and HTTP**: the token is stored encrypted; fetch, push and PR helpers
+- **Skills**: 13 short guides the model loads on demand (`skill.list` / `skill.read`)
+- **Device tools**: clipboard, battery, network, sensors, notifications, location (when permitted)
+- **Background agent**: a foreground service keeps a tool chain alive while the app is in the background
+- **Material You settings**: light, dark or system theme
+
+## Requirements
+
+- Android 8.0 (API 26) or newer
+- A DeepSeek account (the app loads chat.deepseek.com)
+
+## Install
+
+Download the APK from the [latest release](https://github.com/wized2/D-Harness/releases/latest) and open it. Allow installs from your browser or file manager when Android asks.
+
+Releases are signed with one long-lived key, so updates install over the previous version. If an older build was signed with a different key, uninstall it first.
 
 ## Tool calls
 
-The model must emit tools in this shape:
+The harness executes tools **only** from a fenced code block tagged `invoke`:
 
-```xml
+````text
+```invoke
 <function_calls>
 <invoke name="shell">
 <parameter name="command">ls -la</parameter>
 </invoke>
 </function_calls>
 ```
+````
 
-- One or more `<invoke>` blocks inside `<function_calls>`  
-- Args as `<parameter name="…">value</parameter>`  
-- Optional `antml:` prefix on the same tags  
-- Then **stop** and wait for the real tool result  
+- One or more `<invoke>` elements per `<function_calls>`; arguments are `<parameter name="...">` tags
+- After the closing fence the model stops and waits for the real result
+- Tool markup outside an `invoke` fence is shown but never run. `dsml` and `tool_call` fences are still accepted for compatibility
 
-Compat: a fenced JSON `tool_call` block is still accepted by the harness.
+An invalid call returns `ok: false` with `error.code` and `error.hint`, so the model can correct itself.
 
 ## Skills
 
-| Skill | When to load |
-|-------|----------------|
-| `shell` | pipelines, multi-step |
+| Skill | Load before |
+|-------|-------------|
+| `protocol` | writing any tool call |
+| `shell`, `exec` | running commands |
 | `workspace` | files in the sandbox |
-| `github` | API / push / PR |
-| `http` | fetch / download |
-| `device` | sensors, clipboard, keys |
-| `protocol` | tool-call format |
-| `exec` | binaries / languages |
-| `memory` / `tasks` | notes & checklists |
+| `github`, `http` | network and GitHub work |
+| `device` | phone state and features |
+| `memory`, `tasks` | notes and checklists |
 | `research` | web research |
-| `time` / `safety` | clocks & safe use |
-| `skill` | how skills work |
+| `time`, `safety`, `skill` | clocks, safe use, how skills work |
 
-Only these names exist. Use `skill.list` if unsure.
+Only these names exist. See [TOOLS.md](TOOLS.md) for the tool reference.
 
-## Install
+## Settings worth knowing
 
-```text
-https://github.com/wized2/D-Harness/releases/latest
-```
+| Setting | Effect |
+|---------|--------|
+| exec_shell | Allows the `shell` tool. Off by default |
+| Auto inject | Injects the tool shim into each page |
+| GitHub PAT | Stored in encrypted key storage; used by `github.*` |
+| Explore workspace | Browse, share, rename, delete the agent's files |
 
-Or build:
+## Security and privacy
 
-```bash
-./gradlew assembleRelease
-```
+- No analytics SDK, ads or trackers. Workspace files and tool results stay on the device unless *you* use a network tool
+- Secrets live in Android Keystore-backed encrypted storage and are excluded from backups
+- Camera, microphone and location are granted only to deepseek.com pages
+- The shell and exec allowlists reduce mistakes; they are **not** a security boundary. Only enable `exec_shell` if you trust the model's output and the pages you browse. Details and reporting: [SECURITY.md](SECURITY.md)
 
 ## Build
 
 ```bash
-./gradlew assembleDebug
-./gradlew assembleRelease
+./gradlew :app:testDebugUnitTest   # unit tests
+./gradlew assembleDebug            # debug APK
+./gradlew assembleRelease          # R8-shrunk release (signed when RELEASE_* env vars are set)
 ```
 
-Release builds use R8 minify + resource shrink. Prefer one long-lived signing key so updates install cleanly.
-
-## Privacy
-
-Tool results and workspace files stay on device unless **you** use network tools (HTTP / GitHub). No analytics SDK. No ads.
+CI runs the JS syntax check, unit tests and the release build on every pull request. Pushes to `main` also sign and publish a GitHub release. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Related
 
@@ -101,12 +112,6 @@ Tool results and workspace files stay on device unless **you** use network tools
 | **[Fern](https://github.com/wized2/Fern)** | Live system monitor (Material You) |
 | **[Latch](https://github.com/wized2/Latch)** | Privacy-first local automation |
 
-## Contributing
-
-1. Open an issue or pick a labeled issue  
-2. Keep PRs focused; run CI green  
-3. See [CONTRIBUTING.md](CONTRIBUTING.md) and [TOOLS.md](TOOLS.md)  
-
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

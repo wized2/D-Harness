@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and newer: same exclusions for cloud backup and device-to-device transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="dharness_keys_enc.xml" />
+        <exclude domain="sharedpref" path="dharness_keys.xml" />
+        <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="dharness_keys_enc.xml" />
+        <exclude domain="sharedpref" path="dharness_keys.xml" />
+        <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__.xml" />
+    </device-transfer>
+</data-extraction-rules>

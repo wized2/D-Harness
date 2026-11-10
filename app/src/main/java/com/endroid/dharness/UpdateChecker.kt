@@ -19,20 +19,20 @@ object UpdateChecker {
         "https://api.github.com/repos/wized2/D-Harness/releases/latest"
 
     fun fetchLatest(): UpdateInfo? {
+        var conn: HttpURLConnection? = null
         return try {
-            val conn = (URL(API).openConnection() as HttpURLConnection).apply {
+            conn = (URL(API).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12_000
                 readTimeout = 12_000
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("User-Agent", "D-Harness-UpdateCheck")
             }
             val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream.bufferedReader().use { it.readText() }
             if (code !in 200..299) {
                 Log.w(TAG, "GitHub API returned $code")
                 return null
             }
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(text)
             val tag = json.optString("tag_name").removePrefix("v")
             var apk: String? = null
@@ -57,6 +57,8 @@ object UpdateChecker {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch update info", e)
             null
+        } finally {
+            conn?.disconnect()
         }
     }
 

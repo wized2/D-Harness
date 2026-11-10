@@ -2,6 +2,7 @@ package com.endroid.dharness
 
 import com.endroid.dharness.bridge.BridgeExec
 import com.endroid.dharness.bridge.CatalogCache
+import com.endroid.dharness.bridge.ToolPolicy
 import com.endroid.dharness.bridge.WorkspacePaths
 
 import android.app.ActivityManager
@@ -141,23 +142,28 @@ class HarnessBridge(
     }
 
 
+    private val USER_AGENT: String by lazy {
+        val v = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName } catch (_: Exception) { null }
+        "D-Harness/${v ?: "unknown"} (Android)"
+    }
+
     private fun sha256(bytes: ByteArray): String =
         hex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
     private fun safeFile(path: String): File {
-        val cleaned = path.trim().removePrefix("/").replace("..", "")
+        val cleaned = ToolPolicy.cleanRelative(path)
         val f = File(fsRoot, cleaned)
-        require(f.canonicalPath.startsWith(fsRoot.canonicalPath)) { "bad path" }
+        require(ToolPolicy.isInside(fsRoot.canonicalPath, f.canonicalPath)) { "bad path" }
         return f
     }
 
     /** Resolve path under workspace (absolute within workspace, or relative). */
     private fun safeWorkspace(path: String?): File {
         val raw = (path ?: ".").trim()
-        val cleaned = raw.removePrefix("/").replace("..", "")
-        val f = if (cleaned.isEmpty() || cleaned == ".") workspaceRoot else File(workspaceRoot, cleaned)
+        val cleaned = ToolPolicy.cleanRelative(raw)
+        val f = if (cleaned.isEmpty()) workspaceRoot else File(workspaceRoot, cleaned)
         val canon = f.canonicalFile
-        require(canon.path.startsWith(workspaceRoot.canonicalPath)) { "path escapes workspace" }
+        require(ToolPolicy.isInside(workspaceRoot.canonicalPath, canon.path)) { "path escapes workspace" }
         return canon
     }
 
@@ -849,6 +855,7 @@ class HarnessBridge(
             pb.environment()["TMP"] = tmpDir.absolutePath
             pb.environment()["TEMP"] = tmpDir.absolutePath
             val proc = pb.start()
+            try { proc.outputStream.close() } catch (_: Exception) { } // no stdin: a bare `cat` must not hang
             val pid = try {
                 val m = proc.javaClass.getMethod("pid")
                 (m.invoke(proc) as Long).toInt()
@@ -861,10 +868,10 @@ class HarnessBridge(
             val stdoutBox = arrayOfNulls<String>(1)
             val stderrBox = arrayOfNulls<String>(1)
             val outT = Thread {
-                stdoutBox[0] = proc.inputStream.bufferedReader().use { it.readText() }.take(80_000)
+                stdoutBox[0] = ToolPolicy.readCapped(proc.inputStream, 80_000)
             }.also { it.start() }
             val errT = Thread {
-                stderrBox[0] = proc.errorStream.bufferedReader().use { it.readText() }.take(40_000)
+                stderrBox[0] = ToolPolicy.readCapped(proc.errorStream, 40_000)
             }.also { it.start() }
 
             val finished = proc.waitFor(timeoutMs.coerceIn(500, 120_000).toLong(), TimeUnit.MILLISECONDS)
@@ -1302,7 +1309,12 @@ class HarnessBridge(
             deliver(callbackId, JSONObject().put("ok", false).put("error", "missing PAT").toString())
             return
         }
-        val url = if (path.startsWith("http")) path else "https://api.github.com${if (path.startsWith("/")) path else "/$path"}"
+        val url = ToolPolicy.githubUrl(path)
+        if (url == null) {
+            deliver(callbackId, JSONObject().put("ok", false)
+                .put("error", "github.request only calls https://api.github.com; use http_request for other hosts").toString())
+            return
+        }
         val headers = JSONObject().put("Authorization", "Bearer $token")
             .put("Accept", "application/vnd.github+json").put("X-GitHub-Api-Version", "2022-11-28").toString()
         httpRequest(url, method.ifBlank { "GET" }, headers, body, callbackId)
@@ -1323,7 +1335,7 @@ class HarnessBridge(
                     readTimeout = 25_000
                     instanceFollowRedirects = true
                     doInput = true
-                    setRequestProperty("User-Agent", "D-Harness/1.3")
+                    setRequestProperty("User-Agent", USER_AGENT)
                     if (!headersJson.isNullOrBlank()) {
                         val h = JSONObject(headersJson)
                         val keys = h.keys()
@@ -1340,7 +1352,8 @@ class HarnessBridge(
                 }
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val rawAll = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                // Read one char past the cap so truncation is detectable without buffering the body.
+                val rawAll = stream?.let { ToolPolicy.readCapped(it, 400_001) } ?: ""
                 val truncated = rawAll.length > 400_000
                 val text = if (truncated) rawAll.take(400_000) else rawAll
                 var parsed: Any? = null
@@ -1998,14 +2011,15 @@ class HarnessBridge(
 
     /** Synchronous GitHub API helper for workspace pull/push (binder thread OK for short calls). */
     private fun githubRequestSync(method: String, path: String, body: String?, token: String): JSONObject {
-        val url = if (path.startsWith("http")) path else "https://api.github.com${if (path.startsWith("/")) path else "/$path"}"
+        val url = ToolPolicy.githubUrl(path)
+            ?: throw IllegalArgumentException("github calls are limited to https://api.github.com")
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method.ifBlank { "GET" }.uppercase()
             connectTimeout = 15_000
             readTimeout = 30_000
             instanceFollowRedirects = true
             doInput = true
-            setRequestProperty("User-Agent", "D-Harness/1.4")
+            setRequestProperty("User-Agent", USER_AGENT)
             setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
@@ -2070,7 +2084,7 @@ class HarnessBridge(
                 readTimeout = 30_000
                 instanceFollowRedirects = true
                 doInput = true
-                setRequestProperty("User-Agent", "D-Harness/1.18")
+                setRequestProperty("User-Agent", USER_AGENT)
                 if (!headersJson.isNullOrBlank()) {
                     val h = JSONObject(headersJson)
                     val keys = h.keys()
@@ -2089,7 +2103,7 @@ class HarnessBridge(
             }
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }?.take(500_000) ?: ""
+            val text = stream?.let { ToolPolicy.readCapped(it, 500_000) } ?: ""
             val out = JSONObject()
                 .put("ok", code in 200..299)
                 .put("status", code)
@@ -2236,7 +2250,7 @@ class HarnessBridge(
                 readTimeout = 120_000
                 instanceFollowRedirects = true
                 doInput = true
-                setRequestProperty("User-Agent", "D-Harness/1.19")
+                setRequestProperty("User-Agent", USER_AGENT)
                 val headers = args.optJSONObject("headers")
                 if (headers != null) {
                     val it = headers.keys()
@@ -3841,8 +3855,7 @@ class HarnessBridge(
                         ms = 0, tool = tool, requestId = rid)
                 }
                 val mode = policyStore.getString("mode", "open") ?: "open"
-                val mut = tool.contains("write") || tool.contains("delete") || tool.contains("apply_patch")
-                    || tool.contains("replace") || tool.contains("rm") || tool == "exec" || tool.startsWith("exec.")
+                val mut = ToolPolicy.isMutating(tool)
                 if (mode == "strict" && mut) {
                     traj(tool, false, 0, "STRICT_MODE")
                     return envelope(false,
@@ -3855,7 +3868,15 @@ class HarnessBridge(
                         error = """{"code":"PERMISSION_DENIED","message":"allow_reads mode","retryable":false,"hint":"policy.mode open"}""",
                         ms = 0, tool = tool, requestId = rid)
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                // Fail closed: if the policy cannot be evaluated, only open mode may proceed.
+                val mode = try { policyStore.getString("mode", "open") ?: "open" } catch (_: Exception) { "strict" }
+                if (mode != "open") {
+                    return envelope(false,
+                        error = """{"code":"PERMISSION_DENIED","message":"policy check failed","retryable":false}""",
+                        ms = 0, tool = tool, requestId = rid)
+                }
+            }
             val raw = maybeSpillResult(tool, dispatchByName(tool, args))
             // Attach requestId/tool to whatever the handler returned
             val out = try { JSONObject(raw) } catch (_: Exception) {
@@ -5697,8 +5718,8 @@ class HarnessBridge(
             }
             val stdoutBox = arrayOfNulls<String>(1)
             val stderrBox = arrayOfNulls<String>(1)
-            val outT = Thread { stdoutBox[0] = proc.inputStream.bufferedReader().readText().take(80_000) }.also { it.start() }
-            val errT = Thread { stderrBox[0] = proc.errorStream.bufferedReader().readText().take(40_000) }.also { it.start() }
+            val outT = Thread { stdoutBox[0] = ToolPolicy.readCapped(proc.inputStream, 80_000) }.also { it.start() }
+            val errT = Thread { stderrBox[0] = ToolPolicy.readCapped(proc.errorStream, 40_000) }.also { it.start() }
             val finished = proc.waitFor(timeoutMs.coerceIn(500, 120_000).toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
             if (!finished) {
                 proc.destroy()
@@ -6130,7 +6151,7 @@ class HarnessBridge(
             requestMethod = "GET"
             connectTimeout = timeoutMs
             readTimeout = timeoutMs
-            setRequestProperty("User-Agent", "D-Harness/1.7 (Android; research)")
+            setRequestProperty("User-Agent", "$USER_AGENT (research)")
             setRequestProperty("Accept", "text/html,application/json,*/*")
             instanceFollowRedirects = true
         }
@@ -7239,10 +7260,10 @@ class HarnessBridge(
     fun policyCheck(tool: String): String {
         val denies = policyStore.all.filter { it.key.startsWith("deny:") }.keys.map { it.removePrefix("deny:") }
         val allows = policyStore.all.filter { it.key.startsWith("allow:") }.keys.map { it.removePrefix("allow:") }
-        for (d in denies) if (tool.contains(d) || tool == d || d == "*") {
+        for (d in denies) if (ToolPolicy.ruleMatches(tool, d)) {
             return JSONObject().put("ok", true).put("allowed", false).put("reason", "denied:$d").toString()
         }
-        for (a in allows) if (tool.contains(a) || tool == a || a == "*") {
+        for (a in allows) if (ToolPolicy.ruleMatches(tool, a)) {
             return JSONObject().put("ok", true).put("allowed", true).put("reason", "allowed:$a").toString()
         }
         return JSONObject().put("ok", true).put("allowed", true).put("reason", "default").toString()
